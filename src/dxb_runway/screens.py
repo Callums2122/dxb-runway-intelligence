@@ -78,7 +78,7 @@ class DashboardPage(Page):
         today=as_of or date.today(); settings = self.db.all_settings(); rate = Decimal(settings.get("gbp_aed_rate", "4.928313")); month = today.strftime("%Y-%m")
         tx = self.db.transactions(month=month, limit=100000); all_tx = self.db.transactions(limit=100000)
         income = sum((to_aed(r["amount"], r["currency"], rate) for r in tx if r["kind"] == "income" and not r["refundable_deposit"]), Decimal(0))
-        expense = sum((to_aed(r["amount"], r["currency"], rate) for r in tx if r["kind"] == "expense" and not r["refundable_deposit"] and r["card_effect"]!=-1), Decimal(0))
+        expense = sum((to_aed(r["amount"], r["currency"], rate) for r in tx if r["kind"] == "expense" and not r["refundable_deposit"] and r["card_effect"]!=-1 and not r["budget_excluded"]), Decimal(0))
         cash_out = sum((to_aed(r["amount"],r["currency"],rate) for r in tx if r["kind"]=="expense" and r["payment_method"]!="Credit card" and not r["refundable_deposit"]),Decimal(0))
         deposits = sum((to_aed(r["amount"], r["currency"], rate) * (1 if r["kind"] == "expense" else -1) for r in all_tx if r["refundable_deposit"]), Decimal(settings.get("security_deposit_aed", "0")))
         opening = Decimal(settings.get("uk_cash_gbp", "0")) * rate
@@ -136,12 +136,12 @@ class DashboardPage(Page):
         clear_layout(self.chart_row); clear_layout(self.chart_row2)
         history = [float(position.cash_aed - data["expense"] * Decimal(i)/Decimal(7)) for i in reversed(range(8))]
         self.chart_row.addWidget(line_chart("Cash balance over time", history), 2)
-        planned = [float(position.monthly_essential_aed), float(max(0, position.monthly_discretionary_aed))]; actual = [float(sum(to_aed(r["amount"], r["currency"], rate) for r in data["tx"] if r["essential"] and r["kind"]=="expense" and r["card_effect"]!=-1)), float(sum(to_aed(r["amount"], r["currency"], rate) for r in data["tx"] if not r["essential"] and r["kind"]=="expense" and r["card_effect"]!=-1))]
+        planned = [float(position.monthly_essential_aed), float(max(0, position.monthly_discretionary_aed))]; actual = [float(sum(to_aed(r["amount"], r["currency"], rate) for r in data["tx"] if r["essential"] and r["kind"]=="expense" and r["card_effect"]!=-1 and not r["budget_excluded"])), float(sum(to_aed(r["amount"], r["currency"], rate) for r in data["tx"] if not r["essential"] and r["kind"]=="expense" and r["card_effect"]!=-1 and not r["budget_excluded"]))]
         self.chart_row.addWidget(bar_chart("Planned vs actual", planned, actual, ["Essential", "Discretionary"]), 1)
         cats: dict[str, float] = {}
         color_map: dict[str, str] = {}
         for r in data["tx"]:
-            if r["kind"] == "expense" and r["card_effect"]!=-1: cats[r["category"] or "Other"] = cats.get(r["category"] or "Other", 0)+float(to_aed(r["amount"], r["currency"], rate)); color_map[r["category"] or "Other"] = r["category_color"] or COLORS["muted"]
+            if r["kind"] == "expense" and r["card_effect"]!=-1 and not r["budget_excluded"]: cats[r["category"] or "Other"] = cats.get(r["category"] or "Other", 0)+float(to_aed(r["amount"], r["currency"], rate)); color_map[r["category"] or "Other"] = r["category_color"] or COLORS["muted"]
         self.chart_row2.addWidget(pie_chart("Spending by category", [(k,v,color_map[k]) for k,v in sorted(cats.items(), key=lambda x:-x[1])[:6]] or [("No spend",1,COLORS["border2"])]), 1)
         scenario_values = [float(position.spendable_cash_aed - max(0, position.monthly_burn_aed) * Decimal(i)/Decimal(6)) for i in range(7)]
         self.chart_row2.addWidget(line_chart("Projected runway · conservative", scenario_values, color=COLORS["purple"]), 2)
@@ -228,14 +228,15 @@ class TransactionsPage(Page):
         top = QHBoxLayout(); titles = QVBoxLayout(); title = QLabel("Transactions"); title.setObjectName("pageTitle"); titles.addWidget(title); sub = QLabel("Every cash movement, with local receipts and reversible deletion."); sub.setObjectName("muted"); titles.addWidget(sub); top.addLayout(titles); top.addStretch()
         self.search = QLineEdit(); self.search.setPlaceholderText("Search merchant, category or tag…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); top.addWidget(self.search)
         add = QPushButton("＋ Add transaction"); add.setProperty("primary", True); add.clicked.connect(self.add); top.addWidget(add); layout.addLayout(top)
-        tools = QHBoxLayout(); self.filter = QComboBox(); self.filter.addItems(["All types", "Highlighted", "Expenses", "Income", "Essential", "Discretionary", "Credit card"]); self.filter.currentTextChanged.connect(self.refresh); tools.addWidget(self.filter)
-        for label, callback in [("Pay credit card", self.pay_card), ("Import CSV", self.import_csv), ("Export CSV", self.export_csv), ("★ Highlight", self.toggle_highlight), ("Edit", self.edit), ("Delete", self.delete), ("Undo delete", self.undo)]: btn=QPushButton(label); btn.clicked.connect(callback); tools.addWidget(btn)
+        tools = QHBoxLayout(); self.filter = QComboBox(); self.filter.addItems(["All types", "Highlighted", "Setup costs", "Expenses", "Income", "Essential", "Discretionary", "Credit card"]); self.filter.currentTextChanged.connect(self.refresh); tools.addWidget(self.filter)
+        for label, callback in [("Pay credit card", self.pay_card), ("Import CSV", self.import_csv), ("Export CSV", self.export_csv), ("★ Highlight", self.toggle_highlight), ("Setup cost", self.toggle_setup_cost), ("Edit", self.edit), ("Delete", self.delete), ("Undo delete", self.undo)]: btn=QPushButton(label); btn.clicked.connect(callback); tools.addWidget(btn)
         tools.addStretch(); self.summary = QLabel(); self.summary.setObjectName("muted"); tools.addWidget(self.summary); layout.addLayout(tools)
         self.table = QTableWidget(0, 8); self.table.setHorizontalHeaderLabels(["DATE", "TYPE", "MERCHANT", "CATEGORY", "METHOD", "FLAGS", "TAGS", "AMOUNT"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.doubleClicked.connect(self.edit); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); self.refresh()
 
     def filtered_rows(self):
         rows = self.db.transactions(self.search.text().strip(), limit=10000); mode = self.filter.currentText()
         if mode == "Highlighted": rows=[r for r in rows if r["highlighted"]]
+        elif mode == "Setup costs": rows=[r for r in rows if r["budget_excluded"]]
         elif mode == "Expenses": rows=[r for r in rows if r["kind"]=="expense"]
         elif mode == "Income": rows=[r for r in rows if r["kind"]=="income"]
         elif mode == "Essential": rows=[r for r in rows if r["essential"]]
@@ -247,7 +248,7 @@ class TransactionsPage(Page):
         rows=self.filtered_rows(); self.table.setRowCount(len(rows)); total=Decimal("0"); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313"))
         for i,row in enumerate(rows):
             self.table.setRowHeight(i,52); self.table.setVerticalHeaderItem(i,QTableWidgetItem(str(row["id"])))
-            flags = " · ".join(x for x in ["★ Highlighted" if row["highlighted"] else "", row["credit_card_name"] or "" if row["card_effect"] else "", "Card payment" if row["card_effect"]==-1 else "", "Recurring" if row["recurring"] else "", "Essential" if row["essential"] else "Discretionary", "Deposit" if row["refundable_deposit"] else "", "Receipt" if row["receipt_path"] else ""] if x)
+            flags = " · ".join(x for x in ["★ Highlighted" if row["highlighted"] else "", "Setup cost" if row["budget_excluded"] else "", row["credit_card_name"] or "" if row["card_effect"] else "", "Card payment" if row["card_effect"]==-1 else "", "Recurring" if row["recurring"] else "", "Essential" if row["essential"] else "Discretionary", "Deposit" if row["refundable_deposit"] else "", "Receipt" if row["receipt_path"] else ""] if x)
             amount_aed = to_aed(row["amount"],row["currency"],rate)*(1 if row["kind"]=="income" else -1); total += amount_aed
             primary,secondary=dual_amount(amount_aed,rate,2,True)
             values=[row["occurred_at"][:16].replace("T","  "),row["kind"].title(),row["merchant"] or "—",row["category"] or "—",row["payment_method"],flags,row["tags"],f"{primary}\n{secondary}"]
@@ -284,6 +285,10 @@ class TransactionsPage(Page):
         row=self.selected_row()
         if not row: QMessageBox.information(self,"Select a transaction","Select the transaction you want to highlight first."); return
         self.db.toggle_transaction_highlight(row["id"]); self.refresh(); self.changed.emit()
+    def toggle_setup_cost(self) -> None:
+        row=self.selected_row()
+        if not row: QMessageBox.information(self,"Select a transaction","Select the one-off relocation or setup transaction first."); return
+        self.db.execute("UPDATE transactions SET budget_excluded=? WHERE id=?",(0 if row["budget_excluded"] else 1,row["id"])); self.refresh(); self.changed.emit()
     def import_csv(self) -> None:
         path,_=QFileDialog.getOpenFileName(self,"Import transactions","","CSV files (*.csv)")
         if path: imported,skipped=self.db.import_csv(Path(path)); QMessageBox.information(self,"Import complete",f"Imported {imported}; skipped {skipped} duplicates or invalid rows."); self.refresh(); self.changed.emit()
@@ -419,7 +424,7 @@ class BudgetsPage(Page):
     def refresh(self)->None:
         month=self.month.date().toString("yyyy-MM"); cats=self.db.query("SELECT * FROM categories WHERE kind='expense' ORDER BY essential_default DESC,name"); rate=self.db.get_setting("gbp_aed_rate","4.928313"); tx=self.db.transactions(month=month,limit=100000); actual={}
         for row in tx:
-            if row["kind"]=="expense" and not row["refundable_deposit"]: actual[row["category_id"]]=actual.get(row["category_id"],Decimal(0))+to_aed(row["amount"],row["currency"],rate)
+            if row["kind"]=="expense" and not row["refundable_deposit"] and not row["budget_excluded"]: actual[row["category_id"]]=actual.get(row["category_id"],Decimal(0))+to_aed(row["amount"],row["currency"],rate)
         planned={row["category_id"]:row for row in self.db.query("SELECT * FROM budgets WHERE month=?",(month,))}; self.table.setRowCount(len(cats))
         defaults={"Accommodation":float(self.db.get_setting("rent_aed","4500")),"Transport":float(self.db.get_setting("transport_aed","2000")),"Groceries":float(self.db.get_setting("food_aed","1250"))}
         for i,cat in enumerate(cats):
@@ -473,11 +478,11 @@ class ReportsPage(Page):
         for i,(key,label) in enumerate([("income","Monthly income"),("expense","Monthly expenditure"),("net","Net cash flow"),("commission","Commission pending"),("debt","Card debt"),("relocation","Relocation spend")]): card=MetricCard(label); self.metrics[key]=card; grid.addWidget(card,i//3,i%3)
         root.addLayout(grid); self.charts=QHBoxLayout(); root.addLayout(self.charts); self.table=QTableWidget(0,3); self.table.setHorizontalHeaderLabels(["CATEGORY","TRANSACTIONS","SPEND · AED"]); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); root.addWidget(self.table); outer.addWidget(page_scroll(content)); self.summary={}; self.rows=[]; self.refresh()
     def refresh(self)->None:
-        month=self.month.date().toString("yyyy-MM"); rate=self.db.get_setting("gbp_aed_rate","4.928313"); self.rows=self.db.transactions(month=month,limit=100000); income=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["kind"]=="income"),Decimal(0)); expense=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["kind"]=="expense" and not r["refundable_deposit"]),Decimal(0)); commission=sum((Decimal(str(r["commission_aed"])) for r in self.db.query("SELECT commission_aed FROM earnings WHERE received=0")),Decimal(0)); debt=sum((to_aed(r["current_balance"],r["currency"],rate) for r in self.db.query("SELECT * FROM credit_cards")),Decimal(0)); relocation=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["category"] in {"Flight/relocation","Visa/administration"}),Decimal(0)); values={"income":income,"expense":expense,"net":income-expense,"commission":commission,"debt":debt,"relocation":relocation}
+        month=self.month.date().toString("yyyy-MM"); rate=self.db.get_setting("gbp_aed_rate","4.928313"); self.rows=self.db.transactions(month=month,limit=100000); income=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["kind"]=="income"),Decimal(0)); expense=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["kind"]=="expense" and not r["refundable_deposit"] and not r["budget_excluded"]),Decimal(0)); commission=sum((Decimal(str(r["commission_aed"])) for r in self.db.query("SELECT commission_aed FROM earnings WHERE received=0")),Decimal(0)); debt=sum((to_aed(r["current_balance"],r["currency"],rate) for r in self.db.query("SELECT * FROM credit_cards")),Decimal(0)); relocation=sum((to_aed(r["amount"],r["currency"],rate) for r in self.rows if r["category"] in {"Flight/relocation","Visa/administration"}),Decimal(0)); values={"income":income,"expense":expense,"net":income-expense,"commission":commission,"debt":debt,"relocation":relocation}
         for key,value in values.items(): primary,secondary=dual_amount(value,rate,signed=key=="net"); self.metrics[key].set_value(primary,secondary,accent=COLORS["red"] if key=="net" and value<0 else COLORS["green"] if key in {"income","net"} else None)
         cats={}; counts={}
         for r in self.rows:
-            if r["kind"]=="expense": cats[r["category"] or "Other"]=cats.get(r["category"] or "Other",Decimal(0))+to_aed(r["amount"],r["currency"],rate); counts[r["category"] or "Other"]=counts.get(r["category"] or "Other",0)+1
+            if r["kind"]=="expense" and not r["budget_excluded"]: cats[r["category"] or "Other"]=cats.get(r["category"] or "Other",Decimal(0))+to_aed(r["amount"],r["currency"],rate); counts[r["category"] or "Other"]=counts.get(r["category"] or "Other",0)+1
         ordered=sorted(cats.items(),key=lambda x:-x[1]); self.table.setRowCount(len(ordered))
         for i,(category,value) in enumerate(ordered): primary,secondary=dual_amount(value,rate,2); self.table.setRowHeight(i,48); self.table.setItem(i,0,table_item(category)); self.table.setItem(i,1,table_item(str(counts[category]))); self.table.setItem(i,2,table_item(f"{primary}\n{secondary}",Qt.AlignmentFlag.AlignRight))
         self.table.setColumnWidth(0,240); clear_layout(self.charts); self.charts.addWidget(bar_chart("Income vs expenditure",[float(income),float(expense)],[float(income),float(expense)],["Income","Expense"])); self.charts.addWidget(pie_chart("Category spending",[(k,float(v),[COLORS["cyan"],COLORS["purple"],COLORS["green"],COLORS["amber"],COLORS["red"]][i%5]) for i,(k,v) in enumerate(ordered[:6])] or [("No spend",1,COLORS["border2"])])); self.summary={"Income":f"AED {income:,.2f} / GBP {gbp_equivalent(income,rate):,.2f}","Expenditure":f"AED {expense:,.2f} / GBP {gbp_equivalent(expense,rate):,.2f}","Net cash flow":f"AED {income-expense:,.2f} / GBP {gbp_equivalent(income-expense,rate):,.2f}","Commission pending":f"AED {commission:,.2f} / GBP {gbp_equivalent(commission,rate):,.2f}"}

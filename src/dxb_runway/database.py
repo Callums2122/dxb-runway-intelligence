@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 MIGRATIONS: dict[int, str] = {
@@ -110,6 +110,9 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE transactions ADD COLUMN card_effect INTEGER NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS idx_transactions_credit_card ON transactions(credit_card_id);
     """,
+    8: """
+    ALTER TABLE transactions ADD COLUMN budget_excluded INTEGER NOT NULL DEFAULT 0;
+    """,
 }
 
 
@@ -172,6 +175,10 @@ class Database:
                     if "card_effect" not in columns:
                         connection.execute("ALTER TABLE transactions ADD COLUMN card_effect INTEGER NOT NULL DEFAULT 0")
                     connection.execute("CREATE INDEX IF NOT EXISTS idx_transactions_credit_card ON transactions(credit_card_id)")
+                elif version == 8:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(transactions)").fetchall()}
+                    if "budget_excluded" not in columns:
+                        connection.execute("ALTER TABLE transactions ADD COLUMN budget_excluded INTEGER NOT NULL DEFAULT 0")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -236,9 +243,9 @@ class Database:
         values["credit_card_id"], values["card_effect"] = card_id, card_effect
         columns = [
             "amount", "currency", "occurred_at", "kind", "category_id", "merchant", "payment_method",
-            "recurring", "notes", "receipt_path", "refundable_deposit", "essential", "tags", "credit_card_id", "card_effect"
+            "recurring", "notes", "receipt_path", "refundable_deposit", "essential", "tags", "credit_card_id", "card_effect", "budget_excluded"
         ]
-        params = tuple(values.get(column, "" if column in {"merchant", "notes", "tags"} else None) for column in columns)
+        params = tuple(values.get(column, 0 if column == "budget_excluded" else "" if column in {"merchant", "notes", "tags"} else None) for column in columns)
         transaction_id = self.execute(
             f"INSERT INTO transactions({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})", params
         )
@@ -248,7 +255,7 @@ class Database:
 
     def update_transaction(self, transaction_id: int, values: dict[str, Any]) -> None:
         allowed = {"amount", "currency", "occurred_at", "kind", "category_id", "merchant", "payment_method",
-                   "recurring", "notes", "receipt_path", "refundable_deposit", "essential", "tags", "credit_card_id", "card_effect"}
+                   "recurring", "notes", "receipt_path", "refundable_deposit", "essential", "tags", "credit_card_id", "card_effect", "budget_excluded"}
         old_rows = self.query("SELECT * FROM transactions WHERE id=?", (transaction_id,))
         if not old_rows:
             raise ValueError("Transaction does not exist")

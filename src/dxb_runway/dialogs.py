@@ -123,8 +123,9 @@ class TransactionDialog(QDialog):
         for card in db.query("SELECT id,name,currency FROM credit_cards ORDER BY name,id"): self.card.addItem(f"{card['name']} · {card['currency']}",card["id"])
         self.card_label = QLabel("Credit card")
         self.payment.currentTextChanged.connect(self._sync_card_selector)
-        self.recurring = QCheckBox("Recurring"); self.essential = QCheckBox("Essential"); self.deposit = QCheckBox("Refundable deposit")
-        flags = QHBoxLayout(); flags.addWidget(self.recurring); flags.addWidget(self.essential); flags.addWidget(self.deposit); flags.addStretch()
+        self.recurring = QCheckBox("Recurring"); self.essential = QCheckBox("Essential"); self.deposit = QCheckBox("Refundable deposit"); self.setup_cost=QCheckBox("One-off setup cost")
+        self.setup_cost.setToolTip("Keep this transaction and its cash/debt impact, but exclude it from normal monthly spending and budget usage.")
+        flags = QHBoxLayout(); flags.addWidget(self.recurring); flags.addWidget(self.essential); flags.addWidget(self.deposit); flags.addWidget(self.setup_cost); flags.addStretch()
         self.tags = QLineEdit(); self.tags.setPlaceholderText("comma, separated, tags")
         self.notes = QTextEdit(); self.notes.setMaximumHeight(72)
         receipt_row = QHBoxLayout(); self.receipt_label = QLabel("No receipt attached"); self.receipt_label.setObjectName("muted")
@@ -150,14 +151,14 @@ class TransactionDialog(QDialog):
     def _load(self, row) -> None:
         self.kind.setCurrentText(row["kind"]); self.amount.setValue(row["amount"]); self.currency.setCurrentText(row["currency"])
         self.when.setDateTime(QDateTime.fromString(row["occurred_at"], Qt.DateFormat.ISODate)); self.category.setCurrentIndex(max(0, self.category.findData(row["category_id"])))
-        self.merchant.setText(row["merchant"]); self.payment.setCurrentText(row["payment_method"]); self.card.setCurrentIndex(max(0,self.card.findData(row["credit_card_id"]))); self.recurring.setChecked(bool(row["recurring"])); self.essential.setChecked(bool(row["essential"])); self.deposit.setChecked(bool(row["refundable_deposit"])); self.tags.setText(row["tags"]); self.notes.setText(row["notes"])
+        self.merchant.setText(row["merchant"]); self.payment.setCurrentText(row["payment_method"]); self.card.setCurrentIndex(max(0,self.card.findData(row["credit_card_id"]))); self.recurring.setChecked(bool(row["recurring"])); self.essential.setChecked(bool(row["essential"])); self.deposit.setChecked(bool(row["refundable_deposit"])); self.setup_cost.setChecked(bool(row["budget_excluded"])); self.tags.setText(row["tags"]); self.notes.setText(row["notes"])
         self.receipt_path = row["receipt_path"]; self.receipt_label.setText(Path(self.receipt_path).name if self.receipt_path else "No receipt attached")
 
     def values(self) -> dict:
         return {"amount": self.amount.value(), "currency": self.currency.currentText(), "occurred_at": self.when.dateTime().toString(Qt.DateFormat.ISODate),
                 "kind": self.kind.currentText(), "category_id": self.category.currentData(), "merchant": self.merchant.text().strip(),
                 "payment_method": self.payment.currentText(), "recurring": int(self.recurring.isChecked()), "notes": self.notes.toPlainText().strip(),
-                "receipt_path": self.receipt_path, "refundable_deposit": int(self.deposit.isChecked()), "essential": int(self.essential.isChecked()), "tags": self.tags.text().strip(),
+                "receipt_path": self.receipt_path, "refundable_deposit": int(self.deposit.isChecked()), "essential": int(self.essential.isChecked()), "tags": self.tags.text().strip(), "budget_excluded":int(self.setup_cost.isChecked()),
                 "credit_card_id": self.card.currentData() if self.payment.currentText() in {"Credit card", "Credit card payment"} else None,
                 "card_effect": -1 if self.payment.currentText()=="Credit card payment" else 1 if self.payment.currentText()=="Credit card" and self.kind.currentText()=="expense" else 0}
 
@@ -200,7 +201,7 @@ class PayCardDialog(QDialog):
 
     def values(self)->dict:
         row=self.selected_card(); category=self.db.query("SELECT id FROM categories WHERE name='Debt repayment'")[0]["id"]
-        return {"amount":self.amount.value(),"currency":row["currency"],"occurred_at":self.when.dateTime().toString(Qt.DateFormat.ISODate),"kind":"expense","category_id":category,"merchant":f"Payment - {row['name']}","payment_method":"Credit card payment","recurring":0,"notes":self.notes.text().strip(),"receipt_path":None,"refundable_deposit":0,"essential":1,"tags":"credit card payment","credit_card_id":row["id"],"card_effect":-1}
+        return {"amount":self.amount.value(),"currency":row["currency"],"occurred_at":self.when.dateTime().toString(Qt.DateFormat.ISODate),"kind":"expense","category_id":category,"merchant":f"Payment - {row['name']}","payment_method":"Credit card payment","recurring":0,"notes":self.notes.text().strip(),"receipt_path":None,"refundable_deposit":0,"essential":1,"tags":"credit card payment","credit_card_id":row["id"],"card_effect":-1,"budget_excluded":0}
 
 
 class VehicleDialog(QDialog):
