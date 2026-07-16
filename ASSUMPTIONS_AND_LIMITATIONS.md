@@ -11,6 +11,7 @@
 - Credit purchases increase expenditure and card debt while leaving cash unchanged. Cross-currency purchases use the current manual rate.
 - Transactions marked as one-off setup costs retain their real cash or card impact but are excluded from ordinary monthly expenditure and budget-consumption analytics.
 - When cash-funded setup costs exist, Overview labels its headline as `OPERATING RUNWAY` and adds those costs back as a planning reset. This is an adjusted comparison, not money restored to the bank: actual spendable cash and its unadjusted runway remain visible. Card-funded setup costs are not added to operating cash.
+- The daily spending guide divides the unspent normal monthly plan across all calendar days remaining, including today. Eligible expenses entered in Transactions reduce today's balance; setup costs, deposits and card repayments do not. It is a maximum pacing guide, not a requirement to spend the full amount.
 - Pending commission is displayed as earned income but is excluded from cash, spendable cash, net wealth and daily allowance.
 - The protected fund and outstanding deposits are excluded from spendable cash. Credit limits are excluded from net wealth.
 - The default safe allowance looks across a 90-day protection window after the guaranteed-income contribution to essentials.

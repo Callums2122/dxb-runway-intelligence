@@ -61,6 +61,12 @@ class DashboardPage(Page):
         self.basis = QLabel(); self.basis.setObjectName("muted"); self.basis.setWordWrap(True); run.addWidget(self.basis)
         self.status = QLabel(); self.status.setObjectName("muted"); self.status.setWordWrap(True); run.addWidget(self.status); hero_layout.addLayout(run, 1)
         self.ring = RingWidget(0); hero_layout.addWidget(self.ring); self.layout.addWidget(self.hero)
+        daily=Card(); daily_layout=QVBoxLayout(daily); daily_layout.setContentsMargins(18,16,18,16); daily_layout.setSpacing(12)
+        daily_layout.addWidget(SectionHeader("Daily spending guide","Your remaining normal monthly budget divided across the days left. Updates from Transactions; setup costs and card repayments are ignored."))
+        daily_grid=QGridLayout(); daily_grid.setSpacing(12); self.daily_metrics={}
+        for index,(key,label,color) in enumerate([("limit","Today's spending limit",COLORS["cyan"]),("spent","Spent today",COLORS["amber"]),("left","Left to spend today",COLORS["green"])]):
+            card=MetricCard(label,accent=color); self.daily_metrics[key]=card; daily_grid.addWidget(card,0,index)
+        daily_layout.addLayout(daily_grid); self.layout.addWidget(daily)
         grid = QGridLayout(); grid.setSpacing(12); self.metrics = {}
         configs = [("cash","Current cash",COLORS["cyan"]),("protected","Protected fund",COLORS["green"]),("spendable","Spendable cash",COLORS["green"]),
                    ("debt","Card balance",COLORS["amber"]),("credit","Available credit",COLORS["purple"]),("rate","GBP / AED",COLORS["cyan"]),
@@ -107,7 +113,9 @@ class DashboardPage(Page):
         setup_adjustment=sum((to_aed(r["amount"],r["currency"],rate)*(1 if r["kind"]=="expense" else -1) for r in all_tx if r["budget_excluded"] and r["payment_method"]!="Credit card" and not r["refundable_deposit"]),Decimal(0))
         operating_position=FinancialPosition(money(position.cash_aed+setup_adjustment),position.protected_fund_aed,position.deposits_aed,position.card_debt_aed,position.credit_limit_aed,position.pending_commission_aed,position.monthly_essential_aed,position.monthly_discretionary_aed,position.guaranteed_income_aed)
         operating_runway=calculate_timed_runway(operating_position.spendable_cash_aed,operating_position.monthly_essential_aed+operating_position.monthly_discretionary_aed,operating_position.guaranteed_income_aed,today,next_salary)
-        return position, {"settings":settings,"rate":rate,"income":money(income),"expense":money(expense),"cash_out":money(cash_out),"tx":tx,"all":all_tx,"runway":operating_runway,"actual_runway":actual_runway,"operating_position":operating_position,"setup_adjustment":money(setup_adjustment),"next_salary":next_salary,"budget_source":budget_source,"income_source":income_source,"salary_date_source":salary_date_source,"minimum_cards":money(minimum_cards_aed)}
+        days_remaining=(month_end-today).days+1; budget_total=position.monthly_essential_aed+position.monthly_discretionary_aed; monthly_budget_left=max(Decimal(0),budget_total-expense); daily_limit=money(monthly_budget_left/Decimal(days_remaining))
+        spent_today=sum((to_aed(r["amount"],r["currency"],rate) for r in tx if r["occurred_at"][:10]==today.isoformat() and r["kind"]=="expense" and not r["refundable_deposit"] and r["card_effect"]!=-1 and not r["budget_excluded"]),Decimal(0)); daily_left=money(daily_limit-spent_today)
+        return position, {"settings":settings,"rate":rate,"income":money(income),"expense":money(expense),"cash_out":money(cash_out),"tx":tx,"all":all_tx,"runway":operating_runway,"actual_runway":actual_runway,"operating_position":operating_position,"setup_adjustment":money(setup_adjustment),"daily_limit":daily_limit,"spent_today":money(spent_today),"daily_left":daily_left,"monthly_budget_left":money(monthly_budget_left),"days_remaining":days_remaining,"next_salary":next_salary,"budget_source":budget_source,"income_source":income_source,"salary_date_source":salary_date_source,"minimum_cards":money(minimum_cards_aed)}
 
     def refresh(self) -> None:
         position, data = self.position(); today = date.today(); days_salary = max(0, (data["next_salary"]-today).days)
@@ -126,6 +134,11 @@ class DashboardPage(Page):
         if data["setup_adjustment"]>0: status+=f"  Actual cash runway: {data['actual_runway']} days; operating view adds back AED {data['setup_adjustment']:,.0f} of marked setup costs."
         self.runway.setStyleSheet(f"color:{color}"); self.status.setText(status); self.ring.color = QColor(color); self.ring.set_value(data["operating_position"].health_score_for_runway(runway))
         rate = data["rate"]; projected = data["income"] - data["expense"]
+        daily_limit_aed,daily_limit_gbp=dual_amount(data["daily_limit"],rate); spent_aed,spent_gbp=dual_amount(data["spent_today"],rate); left_aed,left_gbp=dual_amount(max(Decimal(0),data["daily_left"]),rate)
+        self.daily_metrics["limit"].set_value(daily_limit_aed,f"{daily_limit_gbp} · AED {data['monthly_budget_left']:,.0f} across {data['days_remaining']} days")
+        self.daily_metrics["spent"].set_value(spent_aed,f"{spent_gbp} · From today's normal transactions",COLORS["red"] if data["daily_left"]<0 else COLORS["amber"])
+        left_detail=f"Over today's guide by {dual_amount(abs(data['daily_left']),rate)[0]}" if data["daily_left"]<0 else f"{left_gbp} · Available for the rest of today"
+        self.daily_metrics["left"].set_value(left_aed,left_detail,COLORS["red"] if data["daily_left"]<0 else COLORS["green"])
         budget_total = position.monthly_essential_aed + position.monthly_discretionary_aed; consumed = int(data["expense"] / budget_total * 100) if budget_total else 0
         def converted(value, note, signed=False):
             primary, secondary = dual_amount(value, rate, signed=signed)

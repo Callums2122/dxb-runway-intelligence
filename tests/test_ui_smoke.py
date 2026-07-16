@@ -58,4 +58,9 @@ def test_overview_runway_uses_budget_salary_calendar_and_card_minimums(tmp_path:
     assert data["operating_position"].spendable_cash_aed==position.spendable_cash_aed+Decimal("4500.00")
     assert data["runway"]>data["actual_runway"]
     assert db.transactions()[0]["budget_excluded"]==1
+    db.add_transaction({"amount":100,"currency":"AED","occurred_at":"2026-07-16T13:00:00","kind":"expense","category_id":restaurants,"merchant":"Lunch and taxi","payment_method":"Debit card","recurring":0,"notes":"","receipt_path":None,"refundable_deposit":0,"essential":0,"tags":""})
+    _,updated=page.position(date(2026,7,16))
+    assert updated["spent_today"]==Decimal("100.00")
+    assert updated["daily_limit"]==Decimal("305.80")
+    assert updated["daily_left"]==Decimal("205.80")
     page.close()

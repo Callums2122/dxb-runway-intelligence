@@ -47,6 +47,7 @@ Given AED 10,000 cash, AED 3,000 protected fund, AED 1,000 unavailable deposit, 
 - Version 1.2.5 synchronises Overview runway with saved budgets, card minimum payments, salary-engine income, calendar salary timing, live cash transactions, protected funds, deposits and debt. A visible live-basis line explains the inputs.
 - Version 1.2.6 adds one-off setup-cost classification. Setup transactions keep their real cash/debt impact and remain in the ledger, while normal monthly expenditure, budget usage, charts and spending reports exclude them.
 - Version 1.2.7 displays the setup-adjusted operating runway as the Overview headline while retaining the actual-cash runway in the status text. Marked cash setup costs are added back only to the operating view; card-funded setup costs are not treated as cash.
+- Version 1.2.8 adds a live daily spending guide to Overview. Today's limit is the remaining normal monthly budget divided by the inclusive number of days left; today's eligible Transactions reduce the displayed amount left immediately.
 - The version 1.2 one-file executable was launched with representative vehicle data and produced a complete packaged Vehicle Desk screenshot after its extraction/paint cycle.
 - One-file `DXB RUNWAY.exe` launched and captured a dashboard screenshot.
 - Inno Setup installer compiled, silently installed into a disposable directory, and the installed executable launched and captured the transactions screen.
