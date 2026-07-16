@@ -131,6 +131,7 @@ DEFAULT_SETTINGS = {
     "gbp_aed_rate_source": "Central Bank of the UAE", "uk_cash_gbp": "2000", "available_credit_gbp": "4000",
     "salary_aed": "6000", "rent_aed": "4500", "security_deposit_aed": "1000",
     "transport_aed": "2000", "food_aed": "1250", "emergency_fund_aed": "3000",
+    "monthly_spending_cap_gbp": "1700",
     "start_date": "2026-07-27", "arrival_date": "2026-07-23", "onboarding_complete": "0",
     "why_i_moved": "Build a stronger future with patience, focus and options.", "quote": "Protect the runway. Earn the upside.",
     "theme": "dark", "start_of_month": "1", "currency_preference": "AED",
