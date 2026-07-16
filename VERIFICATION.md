@@ -4,7 +4,7 @@ Verified on Windows 10 x64 with Python 3.12.10, PySide6 6.9.1 and PyInstaller 6.
 
 ## Automated verification
 
-- 39 tests pass: domain calculations, official-rate snapshot and dual formatting, default-versus-custom rate migration, vehicle stock/sold transitions, monthly sales history, per-month performance budgets, month-specific commission targets, persistent transaction highlighting, card-specific purchases and repayments, limit-only card editing/deletion, migration health, credit/debt mutations, cross-currency handling, local receipt storage, deletion undo, duplicate detection, portable and encrypted backup/restore, PDF export, onboarding and all major screens.
+- 41 tests pass: timed and monthly runway calculations, live Overview input integration, official-rate snapshot and dual formatting, default-versus-custom rate migration, vehicle stock/sold transitions, monthly sales history, per-month performance budgets, month-specific commission targets, persistent transaction highlighting, card-specific purchases and repayments, limit-only card editing/deletion, migration health, credit/debt mutations, cross-currency handling, local receipt storage, deletion undo, duplicate detection, portable and encrypted backup/restore, PDF export, onboarding and all major screens.
 - Every module compiles under Python 3.12.
 
 ## Manual calculation checks
@@ -44,6 +44,7 @@ Given AED 10,000 cash, AED 3,000 protected fund, AED 1,000 unavailable deposit, 
 - Version 1.2.2 adds persistent amber transaction highlights and a highlighted-only filter.
 - Version 1.2.3 adds per-card editing and deletion in Debt Control. Available credit is entered directly and the current balance is calculated as card limit minus available credit.
 - Version 1.2.4 links new credit-card purchases and repayments to a selected card. Debt Control balances now change through transactions, while card editing changes only the limit.
+- Version 1.2.5 synchronises Overview runway with saved budgets, card minimum payments, salary-engine income, calendar salary timing, live cash transactions, protected funds, deposits and debt. A visible live-basis line explains the inputs.
 - The version 1.2 one-file executable was launched with representative vehicle data and produced a complete packaged Vehicle Desk screenshot after its extraction/paint cycle.
 - One-file `DXB RUNWAY.exe` launched and captured a dashboard screenshot.
 - Inno Setup installer compiled, silently installed into a disposable directory, and the installed executable launched and captured the transactions screen.

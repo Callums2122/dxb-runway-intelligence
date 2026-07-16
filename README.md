@@ -9,6 +9,7 @@ DXB RUNWAY is a polished, completely local Windows financial command centre for 
 ## What is included
 
 - Responsive near-black PySide6 desktop UI with collapsible navigation and `Ctrl+K` command palette
+- Live, timed runway calculation synced to spendable cash, saved monthly budgets, card minimums, salary-engine income and the next salary date from the calendar
 - First-run onboarding with editable relocation assumptions
 - AED/GBP transaction ledger, card-linked purchases and repayments, persistent highlighted reminders, search, filters, CSV import/export, recurring flags, tags, local receipts, duplicate detection and undo delete
 - Vehicle desk with current-month stock, expected profit, atomic stock-to-sold movement, monthly sales history and live tier-based commission
@@ -18,7 +19,7 @@ DXB RUNWAY is a polished, completely local Windows financial command centre for 
 - Interactive scenarios through 24 months, emergency-fund breach detection and scenario comparison
 - Monthly category budgets, survival budget, rollover flags and 70/85/100% warnings
 - Financial calendar, goals, local PDF reports, portable backups and password-encrypted backups
-- Versioned SQLite migrations and 39 automated tests
+- Versioned SQLite migrations and 41 automated tests
 - No accounts, telemetry, analytics, external database or required internet connection
 
 ## Run the finished application

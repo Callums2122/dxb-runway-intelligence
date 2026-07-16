@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from dxb_runway.domain import (
-    CommissionTier, FinancialPosition, basic_salary, calculate_earnings, card_utilisation,
+    CommissionTier, FinancialPosition, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
     dual_amount, estimate_monthly_interest, gbp_equivalent, repayment_months, simulate_scenario, to_aed
 )
 
@@ -71,6 +71,11 @@ def test_credit_and_pending_commission_never_count_as_cash_or_wealth():
 def test_runway_excludes_protected_fund_and_deposit():
     position=FinancialPosition(Decimal("10000"),Decimal("3000"),Decimal("1000"),Decimal("0"),Decimal("0"),Decimal("0"),Decimal("8000"),Decimal("0"),Decimal("6000"))
     assert 91 <= position.runway_days <= 92
+
+
+def test_timed_runway_respects_gap_until_next_salary():
+    assert calculate_timed_runway(1000,8000,6000,date(2026,7,16),date(2026,7,31))==3
+    assert calculate_timed_runway(10000,4000,6000,date(2026,7,16),date(2026,7,31))==999
 
 
 def test_credit_utilisation_warnings_and_interest():

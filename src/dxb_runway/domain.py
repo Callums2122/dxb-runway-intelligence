@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from enum import StrEnum
 import calendar
@@ -207,8 +207,10 @@ class FinancialPosition:
 
     @property
     def health_score(self) -> int:
+        return self.health_score_for_runway(self.runway_days)
+
+    def health_score_for_runway(self, runway: int) -> int:
         score = 100
-        runway = self.runway_days
         if runway < 90:
             score -= min(45, int((90 - runway) / 2))
         utilisation = Decimal("0") if self.credit_limit_aed <= 0 else self.card_debt_aed / self.credit_limit_aed
@@ -216,6 +218,28 @@ class FinancialPosition:
         if self.guaranteed_income_aed < self.monthly_essential_aed:
             score -= 15
         return max(0, min(100, score))
+
+
+def calculate_timed_runway(spendable_cash: Decimal | float | str, monthly_expenses: Decimal | float | str,
+                           monthly_income: Decimal | float | str, as_of: date, next_income_date: date,
+                           horizon_days: int = 3650) -> int:
+    """Return the first day spendable cash runs out, respecting monthly pay timing."""
+    balance = Decimal(str(spendable_cash))
+    expenses = max(Decimal("0"), Decimal(str(monthly_expenses)))
+    income = max(Decimal("0"), Decimal(str(monthly_income)))
+    if expenses <= 0:
+        return 999
+    daily_expense = expenses / Decimal("30.4375")
+    pay_date = max(as_of, next_income_date)
+    for offset in range(horizon_days + 1):
+        current = as_of + timedelta(days=offset)
+        if current == pay_date:
+            balance += income
+            pay_date = add_months(pay_date, 1)
+        balance -= daily_expense
+        if balance < 0:
+            return offset
+    return 999
 
 
 def card_utilisation(balance: Decimal | float | str, limit: Decimal | float | str) -> Decimal:
