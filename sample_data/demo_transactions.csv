@@ -1,0 +1,7 @@
+Date,Type,Amount,Currency,Category,Merchant,Payment method,Essential,Tags,Notes
+2026-07-31T17:00:00,income,6000,AED,Salary,Alba Motors,Bank transfer,1,demo,Guaranteed salary
+2026-07-24T09:00:00,expense,4500,AED,Accommodation,Dubai apartment,Debit card,1,demo,Monthly accommodation
+2026-07-25T16:30:00,expense,310,AED,Groceries,Carrefour,Debit card,1,demo,Initial groceries
+2026-07-26T08:15:00,expense,86,AED,Transport,RTA / taxi,Credit card,1,demo,Airport and local transport
+2026-07-26T13:00:00,expense,74,AED,Restaurants,Lunch,Debit card,0,demo,Discretionary meal
+

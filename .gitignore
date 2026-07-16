@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Build output
+build/
+dist/
+work/
+
+# Local financial data and backups
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.dxbr
+*.dxbr.enc
+receipts/
+pre-restore-*.db
+
+# Local tooling and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

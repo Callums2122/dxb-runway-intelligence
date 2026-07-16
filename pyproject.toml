@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dxb-runway"
+version = "1.2.4"
+description = "Private, local-first UK to Dubai financial runway planner"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "PySide6==6.9.1",
+  "reportlab==4.4.2",
+  "cryptography==45.0.5",
+  "Pillow==11.3.0",
+]
+
+[project.scripts]
+dxb-runway = "dxb_runway.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
