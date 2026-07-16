@@ -10,6 +10,7 @@
 - A refundable deposit is unavailable cash until an income transaction marks its refund. It is not counted as ordinary expenditure.
 - Credit purchases increase expenditure and card debt while leaving cash unchanged. Cross-currency purchases use the current manual rate.
 - Transactions marked as one-off setup costs retain their real cash or card impact but are excluded from ordinary monthly expenditure and budget-consumption analytics.
+- When cash-funded setup costs exist, Overview labels its headline as `OPERATING RUNWAY` and adds those costs back as a planning reset. This is an adjusted comparison, not money restored to the bank: actual spendable cash and its unadjusted runway remain visible. Card-funded setup costs are not added to operating cash.
 - Pending commission is displayed as earned income but is excluded from cash, spendable cash, net wealth and daily allowance.
 - The protected fund and outstanding deposits are excluded from spendable cash. Credit limits are excluded from net wealth.
 - The default safe allowance looks across a 90-day protection window after the guaranteed-income contribution to essentials.

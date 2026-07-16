@@ -103,24 +103,29 @@ class DashboardPage(Page):
             start=date.fromisoformat(settings.get("start_date",today.isoformat())[:10]); salary_base=max(today,start); next_salary=date(salary_base.year,salary_base.month,calendar.monthrange(salary_base.year,salary_base.month)[1]); salary_date_source="job start/month-end"
             if salary_received: next_month=next_salary+timedelta(days=1); next_salary=date(next_month.year,next_month.month,calendar.monthrange(next_month.year,next_month.month)[1])
         position = FinancialPosition(money(cash), money(settings.get("emergency_fund_aed", "3000")), money(max(0, deposits)), money(debt), money(limit), money(pending), money(essential), money(discretionary), money(guaranteed))
-        timed_runway=calculate_timed_runway(position.spendable_cash_aed,position.monthly_essential_aed+position.monthly_discretionary_aed,position.guaranteed_income_aed,today,next_salary)
-        return position, {"settings":settings,"rate":rate,"income":money(income),"expense":money(expense),"cash_out":money(cash_out),"tx":tx,"all":all_tx,"runway":timed_runway,"next_salary":next_salary,"budget_source":budget_source,"income_source":income_source,"salary_date_source":salary_date_source,"minimum_cards":money(minimum_cards_aed)}
+        actual_runway=calculate_timed_runway(position.spendable_cash_aed,position.monthly_essential_aed+position.monthly_discretionary_aed,position.guaranteed_income_aed,today,next_salary)
+        setup_adjustment=sum((to_aed(r["amount"],r["currency"],rate)*(1 if r["kind"]=="expense" else -1) for r in all_tx if r["budget_excluded"] and r["payment_method"]!="Credit card" and not r["refundable_deposit"]),Decimal(0))
+        operating_position=FinancialPosition(money(position.cash_aed+setup_adjustment),position.protected_fund_aed,position.deposits_aed,position.card_debt_aed,position.credit_limit_aed,position.pending_commission_aed,position.monthly_essential_aed,position.monthly_discretionary_aed,position.guaranteed_income_aed)
+        operating_runway=calculate_timed_runway(operating_position.spendable_cash_aed,operating_position.monthly_essential_aed+operating_position.monthly_discretionary_aed,operating_position.guaranteed_income_aed,today,next_salary)
+        return position, {"settings":settings,"rate":rate,"income":money(income),"expense":money(expense),"cash_out":money(cash_out),"tx":tx,"all":all_tx,"runway":operating_runway,"actual_runway":actual_runway,"operating_position":operating_position,"setup_adjustment":money(setup_adjustment),"next_salary":next_salary,"budget_source":budget_source,"income_source":income_source,"salary_date_source":salary_date_source,"minimum_cards":money(minimum_cards_aed)}
 
     def refresh(self) -> None:
         position, data = self.position(); today = date.today(); days_salary = max(0, (data["next_salary"]-today).days)
         self.subtitle.setText(today.strftime("%A, %d %B %Y  ·  All values remain on this PC"))
-        runway = data["runway"]; shown_runway = "999+" if runway >= 999 else str(runway); self.runway.setText(f"RUNWAY: {shown_runway} DAYS")
-        allowance_aed, allowance_gbp = dual_amount(position.safe_daily_allowance_aed, data["rate"])
+        runway = data["runway"]; shown_runway = "999+" if runway >= 999 else str(runway); runway_label="OPERATING RUNWAY" if data["setup_adjustment"]>0 else "RUNWAY"; self.runway.setText(f"{runway_label}: {shown_runway} DAYS")
+        allowance_aed, allowance_gbp = dual_amount(data["operating_position"].safe_daily_allowance_aed, data["rate"])
         self.allowance.setText(f"SAFE DAILY ALLOWANCE  ·  {allowance_aed} / {allowance_gbp}")
-        self.basis.setText(f"LIVE BASIS  ·  Spendable AED {position.spendable_cash_aed:,.0f}  ·  Monthly plan AED {position.monthly_essential_aed+position.monthly_discretionary_aed:,.0f} ({data['budget_source']})  ·  Guaranteed income AED {position.guaranteed_income_aed:,.0f} ({data['income_source']})")
+        spendable_copy=f"Operating spendable AED {data['operating_position'].spendable_cash_aed:,.0f} · Actual AED {position.spendable_cash_aed:,.0f} · Setup reset AED {data['setup_adjustment']:,.0f}" if data["setup_adjustment"]>0 else f"Spendable AED {position.spendable_cash_aed:,.0f}"
+        self.basis.setText(f"LIVE BASIS  ·  {spendable_copy}  ·  Monthly plan AED {position.monthly_essential_aed+position.monthly_discretionary_aed:,.0f} ({data['budget_source']})  ·  Guaranteed income AED {position.guaranteed_income_aed:,.0f} ({data['income_source']})")
         self.basis.setToolTip(f"Next guaranteed salary: {data['next_salary']:%d %b %Y} from {data['salary_date_source']}. Card minimums included: AED {data['minimum_cards']:,.2f}. Pending commission and available credit are excluded.")
         if runway < 14: status, color = "Immediate action: switch to the survival budget and protect the return fund.", COLORS["red"]
         elif runway < 30: status, color = "Runway below 30 days. Remove discretionary spend and review timing risks.", COLORS["red"]
         elif runway < 60: status, color = "Runway below 60 days. Keep commission upside out of current spending plans.", COLORS["amber"]
         elif runway < 90: status, color = "Runway below 90 days. Maintain a conservative daily allowance.", COLORS["amber"]
         else: status, color = "Emergency return fund: protected. Pending commission excluded from spendable cash.", COLORS["green"]
-        self.runway.setStyleSheet(f"color:{color}"); self.status.setText(status); self.ring.color = QColor(color); self.ring.set_value(position.health_score_for_runway(runway))
-        rate = data["rate"]; projected = data["income"] - data["cash_out"]
+        if data["setup_adjustment"]>0: status+=f"  Actual cash runway: {data['actual_runway']} days; operating view adds back AED {data['setup_adjustment']:,.0f} of marked setup costs."
+        self.runway.setStyleSheet(f"color:{color}"); self.status.setText(status); self.ring.color = QColor(color); self.ring.set_value(data["operating_position"].health_score_for_runway(runway))
+        rate = data["rate"]; projected = data["income"] - data["expense"]
         budget_total = position.monthly_essential_aed + position.monthly_discretionary_aed; consumed = int(data["expense"] / budget_total * 100) if budget_total else 0
         def converted(value, note, signed=False):
             primary, secondary = dual_amount(value, rate, signed=signed)
@@ -143,7 +148,7 @@ class DashboardPage(Page):
         for r in data["tx"]:
             if r["kind"] == "expense" and r["card_effect"]!=-1 and not r["budget_excluded"]: cats[r["category"] or "Other"] = cats.get(r["category"] or "Other", 0)+float(to_aed(r["amount"], r["currency"], rate)); color_map[r["category"] or "Other"] = r["category_color"] or COLORS["muted"]
         self.chart_row2.addWidget(pie_chart("Spending by category", [(k,v,color_map[k]) for k,v in sorted(cats.items(), key=lambda x:-x[1])[:6]] or [("No spend",1,COLORS["border2"])]), 1)
-        scenario_values = [float(position.spendable_cash_aed - max(0, position.monthly_burn_aed) * Decimal(i)/Decimal(6)) for i in range(7)]
+        scenario_values = [float(data["operating_position"].spendable_cash_aed - max(0, data["operating_position"].monthly_burn_aed) * Decimal(i)/Decimal(6)) for i in range(7)]
         self.chart_row2.addWidget(line_chart("Projected runway · conservative", scenario_values, color=COLORS["purple"]), 2)
         recent = data["all"][:5]; self.recent.setRowCount(len(recent))
         for i, row in enumerate(recent):

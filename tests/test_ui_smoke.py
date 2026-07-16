@@ -54,5 +54,8 @@ def test_overview_runway_uses_budget_salary_calendar_and_card_minimums(tmp_path:
     assert data["next_salary"]==date(2026,7,26)
     assert data["budget_source"]=="saved budget" and data["income_source"]=="salary engine"
     assert data["expense"]==Decimal("0.00") and data["cash_out"]==Decimal("4500.00")
+    assert data["setup_adjustment"]==Decimal("4500.00")
+    assert data["operating_position"].spendable_cash_aed==position.spendable_cash_aed+Decimal("4500.00")
+    assert data["runway"]>data["actual_runway"]
     assert db.transactions()[0]["budget_excluded"]==1
     page.close()

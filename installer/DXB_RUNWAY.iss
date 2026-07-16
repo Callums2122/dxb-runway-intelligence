@@ -1,5 +1,5 @@
 #define MyAppName "DXB RUNWAY"
-#define MyAppVersion "1.2.6"
+#define MyAppVersion "1.2.7"
 #define MyAppPublisher "DXB RUNWAY"
 #define MyAppExeName "DXB RUNWAY.exe"
 
