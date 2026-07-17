@@ -11,7 +11,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QTextCharFormat
 from PySide6.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
     QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox, QTableWidget,
+    QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox, QStyledItemDelegate, QTableWidget,
     QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 )
 
@@ -37,6 +37,13 @@ def table_item(text: str, alignment: Qt.AlignmentFlag | None = None, color: str 
     if alignment: item.setTextAlignment(alignment)
     if color: item.setForeground(QColor(color))
     return item
+
+
+class TransactionHighlightDelegate(QStyledItemDelegate):
+    def paint(self,painter,option,index)->None:
+        super().paint(painter,option,index)
+        if index.data(Qt.ItemDataRole.UserRole):
+            painter.save(); painter.fillRect(option.rect,QColor(244,183,64,72)); painter.restore()
 
 
 class Page(QWidget):
@@ -247,9 +254,9 @@ class TransactionsPage(Page):
         self.search = QLineEdit(); self.search.setPlaceholderText("Search merchant, category or tag…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); top.addWidget(self.search)
         add = QPushButton("＋ Add transaction"); add.setProperty("primary", True); add.clicked.connect(self.add); top.addWidget(add); layout.addLayout(top)
         tools = QHBoxLayout(); self.filter = QComboBox(); self.filter.addItems(["All types", "Highlighted", "Setup costs", "Expenses", "Income", "Essential", "Discretionary", "Credit card"]); self.filter.currentTextChanged.connect(self.refresh); tools.addWidget(self.filter)
-        for label, callback in [("Pay credit card", self.pay_card), ("Import CSV", self.import_csv), ("Export CSV", self.export_csv), ("★ Highlight", self.toggle_highlight), ("Setup cost", self.toggle_setup_cost), ("Edit", self.edit), ("Delete", self.delete), ("Undo delete", self.undo)]: btn=QPushButton(label); btn.clicked.connect(callback); tools.addWidget(btn)
+        for label, callback in [("Pay credit card", self.pay_card), ("Import CSV", self.import_csv), ("Export CSV", self.export_csv), ("Highlight row", self.toggle_highlight), ("Setup cost", self.toggle_setup_cost), ("Edit", self.edit), ("Delete", self.delete), ("Undo delete", self.undo)]: btn=QPushButton(label); btn.clicked.connect(callback); tools.addWidget(btn)
         tools.addStretch(); self.summary = QLabel(); self.summary.setObjectName("muted"); tools.addWidget(self.summary); layout.addLayout(tools)
-        self.table = QTableWidget(0, 8); self.table.setHorizontalHeaderLabels(["DATE", "TYPE", "MERCHANT", "CATEGORY", "METHOD", "FLAGS", "TAGS", "AMOUNT"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.doubleClicked.connect(self.edit); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); self.refresh()
+        self.table = QTableWidget(0, 8); self.table.setHorizontalHeaderLabels(["DATE", "TYPE", "MERCHANT", "CATEGORY", "METHOD", "FLAGS", "TAGS", "AMOUNT"]); self.table.setItemDelegate(TransactionHighlightDelegate(self.table)); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.doubleClicked.connect(self.edit); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); self.refresh()
 
     def filtered_rows(self):
         rows = self.db.transactions(self.search.text().strip(), limit=10000); mode = self.filter.currentText()
@@ -266,13 +273,13 @@ class TransactionsPage(Page):
         rows=self.filtered_rows(); self.table.setRowCount(len(rows)); total=Decimal("0"); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313"))
         for i,row in enumerate(rows):
             self.table.setRowHeight(i,52); self.table.setVerticalHeaderItem(i,QTableWidgetItem(str(row["id"])))
-            flags = " · ".join(x for x in ["★ Highlighted" if row["highlighted"] else "", "Setup cost" if row["budget_excluded"] else "", row["credit_card_name"] or "" if row["card_effect"] else "", "Card payment" if row["card_effect"]==-1 else "", "Recurring" if row["recurring"] else "", "Essential" if row["essential"] else "Discretionary", "Deposit" if row["refundable_deposit"] else "", "Receipt" if row["receipt_path"] else ""] if x)
+            flags = " · ".join(x for x in ["Setup cost" if row["budget_excluded"] else "", row["credit_card_name"] or "" if row["card_effect"] else "", "Card payment" if row["card_effect"]==-1 else "", "Recurring" if row["recurring"] else "", "Essential" if row["essential"] else "Discretionary", "Deposit" if row["refundable_deposit"] else "", "Receipt" if row["receipt_path"] else ""] if x)
             amount_aed = to_aed(row["amount"],row["currency"],rate)*(1 if row["kind"]=="income" else -1); total += amount_aed
             primary,secondary=dual_amount(amount_aed,rate,2,True)
             values=[row["occurred_at"][:16].replace("T","  "),row["kind"].title(),row["merchant"] or "—",row["category"] or "—",row["payment_method"],flags,row["tags"],f"{primary}\n{secondary}"]
             for j,value in enumerate(values):
                 item=table_item(str(value),Qt.AlignmentFlag.AlignRight if j==7 else None,COLORS["green"] if amount_aed>0 and j==7 else COLORS["text"] if j==7 else None)
-                if row["highlighted"]: item.setBackground(QColor("#382c16")); item.setToolTip("Highlighted reminder"+(f" · {row['notes']}" if row["notes"] else ""))
+                if row["highlighted"]: item.setData(Qt.ItemDataRole.UserRole,True); item.setBackground(QColor("#5a4316")); item.setToolTip("Highlighted transaction"+(f" · {row['notes']}" if row["notes"] else ""))
                 self.table.setItem(i,j,item)
         self.table.resizeColumnsToContents(); self.table.horizontalHeader().setStretchLastSection(False); self.table.setColumnWidth(2,max(160,self.table.columnWidth(2))); self.table.setColumnWidth(6,120); self.table.horizontalHeader().setStretchLastSection(True); net_aed,net_gbp=dual_amount(total,rate,2,True); self.summary.setText(f"{len(rows)} transactions  ·  visible net {net_aed} / {net_gbp}")
 

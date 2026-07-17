@@ -5,6 +5,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
@@ -33,6 +34,10 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     for key,page in window.pages.items():
         window.navigate(key)
         assert window.stack.currentWidget() is page
+    db.toggle_transaction_highlight(db.transactions()[0]["id"]); transactions=window.pages["transactions"]; transactions.refresh()
+    assert transactions.table.item(0,0).background().color().name()=="#5a4316"
+    assert transactions.table.item(0,0).data(Qt.ItemDataRole.UserRole) is True
+    assert "★" not in transactions.table.item(0,5).text()
     window.close()
 
 

@@ -80,7 +80,7 @@ The executable is written to `dist\DXB RUNWAY.exe`. If Inno Setup 6 is installed
 - `Ctrl+3`: scenario lab
 - `F5`: refresh all screens
 
-In Transactions, select any row and click `★ Highlight` to add or clear a persistent amber reminder. Highlighted transactions can be isolated from the filter menu, and existing transaction notes appear when hovering over the highlighted row.
+In Transactions, select any row and click `Highlight row` to add or clear a persistent amber reminder. The entire transaction row is coloured amber without adding a star or extra flag text. Highlighted transactions can be isolated from the filter menu, and existing notes appear when hovering over the row.
 
 ## Vehicle desk
 
