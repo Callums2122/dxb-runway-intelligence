@@ -5,13 +5,13 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
 from dxb_runway.main_window import MainWindow
-from dxb_runway.screens import DashboardPage
+from dxb_runway.screens import DashboardPage, PlayfulCalendar
 
 
 def app():
@@ -45,6 +45,17 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert Decimal(str(synced["salary_aed"]))==vehicles.current_result.salary_aed
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
     window.close()
+
+
+def test_calendar_wheel_moves_only_once_per_gesture():
+    application=app(); calendar=PlayfulCalendar(); start=QDate(calendar.yearShown(),calendar.monthShown(),1)
+    assert calendar.handle_wheel(-120,10.0) is True
+    assert QDate(calendar.yearShown(),calendar.monthShown(),1)==start.addMonths(1)
+    assert calendar.handle_wheel(-120,10.1) is False
+    assert QDate(calendar.yearShown(),calendar.monthShown(),1)==start.addMonths(1)
+    assert calendar.handle_wheel(-120,10.7) is True
+    assert QDate(calendar.yearShown(),calendar.monthShown(),1)==start.addMonths(2)
+    calendar.close()
 
 
 def test_overview_runway_uses_budget_salary_calendar_and_card_minimums(tmp_path: Path):

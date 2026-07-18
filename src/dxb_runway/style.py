@@ -55,5 +55,17 @@ QTabBar::tab:selected {{ color: {COLORS['cyan']}; border-bottom: 2px solid {COLO
 QToolTip {{ background: #1a2230; color: white; border: 1px solid #354157; padding: 6px; }}
 QCalendarWidget QWidget {{ alternate-background-color: {COLORS['panel2']}; }}
 QCalendarWidget QToolButton {{ background: transparent; border: none; }}
+QLabel#calendarMonth {{ font-size: 22px; font-weight: 760; }}
+QLabel#calendarDay {{ font-size: 25px; font-weight: 760; line-height: 1.15; }}
+QPushButton#calendarNav {{
+  background: #171f2b; border: 1px solid {COLORS['border2']}; border-radius: 12px;
+  padding: 0; font-size: 25px; font-weight: 500;
+}}
+QPushButton#calendarNav:hover {{ background: #203142; border-color: {COLORS['cyan']}; color: {COLORS['cyan']}; }}
+QPushButton#calendarNav:pressed {{ background: #0d151e; }}
+QPushButton#calendarToday {{ background: #132530; color: {COLORS['cyan']}; border-color: #244555; border-radius: 10px; padding: 9px 16px; }}
+QPushButton#calendarToday:hover {{ background: #193442; border-color: {COLORS['cyan']}; }}
+QFrame#calendarDivider {{ color: {COLORS['border']}; background: {COLORS['border']}; border: none; max-height: 1px; }}
+QFrame#calendarEmpty {{ background: #0d1219; border: 1px dashed {COLORS['border2']}; border-radius: 12px; }}
+QLabel#calendarEmptyIcon {{ color: {COLORS['purple']}; font-size: 25px; }}
 """
-

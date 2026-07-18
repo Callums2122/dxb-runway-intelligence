@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import calendar
+import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QTimer, Qt, Signal, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QTextCharFormat
+from PySide6.QtCore import QDate, QEvent, QTimer, Qt, Signal, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
     QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
@@ -50,6 +51,95 @@ class Page(QWidget):
     changed = Signal()
     def __init__(self, db: Database): super().__init__(); self.db = db
     def refresh(self) -> None: pass
+
+
+class PlayfulCalendar(QCalendarWidget):
+    """A calmer, modern calendar with one month change per wheel gesture."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.event_colors: dict[QDate, list[str]] = {}
+        self._last_wheel_at = 0.0
+        self.setNavigationBarVisible(False)
+        self.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+        self.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
+        self.setGridVisible(False)
+        self.setMouseTracking(True)
+        self.setMinimumHeight(570)
+        self.setStyleSheet(f"""
+            QCalendarWidget {{ background: transparent; border: none; }}
+            QCalendarWidget QWidget {{ background: transparent; alternate-background-color: transparent; }}
+            QCalendarWidget QAbstractItemView {{
+                background: transparent; border: none; selection-background-color: transparent;
+                alternate-background-color: transparent;
+            }}
+            QCalendarWidget QHeaderView::section {{
+                background: transparent; color: {COLORS['muted']}; border: none;
+                padding: 12px 0 14px 0; font-size: 11px; font-weight: 700;
+            }}
+        """)
+        self.installEventFilter(self)
+        for child in self.findChildren(QWidget):
+            child.installEventFilter(self)
+
+    def set_event_colors(self, event_colors: dict[QDate, list[str]]) -> None:
+        self.event_colors = event_colors
+        self.updateCells()
+
+    def eventFilter(self, watched, event) -> bool:
+        if event.type() == QEvent.Type.Wheel:
+            self.handle_wheel(event.angleDelta().y())
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
+    def handle_wheel(self, delta: int, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        moved = bool(delta and (not self._last_wheel_at or now - self._last_wheel_at > 0.48))
+        if moved:
+            self.showPreviousMonth() if delta > 0 else self.showNextMonth()
+        self._last_wheel_at = now
+        return moved
+
+    def paintCell(self, painter: QPainter, rect, day: QDate) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cell = rect.adjusted(7, 5, -7, -5)
+        in_month = day.month() == self.monthShown() and day.year() == self.yearShown()
+        selected = day == self.selectedDate()
+        today = day == QDate.currentDate()
+
+        if selected:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#26364a"))
+            painter.drawRoundedRect(cell, 13, 13)
+        elif today:
+            painter.setPen(QColor(COLORS["cyan"]))
+            painter.setBrush(QColor("#10212b"))
+            painter.drawRoundedRect(cell, 13, 13)
+
+        color = QColor(COLORS["text"] if in_month else "#4d5868")
+        if selected:
+            color = QColor("#ffffff")
+        painter.setPen(color)
+        font = painter.font()
+        font.setPointSize(11)
+        font.setWeight(QFont.Weight.DemiBold if selected or today else QFont.Weight.Normal)
+        painter.setFont(font)
+        painter.drawText(cell.adjusted(0, -4, 0, 0), Qt.AlignmentFlag.AlignCenter, str(day.day()))
+
+        dots = self.event_colors.get(day, [])[:3]
+        if dots:
+            diameter, gap = 6, 4
+            total = len(dots) * diameter + (len(dots) - 1) * gap
+            x = cell.center().x() - total / 2
+            y = cell.bottom() - 11
+            painter.setPen(Qt.PenStyle.NoPen)
+            for dot_color in dots:
+                painter.setBrush(QColor(dot_color))
+                painter.drawEllipse(int(x), int(y), diameter, diameter)
+                x += diameter + gap
+        painter.restore()
 
 
 class DashboardPage(Page):
@@ -472,21 +562,75 @@ class BudgetsPage(Page):
 
 class CalendarPage(Page):
     def __init__(self,db:Database):
-        super().__init__(db); layout=QHBoxLayout(self); layout.setContentsMargins(24,22,24,24); left=QVBoxLayout(); left.addWidget(SectionHeader("Financial calendar","Salary, rent, card, commission and custom reminder dates.")); self.calendar=QCalendarWidget(); self.calendar.selectionChanged.connect(self.refresh_events); left.addWidget(self.calendar,1); add=QPushButton("＋ Add reminder"); add.setProperty("primary",True); add.clicked.connect(self.add); left.addWidget(add); layout.addLayout(left,2); side=Card(); side_l=QVBoxLayout(side); side_l.setContentsMargins(18,18,18,18); self.day=QLabel(); self.day.setStyleSheet("font-size:18px;font-weight:700"); side_l.addWidget(self.day); self.events=QVBoxLayout(); side_l.addLayout(self.events); side_l.addStretch(); layout.addWidget(side,1); self.refresh()
+        super().__init__(db)
+        root=QVBoxLayout(self); root.setContentsMargins(24,22,24,24); root.setSpacing(16)
+        root.addWidget(SectionHeader("Financial calendar","Your money timeline, at a glance. Scroll gently or use the arrows to move one month at a time."))
+        body=QHBoxLayout(); body.setSpacing(16)
+
+        calendar_card=Card(); calendar_l=QVBoxLayout(calendar_card); calendar_l.setContentsMargins(18,16,18,18); calendar_l.setSpacing(12)
+        navigation=QHBoxLayout(); navigation.setSpacing(8)
+        previous=QPushButton("‹"); previous.setObjectName("calendarNav"); previous.setFixedSize(40,40); previous.setToolTip("Previous month"); previous.clicked.connect(self.previous_month); navigation.addWidget(previous)
+        self.month_title=QLabel(); self.month_title.setObjectName("calendarMonth"); navigation.addWidget(self.month_title)
+        navigation.addStretch()
+        today=QPushButton("Today"); today.setObjectName("calendarToday"); today.clicked.connect(self.go_today); navigation.addWidget(today)
+        following=QPushButton("›"); following.setObjectName("calendarNav"); following.setFixedSize(40,40); following.setToolTip("Next month"); following.clicked.connect(self.next_month); navigation.addWidget(following)
+        calendar_l.addLayout(navigation)
+
+        self.calendar=PlayfulCalendar(); self.calendar.selectionChanged.connect(self.refresh_events); self.calendar.currentPageChanged.connect(self.update_month_title); calendar_l.addWidget(self.calendar,1)
+        legend=QHBoxLayout(); legend.setSpacing(14); legend.addStretch()
+        for label,color in [("Salary",COLORS["green"]),("Commission",COLORS["purple"]),("Bills",COLORS["amber"]),("Cards",COLORS["red"]),("Reminder",COLORS["cyan"])]:
+            item=QLabel(f"<span style='color:{color};font-size:16px'>●</span>&nbsp; {label}"); item.setObjectName("muted"); legend.addWidget(item)
+        legend.addStretch(); calendar_l.addLayout(legend)
+        body.addWidget(calendar_card,2)
+
+        side=Card(); side.setMinimumWidth(310); side.setMaximumWidth(410); side_l=QVBoxLayout(side); side_l.setContentsMargins(20,20,20,20); side_l.setSpacing(12)
+        selected_label=QLabel("SELECTED DAY"); selected_label.setObjectName("eyebrow"); side_l.addWidget(selected_label)
+        self.day=QLabel(); self.day.setObjectName("calendarDay"); self.day.setWordWrap(True); side_l.addWidget(self.day)
+        self.day_hint=QLabel("Everything due on this date appears here."); self.day_hint.setObjectName("muted"); self.day_hint.setWordWrap(True); side_l.addWidget(self.day_hint)
+        divider=QFrame(); divider.setFrameShape(QFrame.Shape.HLine); divider.setObjectName("calendarDivider"); side_l.addWidget(divider)
+        self.events=QVBoxLayout(); self.events.setSpacing(10); side_l.addLayout(self.events); side_l.addStretch()
+        add=QPushButton("＋  Add reminder"); add.setProperty("primary",True); add.clicked.connect(self.add); side_l.addWidget(add)
+        body.addWidget(side,1); root.addLayout(body,1)
+        self.update_month_title(self.calendar.yearShown(),self.calendar.monthShown()); self.refresh()
+
+    def previous_month(self)->None:
+        self.calendar.showPreviousMonth()
+
+    def next_month(self)->None:
+        self.calendar.showNextMonth()
+
+    def go_today(self)->None:
+        self.calendar.setSelectedDate(QDate.currentDate()); self.calendar.showToday(); self.refresh_events()
+
+    def update_month_title(self,year:int,month:int)->None:
+        self.month_title.setText(QDate(year,month,1).toString("MMMM yyyy"))
+
     def refresh(self)->None:
-        self.calendar.setDateTextFormat(QDate(),QTextCharFormat()); rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")
+        rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")
         colors={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}
+        event_colors={}
         for row in rows:
-            qdate=QDate.fromString(row["event_date"],"yyyy-MM-dd"); fmt=QTextCharFormat(); fmt.setBackground(QColor(colors.get(row["event_type"],COLORS["cyan"]))); fmt.setForeground(QColor("#071016")); fmt.setFontWeight(QFont.Weight.Bold); self.calendar.setDateTextFormat(qdate,fmt)
+            qdate=QDate.fromString(row["event_date"],"yyyy-MM-dd")
+            event_colors.setdefault(qdate,[]).append(colors.get(row["event_type"],COLORS["cyan"]))
+        self.calendar.set_event_colors(event_colors)
         self.refresh_events()
+
     def refresh_events(self)->None:
-        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd, d MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))
-        if not rows: label=QLabel("No financial events"); label.setObjectName("muted"); self.events.addWidget(label)
+        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd\nd MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))
+        if not rows:
+            empty=QFrame(); empty.setObjectName("calendarEmpty"); empty_l=QVBoxLayout(empty); empty_l.setContentsMargins(16,18,16,18)
+            icon=QLabel("✦"); icon.setObjectName("calendarEmptyIcon"); empty_l.addWidget(icon,0,Qt.AlignmentFlag.AlignCenter)
+            label=QLabel("Nothing due — enjoy the clear space."); label.setObjectName("muted"); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setWordWrap(True); empty_l.addWidget(label)
+            self.events.addWidget(empty)
         for row in rows:
-            card=QFrame(); card.setProperty("card",True); lay=QVBoxLayout(card); title=QLabel(row["title"]); title.setStyleSheet("font-weight:700"); lay.addWidget(title); meta=QLabel(str(row["event_type"]).upper()); meta.setObjectName("eyebrow"); lay.addWidget(meta); self.events.addWidget(card)
+            event_type=str(row["event_type"]); accent={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}.get(event_type,COLORS["cyan"])
+            card=QFrame(); card.setProperty("eventCard",True); card.setStyleSheet(f"QFrame[eventCard='true']{{background:#141a24;border:1px solid #202937;border-left:4px solid {accent};border-radius:10px;}}")
+            lay=QVBoxLayout(card); lay.setContentsMargins(14,12,14,12); title=QLabel(row["title"]); title.setStyleSheet("font-weight:700;font-size:14px"); lay.addWidget(title); meta=QLabel(event_type.upper()); meta.setStyleSheet(f"color:{accent};font-size:10px;font-weight:700;letter-spacing:1px"); lay.addWidget(meta); self.events.addWidget(card)
+
     def add(self)->None:
-        title,ok=QInputDialog.getText(self,"New reminder","Title")
-        if ok and title.strip(): self.db.execute("INSERT INTO reminders(title,event_date,event_type) VALUES (?,?,?)",(title.strip(),self.calendar.selectedDate().toString("yyyy-MM-dd"),"custom")); self.refresh(); self.changed.emit()
+        title,ok=QInputDialog.getText(self,"New reminder","What would you like to remember?")
+        if ok and title.strip():
+            self.db.execute("INSERT INTO reminders(title,event_date,event_type) VALUES (?,?,?)",(title.strip(),self.calendar.selectedDate().toString("yyyy-MM-dd"),"custom")); self.refresh(); self.changed.emit()
 
 
 class GoalsPage(Page):
