@@ -15,6 +15,7 @@ DXB RUNWAY is a polished, completely local Windows and macOS financial command c
 - AED/GBP transaction ledger, card-linked purchases and repayments, one-off setup-cost exclusions, persistent highlighted reminders, search, filters, CSV import/export, recurring flags, tags, local receipts, duplicate detection and undo delete
 - Vehicle desk with current-month stock, expected profit, atomic stock-to-sold movement, monthly sales history and live tier-based commission
 - Separate Vehicle Desk commission-only and total-earned cards, with total earned combining the purchasing-budget salary band and live monthly commission in AED/GBP
+- Vehicle Desk automatically synchronises its live salary and commission result into pending earnings used by Overview, Calendar and Reports; Scenario Lab remains available for hypothetical modelling
 - AED remains the primary planning currency, with consistent `≈ GBP` translations across balances, transactions, earnings, scenarios, debt, budgets, reports and PDF exports
 - Removable credit cards with limit-only editing, transaction-driven balances and available credit, utilisation warnings at 30%, 50%, 75% and 90%, interest estimates and repayment forecast
 - Alba Motors salary and 2026 commission tiers, full-profit rate application, two-month payment scheduling, KPI deductions and cars-to-next-tier estimates

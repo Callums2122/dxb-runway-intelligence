@@ -30,7 +30,7 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","vehicles","transactions","debt","earnings","scenarios","budgets","calendar","goals","reports","settings"}
+    assert set(window.pages)=={"dashboard","vehicles","transactions","debt","scenarios","budgets","calendar","goals","reports","settings"}
     for key,page in window.pages.items():
         window.navigate(key)
         assert window.stack.currentWidget() is page
@@ -41,6 +41,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles=window.pages["vehicles"]
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
     assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()
+    synced=db.query("SELECT salary_aed,commission_aed FROM earnings WHERE year=? AND month=?",(date.today().year,date.today().month))[0]
+    assert Decimal(str(synced["salary_aed"]))==vehicles.current_result.salary_aed
+    assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
     window.close()
 
 

@@ -52,6 +52,7 @@ Given AED 10,000 cash, AED 3,000 protected fund, AED 1,000 unavailable deposit, 
 - Version 1.2.10 replaces the transaction highlight star with a stronger full-row amber treatment while preserving persistent state, tooltips and the highlighted-only filter.
 - Version 1.3.0 adds native GitHub-hosted macOS application builds for Apple Silicon and Intel, Mac command-key shortcuts, platform-neutral local-data wording and a Windows-to-Mac backup transfer guide. The workflow runs all automated tests on each target before packaging and verifies the ad-hoc app signature.
 - Version 1.3.1 makes Vehicle Desk earnings explicit: Commission earned remains commission-only, while Total earned combines the live commission with the exact base salary selected by the month's purchasing-budget band.
+- Version 1.3.2 removes the duplicate Salary + commission navigation tab. Vehicle Desk now automatically upserts its exact monthly result into pending earnings, preserving Overview pending commission, salary inputs, Calendar payment dates and Reports without a second manual calculator.
 - The version 1.2 one-file executable was launched with representative vehicle data and produced a complete packaged Vehicle Desk screenshot after its extraction/paint cycle.
 - One-file `DXB RUNWAY.exe` launched and captured a dashboard screenshot.
 - Inno Setup installer compiled, silently installed into a disposable directory, and the installed executable launched and captured the transactions screen.

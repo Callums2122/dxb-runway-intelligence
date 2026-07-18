@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from .database import Database
 from .dialogs import CommandPalette, TransactionDialog
 from .screens import (
-    BudgetsPage, CalendarPage, DashboardPage, DebtPage, EarningsPage, GoalsPage, ReportsPage,
+    BudgetsPage, CalendarPage, DashboardPage, DebtPage, GoalsPage, ReportsPage,
     ScenarioPage, SettingsPage, TransactionsPage, VehicleDeskPage
 )
 from .style import COLORS
@@ -21,7 +21,7 @@ from .style import COLORS
 
 NAVIGATION = [
     ("dashboard", "⌂", "Overview"), ("vehicles", "▱", "Vehicle desk"), ("transactions", "↕", "Transactions"), ("debt", "◇", "Debt control"),
-    ("earnings", "◆", "Salary + commission"), ("scenarios", "⌁", "Scenario lab"), ("budgets", "▤", "Budgets"),
+    ("scenarios", "⌁", "Scenario lab"), ("budgets", "▤", "Budgets"),
     ("calendar", "□", "Calendar"), ("goals", "◎", "Momentum"), ("reports", "▥", "Reports"),
     ("settings", "⚙", "Settings"),
 ]
@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
         side.addStretch(); privacy=QFrame(); privacy.setProperty("card",True); pl=QVBoxLayout(privacy); pl.setContentsMargins(11,10,11,10); lock=QLabel("●  LOCAL & PRIVATE"); lock.setStyleSheet(f"color:{COLORS['green']};font-size:10px;font-weight:800"); pl.addWidget(lock); self.privacy_copy=QLabel("No cloud · no telemetry"); self.privacy_copy.setObjectName("muted"); pl.addWidget(self.privacy_copy); side.addWidget(privacy); shell.addWidget(self.sidebar)
         right=QVBoxLayout(); right.setContentsMargins(0,0,0,0); right.setSpacing(0); top=QFrame(); top.setObjectName("topbar"); tl=QHBoxLayout(top); tl.setContentsMargins(20,10,20,10); self.context=QLabel("OVERVIEW"); self.context.setObjectName("eyebrow"); tl.addWidget(self.context); tl.addStretch(); command=QPushButton(f"⌕  Search or command     {COMMAND_LABEL} K"); command.clicked.connect(self.open_palette); tl.addWidget(command); quick=QPushButton("＋"); quick.setToolTip(f"Quick add transaction · {COMMAND_LABEL}+N"); quick.setProperty("primary",True); quick.clicked.connect(self.quick_add); tl.addWidget(quick); right.addWidget(top)
         self.stack=QStackedWidget(); right.addWidget(self.stack,1); shell.addLayout(right,1)
-        self.pages={"dashboard":DashboardPage(db),"vehicles":VehicleDeskPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"earnings":EarningsPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"goals":GoalsPage(db),"reports":ReportsPage(db),"settings":SettingsPage(db)}
+        self.pages={"dashboard":DashboardPage(db),"vehicles":VehicleDeskPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"goals":GoalsPage(db),"reports":ReportsPage(db),"settings":SettingsPage(db)}
         for key,_,_ in NAVIGATION: self.stack.addWidget(self.pages[key]); self.page_keys.append(key)
         self.pages["dashboard"].quick_add.connect(self.quick_add)
         for page in self.pages.values(): page.changed.connect(self.refresh_all)
@@ -74,7 +74,7 @@ class MainWindow(QMainWindow):
         for key,icon,label in NAVIGATION:self.nav_buttons[key].setText(icon if self.compact else f"{icon}    {label}");self.nav_buttons[key].setToolTip(label)
 
     def open_palette(self)->None:
-        commands=[("Go to overview","nav:dashboard"),("Open vehicle desk","nav:vehicles"),("Go to transactions","nav:transactions"),("Go to debt control","nav:debt"),("Open salary & commission","nav:earnings"),("Open scenario lab","nav:scenarios"),("Open budgets","nav:budgets"),("Open financial calendar","nav:calendar"),("Open reports","nav:reports"),("Open settings","nav:settings"),("Add transaction","add"),("Refresh all data","refresh")]
+        commands=[("Go to overview","nav:dashboard"),("Open vehicle desk","nav:vehicles"),("Go to transactions","nav:transactions"),("Go to debt control","nav:debt"),("Open scenario lab","nav:scenarios"),("Open budgets","nav:budgets"),("Open financial calendar","nav:calendar"),("Open reports","nav:reports"),("Open settings","nav:settings"),("Add transaction","add"),("Refresh all data","refresh")]
         palette=CommandPalette(commands,self); palette.command_selected.connect(self.execute_command); center=self.geometry().center(); palette.move(center.x()-palette.width()//2,self.geometry().top()+90); palette.exec()
 
     def execute_command(self,command:str)->None:
