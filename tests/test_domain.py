@@ -26,6 +26,7 @@ def test_january_targets_and_full_profit_rates():
     assert [x.tier for x in (baseline,t3,t2,t1)]==[CommissionTier.BASELINE,CommissionTier.TIER_3,CommissionTier.TIER_2,CommissionTier.TIER_1]
     assert t3.commission_aed==Decimal("14250.00")
     assert t2.commission_aed==Decimal("22425.00")
+    assert t2.salary_aed==Decimal("7000.00") and t2.total_earned_aed==Decimal("29425.00")
     assert t1.commission_aed==Decimal("33600.00")
 
 

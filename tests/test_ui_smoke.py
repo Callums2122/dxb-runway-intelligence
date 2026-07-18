@@ -38,6 +38,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert transactions.table.item(0,0).background().color().name()=="#5a4316"
     assert transactions.table.item(0,0).data(Qt.ItemDataRole.UserRole) is True
     assert "★" not in transactions.table.item(0,5).text()
+    vehicles=window.pages["vehicles"]
+    assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
+    assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()
     window.close()
 
 
