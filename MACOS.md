@@ -22,6 +22,6 @@ The release is ad-hoc signed but not Apple-notarised. A company-managed Mac may 
 3. Start DXB RUNWAY on the Mac and complete the short first-run setup.
 4. Open **Settings → Local data & privacy → Restore backup** and choose the `.dxbr` file.
 
-This transfers the SQLite database and settings. Receipt files copied into the Windows receipts folder are not currently embedded in the portable database backup, so move those separately if you need them on the Mac.
+This transfers the SQLite database, settings and locally stored receipt files in one portable backup.
 
 macOS stores the live database below the user Library through Qt's standard application-data location. Use **Settings → Open local data folder** instead of navigating there manually.
