@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 MIGRATIONS: dict[int, str] = {
@@ -113,6 +113,9 @@ MIGRATIONS: dict[int, str] = {
     8: """
     ALTER TABLE transactions ADD COLUMN budget_excluded INTEGER NOT NULL DEFAULT 0;
     """,
+    9: """
+    ALTER TABLE budgets ADD COLUMN due_date TEXT;
+    """,
 }
 
 
@@ -180,6 +183,10 @@ class Database:
                     columns = {row[1] for row in connection.execute("PRAGMA table_info(transactions)").fetchall()}
                     if "budget_excluded" not in columns:
                         connection.execute("ALTER TABLE transactions ADD COLUMN budget_excluded INTEGER NOT NULL DEFAULT 0")
+                elif version == 9:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(budgets)").fetchall()}
+                    if "due_date" not in columns:
+                        connection.execute("ALTER TABLE budgets ADD COLUMN due_date TEXT")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")

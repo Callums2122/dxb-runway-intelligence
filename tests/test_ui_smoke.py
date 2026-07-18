@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
 from dxb_runway.main_window import MainWindow
-from dxb_runway.screens import DashboardPage, PlayfulCalendar
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar
 
 
 def app():
@@ -56,6 +56,23 @@ def test_calendar_wheel_moves_only_once_per_gesture():
     assert calendar.handle_wheel(-120,10.7) is True
     assert QDate(calendar.yearShown(),calendar.monthShown(),1)==start.addMonths(2)
     calendar.close()
+
+
+def test_budget_tracks_transactions_and_places_rent_due_in_calendar(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); db.set_setting("gbp_aed_rate","4.8")
+    accommodation=db.query("SELECT id FROM categories WHERE name='Accommodation'")[0]["id"]
+    groceries=db.query("SELECT id FROM categories WHERE name='Groceries'")[0]["id"]
+    db.execute("INSERT INTO budgets(month,category_id,planned_aed,due_date) VALUES ('2026-07',?,4500,'2026-07-25')",(accommodation,))
+    db.execute("INSERT INTO budgets(month,category_id,planned_aed) VALUES ('2026-07',?,1000)",(groceries,))
+    for amount,category,merchant in [(4000,accommodation,"Rent"),(250,groceries,"Food shop")]:
+        db.add_transaction({"amount":amount,"currency":"AED","occurred_at":"2026-07-18T12:00:00","kind":"expense","category_id":category,"merchant":merchant,"payment_method":"Bank transfer","recurring":0,"notes":"","receipt_path":None,"refundable_deposit":0,"essential":1,"tags":""})
+    budget=BudgetsPage(db); budget.month_date=QDate(2026,7,1); budget.refresh()
+    assert budget.rent_plan.value()==4500 and budget.rent_due.date()==QDate(2026,7,25)
+    assert "AED 4,000" in budget.rent_spent.text()
+    assert "AED +750" in budget.category_cards[groceries].remaining.text()
+    calendar=CalendarPage(db)
+    assert QDate(2026,7,25) in calendar.calendar.event_colors
+    budget.close(); calendar.close()
 
 
 def test_overview_runway_uses_budget_salary_calendar_and_card_minimums(tmp_path: Path):

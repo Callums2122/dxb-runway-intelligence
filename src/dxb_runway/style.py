@@ -57,6 +57,8 @@ QCalendarWidget QWidget {{ alternate-background-color: {COLORS['panel2']}; }}
 QCalendarWidget QToolButton {{ background: transparent; border: none; }}
 QLabel#calendarMonth {{ font-size: 22px; font-weight: 760; }}
 QLabel#calendarDay {{ font-size: 25px; font-weight: 760; line-height: 1.15; }}
+QLabel#budgetMonth {{ font-size: 17px; font-weight: 730; min-width: 118px; qproperty-alignment: AlignCenter; }}
+QLabel#budgetHero {{ font-size: 28px; font-weight: 760; }}
 QPushButton#calendarNav {{
   background: #171f2b; border: 1px solid {COLORS['border2']}; border-radius: 12px;
   padding: 0; font-size: 25px; font-weight: 500;

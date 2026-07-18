@@ -11,6 +11,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert len(db.query("SELECT * FROM categories"))>=17
     assert db.get_setting("gbp_aed_rate")=="4.928313"
     assert db.get_setting("gbp_aed_rate_updated_at")=="2026-07-14"
+    assert "due_date" in {row[1] for row in db.query("PRAGMA table_info(budgets)")}
 
 
 def test_rate_snapshot_migration_updates_only_untouched_old_default(tmp_path: Path):

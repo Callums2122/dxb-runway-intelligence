@@ -142,6 +142,31 @@ class PlayfulCalendar(QCalendarWidget):
         painter.restore()
 
 
+class BudgetCategoryCard(Card):
+    def __init__(self, name: str, color: str):
+        super().__init__()
+        self.name, self.color, self.spent, self.rate = name, color, Decimal("0"), Decimal("1")
+        root=QVBoxLayout(self); root.setContentsMargins(16,15,16,15); root.setSpacing(9)
+        top=QHBoxLayout(); title=QLabel("Food & groceries" if name=="Groceries" else name); title.setStyleSheet("font-size:15px;font-weight:700"); top.addWidget(title); top.addStretch()
+        self.percent=QLabel("0%"); self.percent.setStyleSheet(f"color:{color};font-weight:700"); top.addWidget(self.percent); root.addLayout(top)
+        self.spent_label=QLabel(); self.spent_label.setObjectName("muted"); root.addWidget(self.spent_label)
+        self.progress=QProgressBar(); self.progress.setRange(0,100); self.progress.setTextVisible(False); self.progress.setStyleSheet(f"QProgressBar::chunk{{background:{color};border-radius:4px;}}"); root.addWidget(self.progress)
+        plan_row=QHBoxLayout(); plan_copy=QLabel("MONTHLY LIMIT"); plan_copy.setObjectName("eyebrow"); plan_row.addWidget(plan_copy); plan_row.addStretch(); self.plan=MoneyBox(maximum=1_000_000); self.plan.setSuffix(" AED"); self.plan.setMaximumWidth(165); plan_row.addWidget(self.plan); root.addLayout(plan_row)
+        self.remaining=QLabel(); self.remaining.setWordWrap(True); root.addWidget(self.remaining)
+
+    def set_data(self, planned: float, spent: Decimal, rate: Decimal) -> None:
+        self.spent, self.rate = spent, rate
+        self.plan.blockSignals(True); self.plan.setValue(planned); self.plan.blockSignals(False)
+        self.update_display()
+
+    def update_display(self) -> None:
+        planned=Decimal(str(self.plan.value())); remaining=planned-self.spent; used=min(100,int(self.spent/planned*100)) if planned else (100 if self.spent else 0)
+        self.progress.setValue(used); self.percent.setText(f"{used}%")
+        spent_aed,spent_gbp=dual_amount(self.spent,self.rate); self.spent_label.setText(f"Spent {spent_aed}  ·  {spent_gbp}")
+        left_aed,left_gbp=dual_amount(remaining,self.rate,signed=True); self.remaining.setText(f"{left_aed}  /  {left_gbp} left")
+        self.remaining.setStyleSheet(f"font-size:14px;font-weight:700;color:{COLORS['red'] if remaining<0 else COLORS['green']}")
+
+
 class DashboardPage(Page):
     quick_add = Signal()
     def __init__(self, db: Database):
@@ -538,26 +563,89 @@ class ScenarioPage(Page):
 
 
 class BudgetsPage(Page):
+    TRACKED_CATEGORIES=("Groceries","Transport","Restaurants","Phone","Utilities","Subscriptions","Clothing","Entertainment","Miscellaneous")
+
     def __init__(self,db:Database):
-        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14); top=QHBoxLayout(); top.addWidget(SectionHeader("Budget system","Monthly category plans, essential/discretionary separation and threshold warnings.")); top.addStretch(); self.month=QDateEdit(QDate.currentDate()); self.month.setDisplayFormat("MMMM yyyy"); self.month.dateChanged.connect(self.refresh); top.addWidget(self.month); survival=QPushButton("Show survival budget"); survival.clicked.connect(self.survival); top.addWidget(survival); layout.addLayout(top)
-        self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["CATEGORY","MODE","PLANNED · AED","≈ GBP","ACTUAL","REMAINING","USED","ROLLOVER"]); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); save=QPushButton("Save budget plan"); save.setProperty("primary",True); save.clicked.connect(self.save); layout.addWidget(save); self.refresh()
+        super().__init__(db); self.month_date=QDate.currentDate(); self.actual={}; self.rate=Decimal("1"); self.category_cards={}
+        outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(16)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Monthly payments","See what is due, what Transactions says you have spent, and exactly what remains.")); top.addStretch()
+        previous=QPushButton("‹"); previous.setObjectName("calendarNav"); previous.setFixedSize(40,40); previous.clicked.connect(lambda:self.change_month(-1)); top.addWidget(previous)
+        self.month_title=QLabel(); self.month_title.setObjectName("budgetMonth"); top.addWidget(self.month_title)
+        following=QPushButton("›"); following.setObjectName("calendarNav"); following.setFixedSize(40,40); following.clicked.connect(lambda:self.change_month(1)); top.addWidget(following); root.addLayout(top)
+
+        hero=Card(); hero_l=QHBoxLayout(hero); hero_l.setContentsMargins(22,18,22,18); hero_l.setSpacing(24)
+        copy=QVBoxLayout(); eyebrow=QLabel("LEFT TO SPEND THIS MONTH"); eyebrow.setObjectName("eyebrow"); copy.addWidget(eyebrow); self.hero_value=QLabel(); self.hero_value.setObjectName("budgetHero"); copy.addWidget(self.hero_value); self.hero_detail=QLabel(); self.hero_detail.setObjectName("muted"); copy.addWidget(self.hero_detail); hero_l.addLayout(copy,1)
+        progress_box=QVBoxLayout(); self.hero_percent=QLabel(); self.hero_percent.setAlignment(Qt.AlignmentFlag.AlignRight); self.hero_percent.setStyleSheet(f"color:{COLORS['cyan']};font-size:18px;font-weight:750"); progress_box.addWidget(self.hero_percent); self.hero_progress=QProgressBar(); self.hero_progress.setFixedWidth(300); progress_box.addWidget(self.hero_progress); hero_l.addLayout(progress_box); root.addWidget(hero)
+
+        root.addWidget(SectionHeader("Rent payment","Set the amount and due date once. When you log the payment, Transactions updates this page automatically."))
+        rent=Card(); rent_l=QHBoxLayout(rent); rent_l.setContentsMargins(18,17,18,17); rent_l.setSpacing(18)
+        rent_info=QVBoxLayout(); rent_title=QLabel("Home rent"); rent_title.setStyleSheet("font-size:17px;font-weight:730"); rent_info.addWidget(rent_title); self.rent_status=QLabel(); rent_info.addWidget(self.rent_status); self.rent_spent=QLabel(); self.rent_spent.setObjectName("muted"); rent_info.addWidget(self.rent_spent); rent_l.addLayout(rent_info,1)
+        rent_amount=QVBoxLayout(); amount_label=QLabel("MONTHLY RENT"); amount_label.setObjectName("eyebrow"); rent_amount.addWidget(amount_label); self.rent_plan=MoneyBox(maximum=5_000_000); self.rent_plan.setSuffix(" AED"); self.rent_plan.setMinimumWidth(190); self.rent_plan.valueChanged.connect(self.update_totals); rent_amount.addWidget(self.rent_plan); rent_l.addLayout(rent_amount)
+        due_box=QVBoxLayout(); due_label=QLabel("DUE DATE"); due_label.setObjectName("eyebrow"); due_box.addWidget(due_label); self.rent_due=QDateEdit(); self.rent_due.setCalendarPopup(True); self.rent_due.setDisplayFormat("ddd, d MMMM"); self.rent_due.setMinimumWidth(190); self.rent_due.dateChanged.connect(self.update_rent_display); due_box.addWidget(self.rent_due); rent_l.addLayout(due_box)
+        log=QPushButton("Log rent payment"); log.setProperty("primary",True); log.clicked.connect(self.log_rent); rent_l.addWidget(log); root.addWidget(rent)
+
+        root.addWidget(SectionHeader("Everyday spending","Simple monthly limits for the categories you use most. Spending is read directly from Transactions."))
+        self.grid=QGridLayout(); self.grid.setSpacing(12)
+        categories={row["name"]:row for row in self.db.query("SELECT * FROM categories WHERE kind='expense'")}
+        for index,name in enumerate(self.TRACKED_CATEGORIES):
+            category=categories.get(name)
+            if not category: continue
+            card=BudgetCategoryCard(name,category["color"]); card.plan.valueChanged.connect(self.update_totals); self.category_cards[category["id"]]=card; self.grid.addWidget(card,index//3,index%3)
+        root.addLayout(self.grid)
+        note=QLabel("One-off setup costs, deposits, relocation and card repayments stay visible in Transactions but do not reduce these everyday limits."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
+        save=QPushButton("Save monthly plan"); save.setProperty("primary",True); save.clicked.connect(self.save); root.addWidget(save)
+        outer.addWidget(page_scroll(content)); self.refresh()
+
+    def change_month(self,offset:int)->None:
+        self.month_date=self.month_date.addMonths(offset); self.refresh()
+
     def refresh(self)->None:
-        month=self.month.date().toString("yyyy-MM"); cats=self.db.query("SELECT * FROM categories WHERE kind='expense' ORDER BY essential_default DESC,name"); rate=self.db.get_setting("gbp_aed_rate","4.928313"); tx=self.db.transactions(month=month,limit=100000); actual={}
-        for row in tx:
-            if row["kind"]=="expense" and not row["refundable_deposit"] and not row["budget_excluded"]: actual[row["category_id"]]=actual.get(row["category_id"],Decimal(0))+to_aed(row["amount"],row["currency"],rate)
-        planned={row["category_id"]:row for row in self.db.query("SELECT * FROM budgets WHERE month=?",(month,))}; self.table.setRowCount(len(cats))
-        defaults={"Accommodation":float(self.db.get_setting("rent_aed","4500")),"Transport":float(self.db.get_setting("transport_aed","2000")),"Groceries":float(self.db.get_setting("food_aed","1250"))}
-        for i,cat in enumerate(cats):
-            self.table.setRowHeight(i,48); self.table.setVerticalHeaderItem(i,QTableWidgetItem(str(cat["id"]))); self.table.setItem(i,0,table_item(cat["name"])); self.table.setItem(i,1,table_item("Essential" if cat["essential_default"] else "Discretionary",color=COLORS["green"] if cat["essential_default"] else COLORS["purple"])); spin=MoneyBox(); spin.setValue(planned[cat["id"]]["planned_aed"] if cat["id"] in planned else defaults.get(cat["name"],cat["monthly_limit_aed"])); self.table.setCellWidget(i,2,spin); planned_gbp=table_item(f"GBP {gbp_equivalent(spin.value(),rate):,.0f}"); self.table.setItem(i,3,planned_gbp); spin.valueChanged.connect(lambda value,item=planned_gbp,current_rate=rate:item.setText(f"GBP {gbp_equivalent(value,current_rate):,.0f}")); act=float(actual.get(cat["id"],0)); remain=spin.value()-act; used=int(act/spin.value()*100) if spin.value() else 0; actual_aed,actual_gbp=dual_amount(act,rate); remain_aed,remain_gbp=dual_amount(remain,rate,signed=True); self.table.setItem(i,4,table_item(f"{actual_aed}\n{actual_gbp}")); self.table.setItem(i,5,table_item(f"{remain_aed}\n{remain_gbp}",color=COLORS["red"] if remain<0 else COLORS["green"])); self.table.setItem(i,6,table_item(f"{used}%",color=COLORS["red"] if used>=100 else COLORS["amber"] if used>=70 else COLORS["green"])); roll=QCheckBox(); roll.setChecked(bool(planned[cat["id"]]["rollover"]) if cat["id"] in planned else False); self.table.setCellWidget(i,7,roll)
-        self.table.setColumnWidth(0,160); self.table.setColumnWidth(2,145); self.table.setColumnWidth(3,100); self.table.horizontalHeader().setStretchLastSection(True)
+        month=self.month_date.toString("yyyy-MM"); self.month_title.setText(self.month_date.toString("MMMM yyyy")); self.rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); self.actual={}
+        for row in self.db.transactions(month=month,limit=100000):
+            if row["kind"]=="expense" and not row["refundable_deposit"] and not row["budget_excluded"]:
+                if row["category"]=="Accommodation" and not row["recurring"] and "rent" not in row["merchant"].lower(): continue
+                self.actual[row["category_id"]]=self.actual.get(row["category_id"],Decimal("0"))+to_aed(row["amount"],row["currency"],self.rate)
+        plans={row["category_id"]:row for row in self.db.query("SELECT * FROM budgets WHERE month=?",(month,))}; categories={row["id"]:row for row in self.db.query("SELECT * FROM categories WHERE kind='expense'")}
+        accommodation=next(row for row in categories.values() if row["name"]=="Accommodation"); self.accommodation_id=accommodation["id"]
+        rent_row=plans.get(self.accommodation_id); rent_default=float(self.db.get_setting("rent_aed","4500")); due_default=QDate(self.month_date.year(),self.month_date.month(),1)
+        self.rent_plan.blockSignals(True); self.rent_plan.setValue(rent_row["planned_aed"] if rent_row else rent_default); self.rent_plan.blockSignals(False)
+        self.rent_due.blockSignals(True); self.rent_due.setDate(QDate.fromString(rent_row["due_date"],"yyyy-MM-dd") if rent_row and rent_row["due_date"] else due_default); self.rent_due.blockSignals(False)
+        defaults={"Transport":float(self.db.get_setting("transport_aed","2000")),"Groceries":float(self.db.get_setting("food_aed","1250"))}
+        for category_id,card in self.category_cards.items():
+            row=plans.get(category_id); category=categories[category_id]; card.set_data(row["planned_aed"] if row else defaults.get(category["name"],category["monthly_limit_aed"]),self.actual.get(category_id,Decimal("0")),self.rate)
+        self.update_totals()
+
+    def update_rent_display(self)->None:
+        if not hasattr(self,"accommodation_id"): return
+        planned=Decimal(str(self.rent_plan.value())); spent=self.actual.get(self.accommodation_id,Decimal("0")); remaining=planned-spent; paid=planned>0 and remaining<=0
+        due=self.rent_due.date(); days=QDate.currentDate().daysTo(due); status="PAID" if paid else "DUE TODAY" if days==0 else f"DUE IN {days} DAYS" if days>0 else f"{abs(days)} DAYS OVERDUE"
+        color=COLORS["green"] if paid else COLORS["amber"] if days>=0 else COLORS["red"]
+        self.rent_status.setText(status); self.rent_status.setStyleSheet(f"color:{color};font-size:12px;font-weight:750")
+        spent_aed,spent_gbp=dual_amount(spent,self.rate); left_aed,left_gbp=dual_amount(remaining,self.rate,signed=True); self.rent_spent.setText(f"Paid {spent_aed} / {spent_gbp}  ·  {left_aed} / {left_gbp} remaining")
+
+    def update_totals(self)->None:
+        if not hasattr(self,"accommodation_id"): return
+        for card in self.category_cards.values(): card.update_display()
+        planned=Decimal(str(self.rent_plan.value()))+sum((Decimal(str(card.plan.value())) for card in self.category_cards.values()),Decimal("0")); tracked={self.accommodation_id,*self.category_cards.keys()}; spent=sum((self.actual.get(category_id,Decimal("0")) for category_id in tracked),Decimal("0")); remaining=planned-spent; used=min(100,int(spent/planned*100)) if planned else (100 if spent else 0)
+        left_aed,left_gbp=dual_amount(remaining,self.rate,signed=True); spent_aed,spent_gbp=dual_amount(spent,self.rate); plan_aed,plan_gbp=dual_amount(planned,self.rate)
+        self.hero_value.setText(f"{left_aed}  /  {left_gbp}"); self.hero_value.setStyleSheet(f"color:{COLORS['red'] if remaining<0 else COLORS['green']}")
+        self.hero_detail.setText(f"Spent {spent_aed} / {spent_gbp} from a {plan_aed} / {plan_gbp} monthly plan")
+        self.hero_percent.setText(f"{used}% used"); self.hero_progress.setValue(used); self.update_rent_display()
+
     def save(self)->None:
-        month=self.month.date().toString("yyyy-MM")
-        for i in range(self.table.rowCount()): cat=int(self.table.verticalHeaderItem(i).text()); planned=self.table.cellWidget(i,2).value(); rollover=int(self.table.cellWidget(i,7).isChecked()); self.db.execute("INSERT INTO budgets(month,category_id,planned_aed,rollover) VALUES (?,?,?,?) ON CONFLICT(month,category_id) DO UPDATE SET planned_aed=excluded.planned_aed,rollover=excluded.rollover",(month,cat,planned,rollover))
-        QMessageBox.information(self,"Budget saved",f"Budget plan saved for {month}."); self.refresh(); self.changed.emit()
-    def survival(self)->None:
-        for i in range(self.table.rowCount()):
-            if self.table.item(i,1).text()=="Discretionary": self.table.cellWidget(i,2).setValue(0)
-        QMessageBox.information(self,"Survival budget","All discretionary category plans have been set to zero. Save to keep this version.")
+        month=self.month_date.toString("yyyy-MM"); values=[(self.accommodation_id,self.rent_plan.value(),self.rent_due.date().toString("yyyy-MM-dd"))]+[(category_id,card.plan.value(),None) for category_id,card in self.category_cards.items()]
+        self.db.execute("DELETE FROM budgets WHERE month=?",(month,))
+        for category_id,planned,due_date in values:
+            self.db.execute("INSERT INTO budgets(month,category_id,planned_aed,rollover,due_date) VALUES (?,?,?,0,?) ON CONFLICT(month,category_id) DO UPDATE SET planned_aed=excluded.planned_aed,due_date=excluded.due_date",(month,category_id,planned,due_date))
+        self.db.set_setting("rent_aed",self.rent_plan.value())
+        for category_id,card in self.category_cards.items():
+            if card.name=="Transport": self.db.set_setting("transport_aed",card.plan.value())
+            if card.name=="Groceries": self.db.set_setting("food_aed",card.plan.value())
+        QMessageBox.information(self,"Plan saved",f"Your {self.month_date.toString('MMMM yyyy')} payment plan is saved. Rent will appear in Calendar on {self.rent_due.date().toString('d MMMM')}."); self.refresh(); self.changed.emit()
+
+    def log_rent(self)->None:
+        dialog=TransactionDialog(self.db,parent=self); dialog.amount.setValue(self.rent_plan.value()); dialog.currency.setCurrentText("AED"); dialog.when.setDate(QDate.currentDate()); dialog.category.setCurrentIndex(dialog.category.findData(self.accommodation_id)); dialog.merchant.setText("Rent"); dialog.payment.setCurrentText("Bank transfer"); dialog.recurring.setChecked(True); dialog.essential.setChecked(True)
+        if dialog.exec(): self.db.add_transaction(dialog.values()); self.refresh(); self.changed.emit()
 
 
 class CalendarPage(Page):
@@ -606,7 +694,7 @@ class CalendarPage(Page):
         self.month_title.setText(QDate(year,month,1).toString("MMMM yyyy"))
 
     def refresh(self)->None:
-        rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")
+        rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date IS NOT NULL AND b.planned_aed>0")
         colors={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}
         event_colors={}
         for row in rows:
@@ -616,7 +704,7 @@ class CalendarPage(Page):
         self.refresh_events()
 
     def refresh_events(self)->None:
-        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd\nd MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))
+        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd\nd MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date=? AND b.planned_aed>0",(selected,))
         if not rows:
             empty=QFrame(); empty.setObjectName("calendarEmpty"); empty_l=QVBoxLayout(empty); empty_l.setContentsMargins(16,18,16,18)
             icon=QLabel("✦"); icon.setObjectName("calendarEmptyIcon"); empty_l.addWidget(icon,0,Qt.AlignmentFlag.AlignCenter)
@@ -625,7 +713,9 @@ class CalendarPage(Page):
         for row in rows:
             event_type=str(row["event_type"]); accent={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}.get(event_type,COLORS["cyan"])
             card=QFrame(); card.setProperty("eventCard",True); card.setStyleSheet(f"QFrame[eventCard='true']{{background:#141a24;border:1px solid #202937;border-left:4px solid {accent};border-radius:10px;}}")
-            lay=QVBoxLayout(card); lay.setContentsMargins(14,12,14,12); title=QLabel(row["title"]); title.setStyleSheet("font-weight:700;font-size:14px"); lay.addWidget(title); meta=QLabel(event_type.upper()); meta.setStyleSheet(f"color:{accent};font-size:10px;font-weight:700;letter-spacing:1px"); lay.addWidget(meta); self.events.addWidget(card)
+            lay=QVBoxLayout(card); lay.setContentsMargins(14,12,14,12); title=QLabel(row["title"]); title.setStyleSheet("font-weight:700;font-size:14px"); lay.addWidget(title); meta=QLabel(event_type.upper()); meta.setStyleSheet(f"color:{accent};font-size:10px;font-weight:700;letter-spacing:1px"); lay.addWidget(meta)
+            if row["notes"]: detail=QLabel(row["notes"]); detail.setObjectName("muted"); lay.addWidget(detail)
+            self.events.addWidget(card)
 
     def add(self)->None:
         title,ok=QInputDialog.getText(self,"New reminder","What would you like to remember?")
