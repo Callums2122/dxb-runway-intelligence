@@ -23,6 +23,8 @@
 ## Product limitations
 
 - The application is a planning tool, not regulated financial, tax, legal or employment advice.
+- macOS release apps are ad-hoc signed but not notarised by Apple. Control-click → Open is normally sufficient for a personal Mac; company MDM policy may require IT approval or a separately signed and notarised build.
+- PyInstaller packages are platform- and architecture-specific. Use the Apple Silicon build on M-series Macs and the Intel build on Intel Macs; the Windows executable does not run natively on macOS.
 - PDF reports are intentionally summary-led; receipt images are not embedded.
 - CSV import accepts the included header format and skips exact same-day amount/merchant duplicates.
 - New credit-card purchases and repayments are linked to a selected card. Balances and available credit update from those transactions; existing balances from older versions remain the opening position.

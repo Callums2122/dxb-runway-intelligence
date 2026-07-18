@@ -1,6 +1,6 @@
 # DXB RUNWAY
 
-DXB RUNWAY is a polished, completely local Windows financial command centre for a UK-to-Dubai relocation. It separates real cash, protected reserves, refundable deposits, debt and delayed commission so future upside never masquerades as money available today.
+DXB RUNWAY is a polished, completely local Windows and macOS financial command centre for a UK-to-Dubai relocation. It separates real cash, protected reserves, refundable deposits, debt and delayed commission so future upside never masquerades as money available today.
 
 ![Dashboard with AED and GBP equivalents](screenshots/v11-final-dashboard.png)
 
@@ -23,7 +23,7 @@ DXB RUNWAY is a polished, completely local Windows financial command centre for 
 - Versioned SQLite migrations and 41 automated tests
 - No accounts, telemetry, analytics, external database or required internet connection
 
-## Run the finished application
+## Run the finished application on Windows
 
 Use `dist\DXB RUNWAY.exe`. The first launch stores data in the Windows roaming AppData application directory selected by Qt, normally:
 
@@ -33,9 +33,15 @@ Use `dist\DXB RUNWAY.exe`. The first launch stores data in the Windows roaming A
 
 The database is `dxb_runway.db`; local receipt copies are under `receipts\`. Portable backups can be saved anywhere from Settings.
 
+## Run on macOS
+
+Each GitHub release includes native ZIP builds for Apple Silicon and Intel Macs. Unzip the correct download, drag `DXB RUNWAY.app` into Applications, then Control-click it and choose **Open** on the first launch. The Mac builds are ad-hoc signed but not Apple-notarised, so a managed company Mac may require IT approval.
+
+Move existing Windows data with **Settings → Create portable backup**, then use **Settings → Restore backup** on the Mac. See [MACOS.md](MACOS.md) for the exact installation, processor-choice and transfer steps.
+
 ## Run from source
 
-Requirements: Windows 10/11 x64 and Python 3.12.
+Requirements: Windows 10/11 x64 or macOS 14+, and Python 3.12.
 
 ```powershell
 py -3.12 -m venv .venv

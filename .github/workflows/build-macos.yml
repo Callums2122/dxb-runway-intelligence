@@ -1,0 +1,67 @@
+name: Build macOS apps
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: macOS ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            label: Apple-Silicon
+          - runner: macos-15-intel
+            label: Intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run automated tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest
+      - name: Create macOS icon
+        shell: bash
+        run: |
+          mkdir -p build/DXBRunway.iconset
+          sips -z 16 16 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_16x16.png
+          sips -z 32 32 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_16x16@2x.png
+          sips -z 32 32 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_32x32.png
+          sips -z 64 64 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_32x32@2x.png
+          sips -z 128 128 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_128x128.png
+          sips -z 256 256 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_128x128@2x.png
+          sips -z 256 256 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_256x256.png
+          sips -z 512 512 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_256x256@2x.png
+          sips -z 512 512 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_512x512.png
+          sips -z 1024 1024 assets/dxb_runway_icon.png --out build/DXBRunway.iconset/icon_512x512@2x.png
+          iconutil -c icns build/DXBRunway.iconset -o assets/dxb_runway.icns
+      - name: Build native app bundle
+        run: python -m PyInstaller --noconfirm --clean DXB_RUNWAY_mac.spec
+      - name: Ad-hoc sign and archive
+        shell: bash
+        run: |
+          codesign --force --deep --sign - "dist/DXB RUNWAY.app"
+          codesign --verify --deep --strict "dist/DXB RUNWAY.app"
+          ditto -c -k --sequesterRsrc --keepParent "dist/DXB RUNWAY.app" "dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DXB-RUNWAY-macOS-${{ matrix.label }}
+          path: dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip
+          if-no-files-found: error
+      - name: Attach app to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip" --clobber

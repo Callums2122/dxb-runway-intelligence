@@ -50,6 +50,7 @@ Given AED 10,000 cash, AED 3,000 protected fund, AED 1,000 unavailable deposit, 
 - Version 1.2.8 adds a live daily spending guide to Overview. Today's limit is the remaining normal monthly budget divided by the inclusive number of days left; today's eligible Transactions reduce the displayed amount left immediately.
 - Version 1.2.9 anchors the daily guide to an editable GBP 1,700 monthly spending cap, converted to AED using the single stored exchange rate before eligible monthly Transactions are deducted.
 - Version 1.2.10 replaces the transaction highlight star with a stronger full-row amber treatment while preserving persistent state, tooltips and the highlighted-only filter.
+- Version 1.3.0 adds native GitHub-hosted macOS application builds for Apple Silicon and Intel, Mac command-key shortcuts, platform-neutral local-data wording and a Windows-to-Mac backup transfer guide. The workflow runs all automated tests on each target before packaging and verifies the ad-hoc app signature.
 - The version 1.2 one-file executable was launched with representative vehicle data and produced a complete packaged Vehicle Desk screenshot after its extraction/paint cycle.
 - One-file `DXB RUNWAY.exe` launched and captured a dashboard screenshot.
 - Inno Setup installer compiled, silently installed into a disposable directory, and the installed executable launched and captured the transactions screen.

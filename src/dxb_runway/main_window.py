@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
@@ -24,6 +25,8 @@ NAVIGATION = [
     ("calendar", "□", "Calendar"), ("goals", "◎", "Momentum"), ("reports", "▥", "Reports"),
     ("settings", "⚙", "Settings"),
 ]
+COMMAND_MOD = "Meta" if sys.platform == "darwin" else "Ctrl"
+COMMAND_LABEL = "⌘" if sys.platform == "darwin" else "Ctrl"
 
 
 class MainWindow(QMainWindow):
@@ -40,13 +43,13 @@ class MainWindow(QMainWindow):
             button=QPushButton(f"{icon}    {label}"); button.setObjectName("nav"); button.setCheckable(True); button.clicked.connect(lambda checked,k=key:self.navigate(k)); button.setMinimumHeight(38); side.addWidget(button); self.nav_buttons[key]=button
             if key=="calendar": side.addSpacing(8)
         side.addStretch(); privacy=QFrame(); privacy.setProperty("card",True); pl=QVBoxLayout(privacy); pl.setContentsMargins(11,10,11,10); lock=QLabel("●  LOCAL & PRIVATE"); lock.setStyleSheet(f"color:{COLORS['green']};font-size:10px;font-weight:800"); pl.addWidget(lock); self.privacy_copy=QLabel("No cloud · no telemetry"); self.privacy_copy.setObjectName("muted"); pl.addWidget(self.privacy_copy); side.addWidget(privacy); shell.addWidget(self.sidebar)
-        right=QVBoxLayout(); right.setContentsMargins(0,0,0,0); right.setSpacing(0); top=QFrame(); top.setObjectName("topbar"); tl=QHBoxLayout(top); tl.setContentsMargins(20,10,20,10); self.context=QLabel("OVERVIEW"); self.context.setObjectName("eyebrow"); tl.addWidget(self.context); tl.addStretch(); command=QPushButton("⌕  Search or command     Ctrl K"); command.clicked.connect(self.open_palette); tl.addWidget(command); quick=QPushButton("＋"); quick.setToolTip("Quick add transaction · Ctrl+N"); quick.setProperty("primary",True); quick.clicked.connect(self.quick_add); tl.addWidget(quick); right.addWidget(top)
+        right=QVBoxLayout(); right.setContentsMargins(0,0,0,0); right.setSpacing(0); top=QFrame(); top.setObjectName("topbar"); tl=QHBoxLayout(top); tl.setContentsMargins(20,10,20,10); self.context=QLabel("OVERVIEW"); self.context.setObjectName("eyebrow"); tl.addWidget(self.context); tl.addStretch(); command=QPushButton(f"⌕  Search or command     {COMMAND_LABEL} K"); command.clicked.connect(self.open_palette); tl.addWidget(command); quick=QPushButton("＋"); quick.setToolTip(f"Quick add transaction · {COMMAND_LABEL}+N"); quick.setProperty("primary",True); quick.clicked.connect(self.quick_add); tl.addWidget(quick); right.addWidget(top)
         self.stack=QStackedWidget(); right.addWidget(self.stack,1); shell.addLayout(right,1)
         self.pages={"dashboard":DashboardPage(db),"vehicles":VehicleDeskPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"earnings":EarningsPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"goals":GoalsPage(db),"reports":ReportsPage(db),"settings":SettingsPage(db)}
         for key,_,_ in NAVIGATION: self.stack.addWidget(self.pages[key]); self.page_keys.append(key)
         self.pages["dashboard"].quick_add.connect(self.quick_add)
         for page in self.pages.values(): page.changed.connect(self.refresh_all)
-        QShortcut(QKeySequence("Ctrl+K"),self,activated=self.open_palette); QShortcut(QKeySequence("Ctrl+N"),self,activated=self.quick_add); QShortcut(QKeySequence("Ctrl+1"),self,activated=lambda:self.navigate("dashboard")); QShortcut(QKeySequence("Ctrl+2"),self,activated=lambda:self.navigate("transactions")); QShortcut(QKeySequence("Ctrl+3"),self,activated=lambda:self.navigate("scenarios")); QShortcut(QKeySequence("F5"),self,activated=self.refresh_all)
+        QShortcut(QKeySequence(f"{COMMAND_MOD}+K"),self,activated=self.open_palette); QShortcut(QKeySequence(f"{COMMAND_MOD}+N"),self,activated=self.quick_add); QShortcut(QKeySequence(f"{COMMAND_MOD}+1"),self,activated=lambda:self.navigate("dashboard")); QShortcut(QKeySequence(f"{COMMAND_MOD}+2"),self,activated=lambda:self.navigate("transactions")); QShortcut(QKeySequence(f"{COMMAND_MOD}+3"),self,activated=lambda:self.navigate("scenarios")); QShortcut(QKeySequence("F5"),self,activated=self.refresh_all)
         self.compact=False; self.navigate("dashboard")
 
     def navigate(self,key:str)->None:
