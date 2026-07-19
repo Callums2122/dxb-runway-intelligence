@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
-from dxb_runway.main_window import MainWindow
+from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar
 
 
@@ -31,6 +31,11 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
     assert set(window.pages)=={"dashboard","vehicles","transactions","debt","scenarios","budgets","calendar","goals","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","reports","settings"]]
+    assert window.nav_buttons["dashboard"].property("section")=="overview"
+    assert window.nav_buttons["vehicles"].property("section")=="leads"
+    assert window.nav_buttons["transactions"].property("section")=="money"
+    assert window.nav_buttons["goals"].property("section")=="other"
     for key,page in window.pages.items():
         window.navigate(key)
         assert window.stack.currentWidget() is page
@@ -44,6 +49,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     synced=db.query("SELECT salary_aed,commission_aed FROM earnings WHERE year=? AND month=?",(date.today().year,date.today().month))[0]
     assert Decimal(str(synced["salary_aed"]))==vehicles.current_result.salary_aed
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
+    window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●" and window.section_headers["leads"][2].isHidden()
+    window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●  LEADS"
     window.close()
 
 

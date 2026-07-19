@@ -30,9 +30,18 @@ QPushButton:pressed {{ background: #0d1118; }}
 QPushButton[primary="true"] {{ background: {COLORS['cyan']}; color: #071016; border: none; }}
 QPushButton[primary="true"]:hover {{ background: #7be3ff; }}
 QPushButton[danger="true"] {{ color: {COLORS['red']}; }}
-QPushButton#nav {{ background: transparent; border: none; text-align: left; padding: 9px 12px; color: {COLORS['muted']}; border-radius: 8px; }}
-QPushButton#nav:hover {{ background: #121923; color: {COLORS['text']}; }}
-QPushButton#nav:checked {{ background: #15202a; color: {COLORS['cyan']}; border: 1px solid #233747; }}
+QFrame[navGroup="true"] {{ border-radius: 9px; border-left: 3px solid transparent; }}
+QFrame[navGroup="true"][section="leads"] {{ background: #151326; border-left-color: {COLORS['purple']}; }}
+QFrame[navGroup="true"][section="money"] {{ background: #0f211d; border-left-color: {COLORS['green']}; }}
+QFrame[navGroup="true"][section="other"] {{ background: #251d10; border-left-color: {COLORS['amber']}; }}
+QPushButton#nav {{ background: transparent; border: 1px solid transparent; text-align: left; padding: 9px 12px; color: {COLORS['muted']}; border-radius: 9px; }}
+QPushButton#nav:hover {{ background: #151c27; color: {COLORS['text']}; border-color: #202b39; }}
+QPushButton#nav[section="overview"] {{ background: #101a23; color: #b7c4d4; border-color: #1c2a38; min-height: 22px; }}
+QPushButton#nav[section="overview"]:hover {{ background: #142735; color: {COLORS['cyan']}; border-color: #28485a; }}
+QPushButton#nav[section="overview"]:checked {{ background: #173143; color: {COLORS['cyan']}; border-color: #2d6078; }}
+QPushButton#nav[section="leads"]:checked {{ background: #211d3b; color: #b8aaff; border-color: #4b4081; }}
+QPushButton#nav[section="money"]:checked {{ background: #15362d; color: {COLORS['green']}; border-color: #286451; }}
+QPushButton#nav[section="other"]:checked {{ background: #3a2b14; color: #ffd274; border-color: #705323; }}
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit, QTextEdit {{
   background: #0c1118; border: 1px solid {COLORS['border2']}; border-radius: 8px; padding: 8px; selection-background-color: {COLORS['purple']};
 }}

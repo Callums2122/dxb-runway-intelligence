@@ -19,12 +19,13 @@ from .screens import (
 from .style import COLORS
 
 
-NAVIGATION = [
-    ("dashboard", "⌂", "Overview"), ("vehicles", "▱", "Vehicle desk"), ("transactions", "↕", "Transactions"), ("debt", "◇", "Debt control"),
-    ("scenarios", "⌁", "Scenario lab"), ("budgets", "▤", "Budgets"),
-    ("calendar", "□", "Calendar"), ("goals", "◎", "Momentum"), ("reports", "▥", "Reports"),
-    ("settings", "⚙", "Settings"),
+OVERVIEW_NAV = ("dashboard", "⌂", "Overview")
+NAV_SECTIONS = [
+    ("leads", "LEADS", COLORS["purple"], [("vehicles", "◈", "Vehicle desk"), ("calendar", "▣", "Calendar"), ("scenarios", "⌁", "Scenario lab")]),
+    ("money", "MONEY TRACKING", COLORS["green"], [("transactions", "↕", "Transactions"), ("debt", "◇", "Debt control"), ("budgets", "▤", "Budgets")]),
+    ("other", "MISC / OTHER", COLORS["amber"], [("goals", "◎", "Momentum"), ("reports", "▥", "Reports"), ("settings", "⚙", "Settings")]),
 ]
+NAVIGATION = [OVERVIEW_NAV]+[item for _,_,_,items in NAV_SECTIONS for item in items]
 COMMAND_MOD = "Meta" if sys.platform == "darwin" else "Ctrl"
 COMMAND_LABEL = "⌘" if sys.platform == "darwin" else "Ctrl"
 
@@ -34,15 +35,24 @@ class MainWindow(QMainWindow):
         super().__init__(); self.db=db; self.icon_path=icon_path; self.setWindowTitle("DXB RUNWAY · Financial Command Centre"); self.setMinimumSize(1100,720); self.resize(1480,920)
         if icon_path and icon_path.exists(): self.setWindowIcon(QIcon(str(icon_path)))
         root=QWidget(); root.setObjectName("appRoot"); self.setCentralWidget(root); shell=QHBoxLayout(root); shell.setContentsMargins(0,0,0,0); shell.setSpacing(0)
-        self.sidebar=QFrame(); self.sidebar.setObjectName("sidebar"); self.sidebar.setMinimumWidth(228); self.sidebar.setMaximumWidth(228); side=QVBoxLayout(self.sidebar); side.setContentsMargins(12,14,12,14); side.setSpacing(6)
+        self.sidebar=QFrame(); self.sidebar.setObjectName("sidebar"); self.sidebar.setMinimumWidth(244); self.sidebar.setMaximumWidth(244); side=QVBoxLayout(self.sidebar); side.setContentsMargins(12,14,12,14); side.setSpacing(5)
         brand_row=QHBoxLayout(); self.brand_icon=QLabel("DR"); self.brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter); self.brand_icon.setFixedSize(34,34); self.brand_icon.setStyleSheet(f"background:#16242e;color:{COLORS['cyan']};border:1px solid #294b5b;border-radius:10px;font-weight:900")
-        self.brand=QLabel("DXB RUNWAY"); self.brand.setObjectName("brand"); brand_row.addWidget(self.brand_icon); brand_row.addWidget(self.brand); brand_row.addStretch(); collapse=QPushButton("‹"); collapse.setFixedSize(30,30); collapse.clicked.connect(self.toggle_sidebar); brand_row.addWidget(collapse); side.addLayout(brand_row); side.addSpacing(12)
-        workspace=QLabel("PRIVATE WORKSPACE"); workspace.setObjectName("eyebrow"); side.addWidget(workspace)
-        self.nav_buttons={}; self.page_keys=[]
-        for key,icon,label in NAVIGATION:
-            button=QPushButton(f"{icon}    {label}"); button.setObjectName("nav"); button.setCheckable(True); button.clicked.connect(lambda checked,k=key:self.navigate(k)); button.setMinimumHeight(38); side.addWidget(button); self.nav_buttons[key]=button
-            if key=="calendar": side.addSpacing(8)
-        side.addStretch(); privacy=QFrame(); privacy.setProperty("card",True); pl=QVBoxLayout(privacy); pl.setContentsMargins(11,10,11,10); lock=QLabel("●  LOCAL & PRIVATE"); lock.setStyleSheet(f"color:{COLORS['green']};font-size:10px;font-weight:800"); pl.addWidget(lock); self.privacy_copy=QLabel("No cloud · no telemetry"); self.privacy_copy.setObjectName("muted"); pl.addWidget(self.privacy_copy); side.addWidget(privacy); shell.addWidget(self.sidebar)
+        self.brand=QLabel("DXB RUNWAY"); self.brand.setObjectName("brand"); brand_row.addWidget(self.brand_icon); brand_row.addWidget(self.brand); brand_row.addStretch(); self.collapse=QPushButton("‹"); self.collapse.setFixedSize(30,30); self.collapse.setToolTip("Collapse sidebar"); self.collapse.clicked.connect(self.toggle_sidebar); brand_row.addWidget(self.collapse); side.addLayout(brand_row); side.addSpacing(10)
+        self.workspace_label=QLabel("YOUR WORKSPACE"); self.workspace_label.setObjectName("eyebrow"); side.addWidget(self.workspace_label); side.addSpacing(2)
+        self.nav_buttons={}; self.page_keys=[]; self.section_headers={}
+
+        def add_nav(key:str,icon:str,label:str,section:str)->None:
+            button=QPushButton(f"{icon}    {label}"); button.setObjectName("nav"); button.setProperty("section",section); button.setCheckable(True); button.clicked.connect(lambda checked,k=key:self.navigate(k)); button.setMinimumHeight(38); button.setToolTip(label); side.addWidget(button); self.nav_buttons[key]=button
+
+        add_nav(*OVERVIEW_NAV,"overview"); side.addSpacing(7)
+        for section,title,color,items in NAV_SECTIONS:
+            header=QFrame(); header.setProperty("navGroup",True); header.setProperty("section",section); header_l=QHBoxLayout(header); header_l.setContentsMargins(10,6,8,6); header_l.setSpacing(7)
+            group_label=QLabel(f"●  {title}"); group_label.setStyleSheet(f"color:{color};font-size:10px;font-weight:800;letter-spacing:1px"); header_l.addWidget(group_label); header_l.addStretch()
+            count=QLabel(str(len(items))); count.setAlignment(Qt.AlignmentFlag.AlignCenter); count.setFixedSize(20,20); count.setStyleSheet(f"background:{color};color:#091016;border-radius:10px;font-size:10px;font-weight:900"); header_l.addWidget(count)
+            side.addWidget(header); self.section_headers[section]=(header,group_label,count,title,color)
+            for key,icon,label in items: add_nav(key,icon,label,section)
+            side.addSpacing(5)
+        side.addStretch(); privacy=QFrame(); privacy.setProperty("card",True); pl=QVBoxLayout(privacy); pl.setContentsMargins(11,10,11,10); self.privacy_lock=QLabel("●  LOCAL & PRIVATE"); self.privacy_lock.setStyleSheet(f"color:{COLORS['green']};font-size:10px;font-weight:800"); pl.addWidget(self.privacy_lock); self.privacy_copy=QLabel("No cloud · no telemetry"); self.privacy_copy.setObjectName("muted"); pl.addWidget(self.privacy_copy); side.addWidget(privacy); shell.addWidget(self.sidebar)
         right=QVBoxLayout(); right.setContentsMargins(0,0,0,0); right.setSpacing(0); top=QFrame(); top.setObjectName("topbar"); tl=QHBoxLayout(top); tl.setContentsMargins(20,10,20,10); self.context=QLabel("OVERVIEW"); self.context.setObjectName("eyebrow"); tl.addWidget(self.context); tl.addStretch(); command=QPushButton(f"⌕  Search or command     {COMMAND_LABEL} K"); command.clicked.connect(self.open_palette); tl.addWidget(command); quick=QPushButton("＋"); quick.setToolTip(f"Quick add transaction · {COMMAND_LABEL}+N"); quick.setProperty("primary",True); quick.clicked.connect(self.quick_add); tl.addWidget(quick); right.addWidget(top)
         self.stack=QStackedWidget(); right.addWidget(self.stack,1); shell.addLayout(right,1)
         self.pages={"dashboard":DashboardPage(db),"vehicles":VehicleDeskPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"goals":GoalsPage(db),"reports":ReportsPage(db),"settings":SettingsPage(db)}
@@ -68,10 +78,12 @@ class MainWindow(QMainWindow):
         if dialog.exec():self.db.add_transaction(dialog.values());self.refresh_all()
 
     def toggle_sidebar(self)->None:
-        self.compact=not self.compact; start=self.sidebar.width(); end=72 if self.compact else 228; self.sidebar.setMinimumWidth(end)
+        self.compact=not self.compact; start=self.sidebar.width(); end=72 if self.compact else 244; self.sidebar.setMinimumWidth(end)
         animation=QPropertyAnimation(self.sidebar,b"maximumWidth",self); animation.setDuration(180); animation.setStartValue(start); animation.setEndValue(end); animation.setEasingCurve(QEasingCurve.Type.OutCubic); animation.start(); self._sidebar_animation=animation
-        self.brand.setVisible(not self.compact); self.privacy_copy.setVisible(not self.compact)
+        self.brand.setVisible(not self.compact); self.workspace_label.setVisible(not self.compact); self.privacy_copy.setVisible(not self.compact); self.collapse.setText("›" if self.compact else "‹"); self.collapse.setToolTip("Expand sidebar" if self.compact else "Collapse sidebar"); self.privacy_lock.setText("●" if self.compact else "●  LOCAL & PRIVATE"); self.privacy_lock.setAlignment(Qt.AlignmentFlag.AlignCenter if self.compact else Qt.AlignmentFlag.AlignLeft)
         for key,icon,label in NAVIGATION:self.nav_buttons[key].setText(icon if self.compact else f"{icon}    {label}");self.nav_buttons[key].setToolTip(label)
+        for header,label,count,title,color in self.section_headers.values():
+            label.setText("●" if self.compact else f"●  {title}"); label.setAlignment(Qt.AlignmentFlag.AlignCenter if self.compact else Qt.AlignmentFlag.AlignLeft); count.setVisible(not self.compact); header.layout().setContentsMargins(0,4,0,4) if self.compact else header.layout().setContentsMargins(10,6,8,6)
 
     def open_palette(self)->None:
         commands=[("Go to overview","nav:dashboard"),("Open vehicle desk","nav:vehicles"),("Go to transactions","nav:transactions"),("Go to debt control","nav:debt"),("Open scenario lab","nav:scenarios"),("Open budgets","nav:budgets"),("Open financial calendar","nav:calendar"),("Open reports","nav:reports"),("Open settings","nav:settings"),("Add transaction","add"),("Refresh all data","refresh")]
