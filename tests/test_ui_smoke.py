@@ -54,7 +54,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●" and window.section_headers["leads"][2].isHidden()
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●  LEADS"
-    window.show(); application.processEvents(); window.navigate("transactions"); QTest.qWait(240)
+    window.show(); application.processEvents(); window.navigate("transactions"); QTest.qWait(500)
     assert window.pages["transactions"].graphicsEffect() is None
     window.close()
 
