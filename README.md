@@ -123,6 +123,6 @@ The bundled GBP/AED snapshot is **1 GBP = AED 4.928313**, published by the Centr
 
 DXB RUNWAY has no network client code. Exchange rates are manual. Receipts are copied to the local application folder. A restore automatically preserves the current database as a timestamped `pre-restore-*.db` file. Encrypted backups use Scrypt key derivation and Fernet authenticated encryption; losing the password means losing access to that backup.
 
-Version 1.5 introduces a product-wide visual refresh built for desktop financial work: restrained, local-first information structure with colourful charts, progress accents, transaction category icons and subtle page motion. It does not change financial features, calculations or stored data.
+Version 1.5 introduces a product-wide visual refresh built for desktop financial work: restrained, local-first information structure with colourful charts, progress accents, transaction category icons and responsive navigation. It does not change financial features, calculations or stored data.
 
 See [ASSUMPTIONS_AND_LIMITATIONS.md](ASSUMPTIONS_AND_LIMITATIONS.md) before relying on forecasts.

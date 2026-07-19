@@ -57,6 +57,7 @@ Given AED 10,000 cash, AED 3,000 protected fund, AED 1,000 unavailable deposit, 
 - Version 1.4.0 replaces the spreadsheet-style budget table with a modern monthly payment dashboard. Rent supports an amount, due date, Calendar event and prefilled transaction flow; everyday category cards calculate paid and remaining amounts directly from Transactions.
 - Version 1.4.1 reorganises navigation into a standalone Overview plus colour-coded Leads, Money tracking and Misc / other groups. Group order, page placement, active accents and compact-mode labels are covered by the UI smoke test.
 - Version 1.5.0 is a UI-only product-wide refresh: quieter local-CFO structure, richer metric hierarchy, colourful chart and progress accents, category-led transaction icons, refined tables/inputs and subtle page transitions. Financial logic, persisted data and workflows are unchanged.
+- Version 1.5.1 removes the expensive whole-page graphics fade so navigation switches immediately without forcing charts and tables through an off-screen repaint.
 - The version 1.2 one-file executable was launched with representative vehicle data and produced a complete packaged Vehicle Desk screenshot after its extraction/paint cycle.
 - One-file `DXB RUNWAY.exe` launched and captured a dashboard screenshot.
 - Inno Setup installer compiled, silently installed into a disposable directory, and the installed executable launched and captured the transactions screen.

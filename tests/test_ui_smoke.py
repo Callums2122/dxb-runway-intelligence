@@ -6,7 +6,6 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
@@ -54,7 +53,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●" and window.section_headers["leads"][2].isHidden()
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●  LEADS"
-    window.show(); application.processEvents(); window.navigate("transactions"); QTest.qWait(500)
+    window.show(); application.processEvents(); window.navigate("transactions")
     assert window.pages["transactions"].graphicsEffect() is None
     window.close()
 

@@ -6,7 +6,7 @@ import sys
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMainWindow, QPushButton, QSizePolicy, QStackedWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QSizePolicy, QStackedWidget,
     QVBoxLayout, QWidget
 )
 
@@ -67,14 +67,6 @@ class MainWindow(QMainWindow):
         page=self.pages[key]; self.stack.setCurrentWidget(page); self.context.setText(next(label.upper() for k,_,label in NAVIGATION if k==key))
         for k,button in self.nav_buttons.items():button.setChecked(k==key)
         page.refresh()
-        if not self.isVisible():
-            return
-        previous=getattr(self,"_page_animation",None)
-        if previous and previous.state()==QPropertyAnimation.State.Running:
-            previous.stop()
-        effect=QGraphicsOpacityEffect(page); page.setGraphicsEffect(effect); effect.setOpacity(0.18)
-        animation=QPropertyAnimation(effect,b"opacity",self); animation.setDuration(210); animation.setStartValue(0.18); animation.setEndValue(1.0); animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        animation.finished.connect(lambda p=page: p.setGraphicsEffect(None)); animation.start(); self._page_animation=animation
 
     def refresh_all(self)->None:
         for page in self.pages.values():
