@@ -6,12 +6,13 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label
 
 
 def app():
@@ -36,6 +37,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["transactions"].property("section")=="money"
     assert window.nav_buttons["goals"].property("section")=="other"
+    assert category_label("Transport").endswith("Transport")
+    assert category_label("Unknown category").endswith("Unknown category")
     for key,page in window.pages.items():
         window.navigate(key)
         assert window.stack.currentWidget() is page
@@ -51,6 +54,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●" and window.section_headers["leads"][2].isHidden()
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●  LEADS"
+    window.show(); application.processEvents(); window.navigate("transactions"); QTest.qWait(240)
+    assert window.pages["transactions"].graphicsEffect() is None
     window.close()
 
 

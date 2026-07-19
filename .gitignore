@@ -9,6 +9,7 @@ __pycache__/
 build/
 dist/
 work/
+artifacts/
 
 # Local financial data and backups
 *.db

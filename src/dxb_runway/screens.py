@@ -40,6 +40,20 @@ def table_item(text: str, alignment: Qt.AlignmentFlag | None = None, color: str 
     return item
 
 
+CATEGORY_ICONS = {
+    "Accommodation": "🏠", "Transport": "🚕", "Groceries": "🛒", "Restaurants": "🍽",
+    "Flight/relocation": "✈", "Visa/administration": "🪪", "Utilities": "⚡", "Phone/internet": "📱",
+    "Entertainment": "🎟", "Shopping": "🛍", "Credit card repayment": "💳", "Salary": "↗",
+    "Commission": "◆", "Miscellaneous": "●",
+}
+
+
+def category_label(category: str | None) -> str:
+    """Give transactions visual identity without changing their stored category."""
+    name = category or "Other"
+    return f"{CATEGORY_ICONS.get(name, '●')}  {name}"
+
+
 class TransactionHighlightDelegate(QStyledItemDelegate):
     def paint(self,painter,option,index)->None:
         super().paint(painter,option,index)
@@ -288,7 +302,7 @@ class DashboardPage(Page):
         recent = data["all"][:5]; self.recent.setRowCount(len(recent))
         for i, row in enumerate(recent):
             self.recent.setRowHeight(i,48); signed_aed=to_aed(row["amount"],row["currency"],rate)*(1 if row["kind"]=="income" else -1); primary,secondary=dual_amount(signed_aed,rate,2,True); color = COLORS["green"] if row["kind"] == "income" else COLORS["text"]
-            for col, item in enumerate([row["occurred_at"][:10], row["merchant"] or "—", row["category"] or "—", f"{primary}\n{secondary}"]): self.recent.setItem(i,col,table_item(str(item), Qt.AlignmentFlag.AlignRight if col==3 else None, color if col==3 else None))
+            for col, item in enumerate([row["occurred_at"][:10], row["merchant"] or "—", category_label(row["category"]), f"{primary}\n{secondary}"]): self.recent.setItem(i,col,table_item(str(item), Qt.AlignmentFlag.AlignRight if col==3 else None, color if col==3 else None))
         self.recent.resizeColumnsToContents(); self.recent.horizontalHeader().setStretchLastSection(True)
 
 
@@ -396,7 +410,7 @@ class TransactionsPage(Page):
             flags = " · ".join(x for x in ["Setup cost" if row["budget_excluded"] else "", row["credit_card_name"] or "" if row["card_effect"] else "", "Card payment" if row["card_effect"]==-1 else "", "Recurring" if row["recurring"] else "", "Essential" if row["essential"] else "Discretionary", "Deposit" if row["refundable_deposit"] else "", "Receipt" if row["receipt_path"] else ""] if x)
             amount_aed = to_aed(row["amount"],row["currency"],rate)*(1 if row["kind"]=="income" else -1); total += amount_aed
             primary,secondary=dual_amount(amount_aed,rate,2,True)
-            values=[row["occurred_at"][:16].replace("T","  "),row["kind"].title(),row["merchant"] or "—",row["category"] or "—",row["payment_method"],flags,row["tags"],f"{primary}\n{secondary}"]
+            values=[row["occurred_at"][:16].replace("T","  "),row["kind"].title(),row["merchant"] or "—",category_label(row["category"]),row["payment_method"],flags,row["tags"],f"{primary}\n{secondary}"]
             for j,value in enumerate(values):
                 item=table_item(str(value),Qt.AlignmentFlag.AlignRight if j==7 else None,COLORS["green"] if amount_aed>0 and j==7 else COLORS["text"] if j==7 else None)
                 if row["highlighted"]: item.setData(Qt.ItemDataRole.UserRole,True); item.setBackground(QColor("#5a4316")); item.setToolTip("Highlighted transaction"+(f" · {row['notes']}" if row["notes"] else ""))
