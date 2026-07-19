@@ -126,3 +126,10 @@ DXB RUNWAY has no network client code. Exchange rates are manual. Receipts are c
 Version 1.5 introduces a product-wide visual refresh built for desktop financial work: restrained, local-first information structure with colourful charts, progress accents, transaction category icons and responsive navigation. It does not change financial features, calculations or stored data.
 
 See [ASSUMPTIONS_AND_LIMITATIONS.md](ASSUMPTIONS_AND_LIMITATIONS.md) before relying on forecasts.
+
+## Project documentation
+
+- [Patch notes](PATCH_NOTES.md) — shipped features and changes through the current release.
+- [Alba Cars training projection](ALBA_TRAINING_PROJECTION.md) — provisional discovery plan for possible purchasing support after the real company process and permissions are learned.
+- [Verification record](VERIFICATION.md) — calculation, runtime and packaging evidence.
+- [macOS guide](MACOS.md) — installation and Windows-to-Mac backup transfer.
