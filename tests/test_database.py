@@ -12,6 +12,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert db.get_setting("gbp_aed_rate")=="4.928313"
     assert db.get_setting("gbp_aed_rate_updated_at")=="2026-07-14"
     assert "due_date" in {row[1] for row in db.query("PRAGMA table_info(budgets)")}
+    assert "purchase_type" in {row[1] for row in db.query("PRAGMA table_info(vehicles)")}
 
 
 def test_rate_snapshot_migration_updates_only_untouched_old_default(tmp_path: Path):
@@ -113,6 +114,27 @@ def test_vehicle_moves_atomically_from_stock_to_monthly_sold_history(tmp_path: P
     db.return_vehicle_to_stock(vehicle_id)
     assert len(db.stock_vehicles())==1 and db.sold_vehicles("2026-07")==[]
     assert db.monthly_vehicle_purchase_total("2026-07")==200000
+
+
+def test_consignment_stock_tracks_profit_without_using_cash_budget_and_can_be_removed(tmp_path: Path):
+    db=Database(tmp_path/"runway.db")
+    consignment=db.add_vehicle(vehicle_name="Porsche 911",purchase_type="consignment",purchase_price_aed=300000,expected_sale_price_aed=335000,purchased_date="2026-07-10")
+    cash=db.add_vehicle(vehicle_name="BMW M4",purchase_type="cash",purchase_price_aed=200000,expected_sale_price_aed=225000,purchased_date="2026-07-11")
+    rows={row["id"]:row for row in db.stock_vehicles()}
+    assert rows[consignment]["purchase_type"]=="consignment"
+    assert rows[consignment]["expected_profit_aed"]==35000
+    assert db.monthly_vehicle_purchase_total("2026-07")==200000
+    db.remove_stock_vehicle(consignment)
+    assert [row["id"] for row in db.stock_vehicles()]==[cash]
+    db.sell_vehicle(cash,sold_price_aed=230000,sold_date="2026-07-18")
+    try:
+        db.remove_stock_vehicle(cash)
+    except ValueError as error:
+        assert "no longer available" in str(error)
+    else:
+        raise AssertionError("Sold vehicles must not be removable from stock")
+    sold=db.sold_vehicles("2026-07")
+    assert len(sold)==1 and sold[0]["purchase_type"]=="cash"
 
 
 def test_performance_budget_is_stored_per_month(tmp_path: Path):

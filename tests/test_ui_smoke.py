@@ -30,10 +30,11 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","vehicles","transactions","debt","scenarios","budgets","calendar","goals","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","reports","settings"]]
+    assert set(window.pages)=={"dashboard","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
+    assert window.nav_buttons["stock"].property("section")=="leads"
     assert window.nav_buttons["transactions"].property("section")=="money"
     assert window.nav_buttons["goals"].property("section")=="other"
     assert category_label("Transport").endswith("Transport")
@@ -46,6 +47,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert transactions.table.item(0,0).data(Qt.ItemDataRole.UserRole) is True
     assert "★" not in transactions.table.item(0,5).text()
     vehicles=window.pages["vehicles"]
+    stock=window.pages["stock"]
+    assert stock.table.columnCount()==6
+    assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
     assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()
     synced=db.query("SELECT salary_aed,commission_aed FROM earnings WHERE year=? AND month=?",(date.today().year,date.today().month))[0]

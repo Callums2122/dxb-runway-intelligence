@@ -2,7 +2,18 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.5.1
+## Current release — 1.6.0
+
+### Dedicated Stock Level
+
+- Added Stock Level under Leads as the single home for all unsold vehicles.
+- Added cash purchase and consignment stock types.
+- Added stock creation, removal and mark-as-sold actions.
+- Consignment owner payouts contribute to vehicle profit without consuming the cash purchasing budget.
+- Marking a vehicle sold removes it from Stock Level and moves it into Vehicle Desk's monthly sold history.
+- Removed current-stock controls and tables from Vehicle Desk so it focuses on realised performance and commission.
+
+## 1.5.1
 
 ### Instant navigation
 

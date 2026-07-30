@@ -209,13 +209,14 @@ class VehicleDialog(QDialog):
         super().__init__(parent); self.db=db; self.setWindowTitle("Add vehicle to stock"); self.setMinimumWidth(520)
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("ADD TO CURRENT STOCK"); title.setObjectName("pageTitle"); root.addWidget(title)
-        copy=QLabel("Only the details needed to track stock value and expected profit."); copy.setObjectName("muted"); root.addWidget(copy)
+        copy=QLabel("Track whether the vehicle is a cash purchase or held on consignment."); copy.setObjectName("muted"); root.addWidget(copy)
         form=QFormLayout(); form.setSpacing(11); self.name=QLineEdit(); self.name.setPlaceholderText("e.g. BMW M3")
+        self.purchase_type=QComboBox(); self.purchase_type.addItem("Cash purchase","cash"); self.purchase_type.addItem("Consignment","consignment")
         self.purchase=MoneyBox(); self.expected=MoneyBox(); self.purchased=QDateEdit(QDate.currentDate()); self.purchased.setCalendarPopup(True); self.purchased.setDisplayFormat("dd MMM yyyy")
         self.notes=QLineEdit(); self.notes.setPlaceholderText("Optional note")
         self.profit=QLabel("Expected profit · AED 0"); self.profit.setStyleSheet(f"color:{COLORS['green']};font-weight:700")
         self.purchase.valueChanged.connect(self.update_profit); self.expected.valueChanged.connect(self.update_profit)
-        form.addRow("Vehicle",self.name); form.addRow("Purchase price · AED",self.purchase); form.addRow("Expected sale price · AED",self.expected); form.addRow("Purchased",self.purchased); form.addRow("Notes",self.notes); form.addRow("",self.profit); root.addLayout(form)
+        form.addRow("Vehicle",self.name); form.addRow("Stock type",self.purchase_type); form.addRow("Cost / owner payout · AED",self.purchase); form.addRow("Expected sale price · AED",self.expected); form.addRow("Stocked",self.purchased); form.addRow("Notes",self.notes); form.addRow("",self.profit); root.addLayout(form)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def update_profit(self)->None:
@@ -227,7 +228,7 @@ class VehicleDialog(QDialog):
         self.accept()
 
     def values(self)->dict:
-        return {"vehicle_name":self.name.text().strip(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
+        return {"vehicle_name":self.name.text().strip(),"purchase_type":self.purchase_type.currentData(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
 
 
 class SellVehicleDialog(QDialog):

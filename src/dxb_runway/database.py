@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 MIGRATIONS: dict[int, str] = {
@@ -116,6 +116,10 @@ MIGRATIONS: dict[int, str] = {
     9: """
     ALTER TABLE budgets ADD COLUMN due_date TEXT;
     """,
+    10: """
+    ALTER TABLE vehicles ADD COLUMN purchase_type TEXT NOT NULL DEFAULT 'cash'
+      CHECK(purchase_type IN ('cash','consignment'));
+    """,
 }
 
 
@@ -187,6 +191,10 @@ class Database:
                     columns = {row[1] for row in connection.execute("PRAGMA table_info(budgets)").fetchall()}
                     if "due_date" not in columns:
                         connection.execute("ALTER TABLE budgets ADD COLUMN due_date TEXT")
+                elif version == 10:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
+                    if "purchase_type" not in columns:
+                        connection.executescript(MIGRATIONS[version])
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -362,15 +370,17 @@ class Database:
                           (amount, day, merchant))
 
     def add_vehicle(self, *, vehicle_name: str, purchase_price_aed: float, expected_sale_price_aed: float,
-                    purchased_date: str, notes: str = "") -> int:
+                    purchased_date: str, notes: str = "", purchase_type: str = "cash") -> int:
         name = vehicle_name.strip()
         if not name:
             raise ValueError("Vehicle name is required")
         if purchase_price_aed < 0 or expected_sale_price_aed < 0:
             raise ValueError("Vehicle prices cannot be negative")
+        if purchase_type not in {"cash", "consignment"}:
+            raise ValueError("Purchase type must be cash or consignment")
         return self.execute(
-            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes) VALUES (?,?,?,?,?)",
-            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip()),
+            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type) VALUES (?,?,?,?,?,?)",
+            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type),
         )
 
     def stock_vehicles(self, purchase_month: str | None = None) -> list[sqlite3.Row]:
@@ -394,10 +404,19 @@ class Database:
 
     def monthly_vehicle_purchase_total(self, purchase_month: str) -> Decimal:
         rows = self.query(
-            "SELECT COALESCE(SUM(purchase_price_aed),0) total FROM vehicles WHERE substr(purchased_date,1,7)=?",
+            "SELECT COALESCE(SUM(purchase_price_aed),0) total FROM vehicles "
+            "WHERE substr(purchased_date,1,7)=? AND purchase_type='cash'",
             (purchase_month,),
         )
         return Decimal(str(rows[0]["total"]))
+
+    def remove_stock_vehicle(self, vehicle_id: int) -> None:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM vehicles WHERE id=? AND status='stock'", (vehicle_id,)
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Vehicle is no longer available in stock")
 
     def sell_vehicle(self, vehicle_id: int, *, sold_price_aed: float, sold_date: str) -> None:
         if sold_price_aed < 0:
