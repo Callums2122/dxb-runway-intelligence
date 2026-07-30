@@ -13,6 +13,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert db.get_setting("gbp_aed_rate_updated_at")=="2026-07-14"
     assert "due_date" in {row[1] for row in db.query("PRAGMA table_info(budgets)")}
     assert "purchase_type" in {row[1] for row in db.query("PRAGMA table_info(vehicles)")}
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contacts'")
 
 
 def test_rate_snapshot_migration_updates_only_untouched_old_default(tmp_path: Path):
@@ -143,6 +144,21 @@ def test_performance_budget_is_stored_per_month(tmp_path: Path):
     db.set_performance_budget("2026-07",4500000)
     assert db.performance_budget("2026-07")==4500000
     assert db.performance_budget("2026-08")==3000000
+
+
+def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: Path):
+    db=Database(tmp_path/"runway.db")
+    customer_id=db.add_customer_contact({"customer_name":"Sam","vehicle_name":"BMW M4","phone_last5":"12345","mileage":42000,"vehicle_age_years":4,"vehicle_price_aed":210000,"cash_offer_aed":190000,"consignment_offer_aed":205000,"next_contact_date":"2026-07-30"})
+    row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
+    assert row["rapport"]=="green" and row["next_contact_date"]=="2026-07-30"
+    assert db.toggle_customer_rapport(customer_id)=="red"
+    db.mark_customer_contacted(customer_id,"2026-07-30")
+    row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
+    assert row["last_contacted_date"]=="2026-07-30" and row["next_contact_date"]=="2026-08-02"
+    db.mark_customer_sold(customer_id,"2026-08-01")
+    assert db.customer_contacts()==[]
+    archived=db.customer_contacts(search="12345",include_sold=True)
+    assert len(archived)==1 and archived[0]["status"]=="sold" and archived[0]["sold_date"]=="2026-08-01"
 
 
 def test_soft_delete_and_undo(tmp_path: Path):

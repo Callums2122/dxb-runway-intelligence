@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
-from .dialogs import MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
+from .dialogs import CustomerContactDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
     dual_amount, estimate_monthly_interest, gbp_equivalent, money, repayment_months, simulate_scenario, to_aed,
@@ -311,6 +311,79 @@ class DashboardPage(Page):
             self.recent.setRowHeight(i,48); signed_aed=to_aed(row["amount"],row["currency"],rate)*(1 if row["kind"]=="income" else -1); primary,secondary=dual_amount(signed_aed,rate,2,True); color = COLORS["green"] if row["kind"] == "income" else COLORS["text"]
             for col, item in enumerate([row["occurred_at"][:10], row["merchant"] or "—", category_label(row["category"]), f"{primary}\n{secondary}"]): self.recent.setItem(i,col,table_item(str(item), Qt.AlignmentFlag.AlignRight if col==3 else None, color if col==3 else None))
         self.recent.resizeColumnsToContents(); self.recent.horizontalHeader().setStretchLastSection(True)
+
+
+class CustomerContactPage(Page):
+    def __init__(self,db:Database):
+        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Customer contact","Friendly three-day follow-ups for owners who may need time before selling.")); top.addStretch()
+        add=QPushButton("＋ Add customer"); add.setProperty("primary",True); add.clicked.connect(self.add_customer); top.addWidget(add); layout.addLayout(top)
+        metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
+        for i,(key,label,color) in enumerate([("today","Contact today",COLORS["red"]),("tomorrow","Tomorrow",COLORS["amber"]),("active","Active customers",COLORS["cyan"]),("rapport","Strong rapport",COLORS["red"])]):
+            card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
+        layout.addLayout(metrics)
+        tools=QHBoxLayout()
+        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold)]:
+            button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
+        tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
+        self.tabs=QTabWidget(); self.tables={}
+        for key,label in [("today","Contact today"),("tomorrow","Tomorrow"),("all","All customers")]:
+            table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE / AGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); self.tables[key]=table; self.tabs.addTab(table,label)
+        layout.addWidget(self.tabs,1); self.refresh()
+
+    def selected_customer(self):
+        key=("today","tomorrow","all")[self.tabs.currentIndex()]; table=self.tables[key]; row=table.currentRow()
+        if row<0 or not table.item(row,0): return None
+        customer_id=table.item(row,0).data(Qt.ItemDataRole.UserRole); matches=self.db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))
+        return matches[0] if matches else None
+
+    def refresh(self)->None:
+        today=self.db.customer_contacts(due="today"); tomorrow=self.db.customer_contacts(due="tomorrow"); active=self.db.customer_contacts(); all_rows=self.db.customer_contacts(search=self.search.text().strip(),include_sold=True)
+        self.metrics["today"].set_value(str(len(today)),"Includes overdue follow-ups"); self.metrics["tomorrow"].set_value(str(len(tomorrow)),"Due next"); self.metrics["active"].set_value(str(len(active)),"Not marked sold"); self.metrics["rapport"].set_value(str(sum(1 for row in active if row["rapport"]=="red")),"Red · strong rapport")
+        for key,rows in (("today",today),("tomorrow",tomorrow),("all",all_rows)): self.populate_table(self.tables[key],rows)
+        self.tabs.setTabText(0,f"Contact today · {len(today)}"); self.tabs.setTabText(1,f"Tomorrow · {len(tomorrow)}"); self.tabs.setTabText(2,f"All customers · {len(all_rows)}")
+
+    def populate_table(self,table:QTableWidget,rows)->None:
+        rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); today=date.today().isoformat(); table.setRowCount(len(rows))
+        for i,row in enumerate(rows):
+            table.setRowHeight(i,62); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or "Customer follow-up"); table.setItem(i,0,first)
+            valuation=Decimal(str(row["vehicle_price_aed"])); cash=Decimal(str(row["cash_offer_aed"])); consignment=Decimal(str(row["consignment_offer_aed"]))
+            status="SOLD" if row["status"]=="sold" else f"Next · {row['next_contact_date']}"; rapport="Red · strong" if row["rapport"]=="red" else "Green"; final=f"{rapport}\n{status}"
+            values=[row["vehicle_name"],f"{row['mileage']:,} km · {row['vehicle_age_years']} yrs",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}",final]
+            for j,value in enumerate(values,1):
+                color=COLORS["red"] if j==6 and row["rapport"]=="red" else COLORS["green"] if j==6 and row["rapport"]=="green" else None
+                item=table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j in {2,4,5,6} else Qt.AlignmentFlag.AlignVCenter,color)
+                if j==6 and row["status"]=="active" and row["next_contact_date"]<=today: item.setBackground(QColor("#5a1f2b"))
+                table.setItem(i,j,item)
+        table.setColumnWidth(0,135); table.setColumnWidth(1,160); table.setColumnWidth(2,130); table.setColumnWidth(3,105); table.setColumnWidth(4,135); table.setColumnWidth(5,150)
+
+    def add_customer(self)->None:
+        dialog=CustomerContactDialog(self.db,parent=self)
+        if dialog.exec(): self.db.add_customer_contact(dialog.values()); self.refresh(); self.changed.emit()
+
+    def edit_customer(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select a customer first."); return
+        dialog=CustomerContactDialog(self.db,customer,self)
+        if dialog.exec(): self.db.update_customer_contact(customer["id"],dialog.values()); self.refresh(); self.changed.emit()
+
+    def mark_contacted(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the customer you contacted."); return
+        if customer["status"]!="active": QMessageBox.information(self,"Already sold","Sold customers are kept only for reference."); return
+        self.db.mark_customer_contacted(customer["id"]); self.refresh(); self.changed.emit()
+
+    def toggle_rapport(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select a customer first."); return
+        self.db.toggle_customer_rapport(customer["id"]); self.refresh(); self.changed.emit()
+
+    def mark_sold(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the customer whose vehicle has sold."); return
+        if customer["status"]!="active": QMessageBox.information(self,"Already sold","This customer is already outside the contact queue."); return
+        if QMessageBox.question(self,"Mark vehicle sold",f"Remove {customer['customer_name']} from the daily contact queue? Their record will remain searchable.")==QMessageBox.StandardButton.Yes:
+            self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
 
 
 class StockLevelPage(Page):
@@ -900,5 +973,5 @@ class SettingsPage(Page):
     def open_folder(self)->None: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.db.path.parent)))
     def reset_demo(self)->None:
         if QMessageBox.question(self,"Reset demo data","Delete transactions, earnings and cards, then load the representative demo set?")==QMessageBox.StandardButton.Yes:
-            for table in ("transactions","earnings","credit_cards","reminders","budgets","vehicles","performance_months"): self.db.execute(f"DELETE FROM {table}")
+            for table in ("transactions","earnings","credit_cards","reminders","budgets","vehicles","customer_contacts","performance_months"): self.db.execute(f"DELETE FROM {table}")
             self.db.seed_demo(); self.changed.emit(); QMessageBox.information(self,"Demo reset","Representative local demo data has been loaded.")

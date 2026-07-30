@@ -9,6 +9,7 @@ DXB RUNWAY is a polished, completely local Windows and macOS financial command c
 ## What is included
 
 - Responsive near-black PySide6 desktop UI with collapsible navigation and `Ctrl+K` command palette
+- Three-day contacted-customer follow-up queue with vehicle details, offer tracking, rapport ranking and sold archiving
 - Dual runway view: an adjusted operating runway can add back marked relocation setup costs, while the actual-cash runway remains visible for safety; both stay synced to saved budgets, card minimums, salary-engine income and the next salary date
 - Live daily spending guide enforcing an editable GBP 1,700 monthly cap, showing today's limit, spent today and left today in AED/GBP whenever Transactions change
 - First-run onboarding with editable relocation assumptions

@@ -2,7 +2,19 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.6.2
+## Current release — 1.7.0
+
+### Three-day customer rapport tracker
+
+- Added Customer Contact under Leads with focused Today, Tomorrow and All Customers views.
+- Added customer, vehicle, mileage, age, phone suffix, valuation, cash offer and consignment offer tracking.
+- New customers enter today's queue in green by default.
+- Added red strong-rapport marking.
+- Added a manual Contacted action that resets the follow-up date by exactly three days.
+- Added a Sold action that removes the customer from daily queues while preserving the searchable record.
+- Kept overdue customers visible in today's queue until they are manually advanced.
+
+## 1.6.2
 
 ### Commission month cues
 

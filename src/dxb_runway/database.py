@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 MIGRATIONS: dict[int, str] = {
@@ -119,6 +119,29 @@ MIGRATIONS: dict[int, str] = {
     10: """
     ALTER TABLE vehicles ADD COLUMN purchase_type TEXT NOT NULL DEFAULT 'cash'
       CHECK(purchase_type IN ('cash','consignment'));
+    """,
+    11: """
+    CREATE TABLE IF NOT EXISTS customer_contacts (
+      id INTEGER PRIMARY KEY,
+      customer_name TEXT NOT NULL,
+      vehicle_name TEXT NOT NULL,
+      phone_last5 TEXT NOT NULL,
+      mileage INTEGER NOT NULL DEFAULT 0 CHECK(mileage >= 0),
+      vehicle_age_years INTEGER NOT NULL DEFAULT 0 CHECK(vehicle_age_years >= 0),
+      vehicle_price_aed REAL NOT NULL DEFAULT 0 CHECK(vehicle_price_aed >= 0),
+      cash_offer_aed REAL NOT NULL DEFAULT 0 CHECK(cash_offer_aed >= 0),
+      consignment_offer_aed REAL NOT NULL DEFAULT 0 CHECK(consignment_offer_aed >= 0),
+      rapport TEXT NOT NULL DEFAULT 'green' CHECK(rapport IN ('green','red')),
+      last_contacted_date TEXT,
+      next_contact_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','sold')),
+      sold_date TEXT,
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_customer_contacts_due ON customer_contacts(status,next_contact_date);
+    CREATE INDEX IF NOT EXISTS idx_customer_contacts_lookup ON customer_contacts(customer_name,vehicle_name,phone_last5);
     """,
 }
 
@@ -417,6 +440,74 @@ class Database:
             )
             if cursor.rowcount != 1:
                 raise ValueError("Vehicle is no longer available in stock")
+
+    def add_customer_contact(self, values: dict[str, Any]) -> int:
+        name=str(values.get("customer_name","")).strip(); vehicle=str(values.get("vehicle_name","")).strip()
+        phone="".join(character for character in str(values.get("phone_last5","")) if character.isdigit())
+        rapport=str(values.get("rapport","green"))
+        if not name or not vehicle:
+            raise ValueError("Customer and vehicle are required")
+        if len(phone)!=5:
+            raise ValueError("Enter exactly the last 5 phone digits")
+        if rapport not in {"green","red"}:
+            raise ValueError("Rapport must be green or red")
+        due=str(values.get("next_contact_date") or date.today().isoformat())[:10]
+        return self.execute(
+            "INSERT INTO customer_contacts(customer_name,vehicle_name,phone_last5,mileage,vehicle_age_years,vehicle_price_aed,cash_offer_aed,consignment_offer_aed,rapport,next_contact_date,notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (name,vehicle,phone,int(values.get("mileage",0)),int(values.get("vehicle_age_years",0)),float(values.get("vehicle_price_aed",0)),float(values.get("cash_offer_aed",0)),float(values.get("consignment_offer_aed",0)),rapport,due,str(values.get("notes","")).strip()),
+        )
+
+    def update_customer_contact(self, customer_id: int, values: dict[str, Any]) -> None:
+        name=str(values.get("customer_name","")).strip(); vehicle=str(values.get("vehicle_name","")).strip()
+        phone="".join(character for character in str(values.get("phone_last5","")) if character.isdigit())
+        rapport=str(values.get("rapport","green"))
+        if not name or not vehicle or len(phone)!=5 or rapport not in {"green","red"}:
+            raise ValueError("Customer, vehicle, five phone digits and rapport are required")
+        self.execute(
+            "UPDATE customer_contacts SET customer_name=?,vehicle_name=?,phone_last5=?,mileage=?,vehicle_age_years=?,vehicle_price_aed=?,cash_offer_aed=?,consignment_offer_aed=?,rapport=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (name,vehicle,phone,int(values.get("mileage",0)),int(values.get("vehicle_age_years",0)),float(values.get("vehicle_price_aed",0)),float(values.get("cash_offer_aed",0)),float(values.get("consignment_offer_aed",0)),rapport,str(values.get("notes","")).strip(),customer_id),
+        )
+
+    def customer_contacts(self, *, due: str | None = None, search: str = "", include_sold: bool = False) -> list[sqlite3.Row]:
+        clauses=[]; params:list[Any]=[]
+        if not include_sold: clauses.append("status='active'")
+        if due=="today":
+            clauses.append("next_contact_date<=?"); params.append(date.today().isoformat())
+        elif due=="tomorrow":
+            clauses.append("next_contact_date=?"); params.append((date.today()+timedelta(days=1)).isoformat())
+        if search:
+            clauses.append("(customer_name LIKE ? OR vehicle_name LIKE ? OR phone_last5 LIKE ?)")
+            params.extend([f"%{search}%"]*3)
+        where=f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return self.query(
+            f"SELECT * FROM customer_contacts {where} ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,next_contact_date,customer_name",
+            tuple(params),
+        )
+
+    def mark_customer_contacted(self, customer_id: int, contacted_on: str | None = None) -> None:
+        contacted=date.fromisoformat((contacted_on or date.today().isoformat())[:10]); next_contact=contacted+timedelta(days=3)
+        with self.connect() as connection:
+            cursor=connection.execute(
+                "UPDATE customer_contacts SET last_contacted_date=?,next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active'",
+                (contacted.isoformat(),next_contact.isoformat(),customer_id),
+            )
+            if cursor.rowcount!=1: raise ValueError("Customer is no longer active")
+
+    def toggle_customer_rapport(self, customer_id: int) -> str:
+        rows=self.query("SELECT rapport FROM customer_contacts WHERE id=?",(customer_id,))
+        if not rows: raise ValueError("Customer not found")
+        rapport="red" if rows[0]["rapport"]=="green" else "green"
+        self.execute("UPDATE customer_contacts SET rapport=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(rapport,customer_id))
+        return rapport
+
+    def mark_customer_sold(self, customer_id: int, sold_on: str | None = None) -> None:
+        with self.connect() as connection:
+            cursor=connection.execute(
+                "UPDATE customer_contacts SET status='sold',sold_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active'",
+                ((sold_on or date.today().isoformat())[:10],customer_id),
+            )
+            if cursor.rowcount!=1: raise ValueError("Customer is no longer active")
 
     def sell_vehicle(self, vehicle_id: int, *, sold_price_aed: float, sold_date: str) -> None:
         if sold_price_aed < 0:

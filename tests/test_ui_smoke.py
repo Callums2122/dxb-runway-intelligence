@@ -30,11 +30,12 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert set(window.pages)=={"dashboard","contacts","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
+    assert window.nav_buttons["contacts"].property("section")=="leads"
     assert window.nav_buttons["transactions"].property("section")=="money"
     assert window.nav_buttons["goals"].property("section")=="other"
     assert category_label("Transport").endswith("Transport")
@@ -48,6 +49,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert "★" not in transactions.table.item(0,5).text()
     vehicles=window.pages["vehicles"]
     stock=window.pages["stock"]
+    contacts=window.pages["contacts"]
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
     vehicles.configure_month_options(date(2026,7,30))
@@ -61,6 +63,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles.month.setCurrentIndex(date.today().month-1)
     vehicles.refresh()
     assert history.table.columnCount()==6
+    assert set(contacts.tables)=={"today","tomorrow","all"} and contacts.tables["today"].columnCount()==7
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()

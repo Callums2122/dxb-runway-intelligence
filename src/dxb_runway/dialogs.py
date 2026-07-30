@@ -7,7 +7,7 @@ from PySide6.QtCore import QDate, QDateTime, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDialog, QDialogButtonBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QPushButton, QStackedWidget, QTextEdit, QVBoxLayout, QWidget
+    QMessageBox, QPushButton, QSpinBox, QStackedWidget, QTextEdit, QVBoxLayout, QWidget
 )
 
 from .database import Database
@@ -229,6 +229,37 @@ class VehicleDialog(QDialog):
 
     def values(self)->dict:
         return {"vehicle_name":self.name.text().strip(),"purchase_type":self.purchase_type.currentData(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
+
+
+class CustomerContactDialog(QDialog):
+    def __init__(self,db:Database,customer=None,parent=None):
+        super().__init__(parent); self.db=db; self.customer=customer; self.setWindowTitle("Customer contact"); self.setMinimumWidth(620)
+        root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
+        title=QLabel("EDIT CUSTOMER" if customer else "ADD CONTACTED CUSTOMER"); title.setObjectName("pageTitle"); root.addWidget(title)
+        copy=QLabel("Keep the record concise—the daily contact queue handles the follow-up timing."); copy.setObjectName("muted"); root.addWidget(copy)
+        form=QFormLayout(); form.setSpacing(11)
+        self.name=QLineEdit(); self.name.setPlaceholderText("Customer name")
+        self.phone=QLineEdit(); self.phone.setPlaceholderText("Last 5 digits"); self.phone.setMaxLength(5)
+        self.vehicle=QLineEdit(); self.vehicle.setPlaceholderText("Make and model")
+        self.mileage=QSpinBox(); self.mileage.setRange(0,2_000_000); self.mileage.setGroupSeparatorShown(True); self.mileage.setSuffix(" km")
+        self.age=QSpinBox(); self.age.setRange(0,100); self.age.setSuffix(" years")
+        self.vehicle_price=MoneyBox(); self.cash_offer=MoneyBox(); self.consignment_offer=MoneyBox()
+        self.rapport=QComboBox(); self.rapport.addItem("Green · Default","green"); self.rapport.addItem("Red · Strong rapport","red")
+        self.notes=QLineEdit(); self.notes.setPlaceholderText("Optional context")
+        form.addRow("Customer",self.name); form.addRow("Phone · last 5 digits",self.phone); form.addRow("Vehicle",self.vehicle)
+        form.addRow("Mileage",self.mileage); form.addRow("Vehicle age",self.age); form.addRow("Vehicle price · AED",self.vehicle_price)
+        form.addRow("Cash offer · AED",self.cash_offer); form.addRow("Consignment offer · AED",self.consignment_offer); form.addRow("Rapport",self.rapport); form.addRow("Notes",self.notes); root.addLayout(form)
+        if customer:
+            self.name.setText(customer["customer_name"]); self.phone.setText(customer["phone_last5"]); self.vehicle.setText(customer["vehicle_name"]); self.mileage.setValue(customer["mileage"]); self.age.setValue(customer["vehicle_age_years"]); self.vehicle_price.setValue(customer["vehicle_price_aed"]); self.cash_offer.setValue(customer["cash_offer_aed"]); self.consignment_offer.setValue(customer["consignment_offer_aed"]); self.rapport.setCurrentIndex(1 if customer["rapport"]=="red" else 0); self.notes.setText(customer["notes"])
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def validate_and_accept(self)->None:
+        if not self.name.text().strip() or not self.vehicle.text().strip(): QMessageBox.warning(self,"Details required","Enter the customer name and vehicle."); return
+        if len(self.phone.text().strip())!=5 or not self.phone.text().strip().isdigit(): QMessageBox.warning(self,"Phone digits required","Enter exactly the last 5 digits of the phone number."); return
+        self.accept()
+
+    def values(self)->dict:
+        return {"customer_name":self.name.text().strip(),"phone_last5":self.phone.text().strip(),"vehicle_name":self.vehicle.text().strip(),"mileage":self.mileage.value(),"vehicle_age_years":self.age.value(),"vehicle_price_aed":self.vehicle_price.value(),"cash_offer_aed":self.cash_offer.value(),"consignment_offer_aed":self.consignment_offer.value(),"rapport":self.rapport.currentData(),"notes":self.notes.text().strip()}
 
 
 class SellVehicleDialog(QDialog):
