@@ -64,6 +64,11 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles.refresh()
     assert history.table.columnCount()==6
     assert set(contacts.tables)=={"today","tomorrow","all"} and contacts.tables["today"].columnCount()==7
+    db.add_customer_contact({"customer_name":"Notes test","vehicle_name":"Audi RS6","phone_last5":"54321"})
+    contacts.refresh(); contacts.tables["today"].selectRow(0); application.processEvents()
+    assert not contacts.notes_card.isHidden()
+    contacts.close_notes()
+    assert contacts.notes_card.isHidden() and contacts.tables["today"].selectedItems()==[]
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()

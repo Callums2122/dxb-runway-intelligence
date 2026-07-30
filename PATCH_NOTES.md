@@ -2,7 +2,14 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.1
+## Current release — 1.7.2
+
+### Dismissible customer notes
+
+- Added a Close Notes button to dismiss the customer notes panel.
+- Closing notes clears the lead selection so the panel stays hidden until another lead is clicked.
+
+## 1.7.1
 
 ### Contact countdowns and conversation notes
 

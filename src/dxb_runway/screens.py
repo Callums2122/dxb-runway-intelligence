@@ -338,7 +338,7 @@ class CustomerContactPage(Page):
         for key,label in [("today","Contact today"),("tomorrow","Tomorrow"),("all","All customers")]:
             table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE / AGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); table.itemSelectionChanged.connect(self.show_selected_notes); self.tables[key]=table; self.tabs.addTab(table,label)
         self.tabs.currentChanged.connect(self.show_selected_notes); layout.addWidget(self.tabs,1)
-        self.notes_card=Card(); notes_layout=QVBoxLayout(self.notes_card); notes_layout.setContentsMargins(16,14,16,14); notes_top=QHBoxLayout(); self.notes_title=QLabel("CUSTOMER NOTES"); self.notes_title.setStyleSheet("font-weight:800"); notes_top.addWidget(self.notes_title); notes_top.addStretch(); delete_note=QPushButton("Delete selected note"); delete_note.clicked.connect(self.delete_note); notes_top.addWidget(delete_note); notes_layout.addLayout(notes_top)
+        self.notes_card=Card(); notes_layout=QVBoxLayout(self.notes_card); notes_layout.setContentsMargins(16,14,16,14); notes_top=QHBoxLayout(); self.notes_title=QLabel("CUSTOMER NOTES"); self.notes_title.setStyleSheet("font-weight:800"); notes_top.addWidget(self.notes_title); notes_top.addStretch(); delete_note=QPushButton("Delete selected note"); delete_note.clicked.connect(self.delete_note); notes_top.addWidget(delete_note); close_notes=QPushButton("Close notes"); close_notes.clicked.connect(self.close_notes); notes_top.addWidget(close_notes); notes_layout.addLayout(notes_top)
         self.notes_table=QTableWidget(0,2); self.notes_table.setHorizontalHeaderLabels(["ADDED","NOTE"]); self.notes_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.notes_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.notes_table.verticalHeader().hide(); self.notes_table.horizontalHeader().setStretchLastSection(True); self.notes_table.setMaximumHeight(150); notes_layout.addWidget(self.notes_table)
         note_row=QHBoxLayout(); self.note_input=QLineEdit(); self.note_input.setPlaceholderText("Add a note about the conversation, timing or seller position…"); self.note_input.returnPressed.connect(self.add_note); note_row.addWidget(self.note_input,1); add_note=QPushButton("Add note"); add_note.setProperty("primary",True); add_note.clicked.connect(self.add_note); note_row.addWidget(add_note); notes_layout.addLayout(note_row); self.notes_card.hide(); layout.addWidget(self.notes_card); self.refresh()
 
@@ -390,6 +390,10 @@ class CustomerContactPage(Page):
         note_id=self.notes_table.item(row,0).data(Qt.ItemDataRole.UserRole)
         if QMessageBox.question(self,"Delete note","Delete this customer note?")==QMessageBox.StandardButton.Yes:
             self.db.delete_customer_contact_note(customer["id"],note_id); self.show_selected_notes(); self.changed.emit()
+
+    def close_notes(self)->None:
+        for table in self.tables.values(): table.clearSelection()
+        self.note_input.clear(); self.notes_card.hide()
 
     def add_customer(self)->None:
         dialog=CustomerContactDialog(self.db,parent=self)
