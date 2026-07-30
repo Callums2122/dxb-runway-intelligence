@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.6
+## Current release — 1.7.7
+
+### Tier earnings preview
+
+- Added Tier 3, Tier 2 and Tier 1 total-pay cards above the monthly percentage table.
+- Each card calculates salary plus commission from the selected month's saved purchasing budget and tier target.
+- Every projection is shown in AED with an approximate GBP conversion and updates immediately with shared settings.
+
+## 1.7.6
 
 ### Monthly tier overview and global salary
 

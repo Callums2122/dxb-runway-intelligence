@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
+from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month
 
 
@@ -66,6 +67,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
     assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
+    july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*july_t3)*Decimal("0.05"))
+    assert vehicles.tier_earnings["tier3"].value.text()==f"AED {expected_t3:,.0f}"
     vehicles.configure_month_options(date(2026,7,30))
     assert vehicles.month.itemText(6)=="July 2026"
     assert vehicles.month.itemText(7)=="August 2025"
