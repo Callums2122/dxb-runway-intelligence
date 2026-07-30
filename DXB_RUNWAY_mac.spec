@@ -47,8 +47,8 @@ app = BUNDLE(
     icon="assets/dxb_runway.icns",
     bundle_identifier="com.callums2122.dxb-runway",
     info_plist={
-        "CFBundleShortVersionString": "1.7.8",
-        "CFBundleVersion": "1.7.8",
+        "CFBundleShortVersionString": "1.7.9",
+        "CFBundleVersion": "1.7.9",
         "NSHighResolutionCapable": True,
         "NSRequiresAquaSystemAppearance": False,
     },

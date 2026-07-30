@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 MIGRATIONS: dict[int, str] = {
@@ -160,6 +160,16 @@ MIGRATIONS: dict[int, str] = {
     14: """
     ALTER TABLE customer_contacts ADD COLUMN inspection_date TEXT;
     CREATE INDEX IF NOT EXISTS idx_customer_contacts_inspection_date ON customer_contacts(pipeline_stage,inspection_date);
+    """,
+    15: """
+    CREATE TABLE IF NOT EXISTS message_templates (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      message_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_templates_title ON message_templates(title);
     """,
 }
 
@@ -569,6 +579,21 @@ class Database:
             "INSERT INTO customer_contact_notes(customer_id,note_text) VALUES (?,?)",
             (customer_id,note),
         )
+
+    def message_templates(self) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM message_templates ORDER BY title COLLATE NOCASE,id")
+
+    def save_message_template(self,title:str,message_text:str,template_id:int|None=None)->int:
+        clean_title=title.strip(); clean_message=message_text.strip()
+        if not clean_title or not clean_message: raise ValueError("Template title and message are required")
+        if template_id is None:
+            return self.execute("INSERT INTO message_templates(title,message_text) VALUES (?,?)",(clean_title,clean_message))
+        changed=self.execute("UPDATE message_templates SET title=?,message_text=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(clean_title,clean_message,template_id))
+        if changed!=1: raise ValueError("Template not found")
+        return template_id
+
+    def delete_message_template(self,template_id:int)->None:
+        if self.execute("DELETE FROM message_templates WHERE id=?",(template_id,))!=1: raise ValueError("Template not found")
 
     def delete_customer_contact_note(self, customer_id: int, note_id: int) -> None:
         with self.connect() as connection:

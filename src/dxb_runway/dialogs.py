@@ -278,6 +278,24 @@ class InspectionDateDialog(QDialog):
         return self.inspection_date.date().toString("yyyy-MM-dd")
 
 
+class MessageTemplateDialog(QDialog):
+    def __init__(self,template=None,parent=None):
+        super().__init__(parent); self.setWindowTitle("WhatsApp message template"); self.setMinimumSize(620,430)
+        root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
+        title=QLabel("EDIT TEMPLATE" if template else "ADD WHATSAPP TEMPLATE"); title.setObjectName("pageTitle"); root.addWidget(title)
+        copy=QLabel("Give the message a short name, then write it exactly as you want to paste it into WhatsApp."); copy.setObjectName("muted"); copy.setWordWrap(True); root.addWidget(copy)
+        form=QFormLayout(); self.name=QLineEdit(); self.name.setPlaceholderText("Example: First friendly follow-up"); self.message=QTextEdit(); self.message.setPlaceholderText("Type your WhatsApp message…"); self.message.setMinimumHeight(220); form.addRow("Template name",self.name); form.addRow("Message",self.message); root.addLayout(form,1)
+        if template: self.name.setText(template["title"]); self.message.setPlainText(template["message_text"])
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def validate_and_accept(self)->None:
+        if not self.name.text().strip() or not self.message.toPlainText().strip(): QMessageBox.warning(self,"Template required","Enter both a template name and message."); return
+        self.accept()
+
+    def values(self)->dict:
+        return {"title":self.name.text().strip(),"message_text":self.message.toPlainText().strip()}
+
+
 class SellVehicleDialog(QDialog):
     def __init__(self, vehicle, parent=None):
         super().__init__(parent); self.vehicle=vehicle; self.setWindowTitle("Move vehicle to sold"); self.setMinimumWidth(500)

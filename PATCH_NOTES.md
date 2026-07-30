@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.8
+## Current release — 1.7.9
+
+### WhatsApp message templates
+
+- Added a WhatsApp templates tab under Leads with named, multi-line reusable messages.
+- Templates can be added, previewed, edited and deleted locally.
+- Copy message places the exact text on the Mac clipboard and confirms that it is ready to paste into WhatsApp.
+
+## 1.7.8
 
 ### Inspection calendar sync
 

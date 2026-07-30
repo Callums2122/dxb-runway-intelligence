@@ -10,14 +10,14 @@ from typing import Callable
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
+    QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
     QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QMessageBox, QProgressBar, QPushButton, QScrollArea, QSlider, QSpinBox, QStyledItemDelegate, QTableWidget,
     QTableWidgetItem, QTabWidget, QTextEdit, QVBoxLayout, QWidget
 )
 
 from .database import Database
-from .dialogs import CustomerContactDialog, InspectionDateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
+from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
     dual_amount, estimate_monthly_interest, gbp_equivalent, money, repayment_months, simulate_scenario, to_aed,
@@ -480,6 +480,56 @@ class InspectionPage(Page):
         if not customer: QMessageBox.information(self,"Select a customer","Select the inspected vehicle that sold."); return
         if QMessageBox.question(self,"Mark vehicle sold",f"Mark {customer['customer_name']}'s vehicle as sold and remove it from Inspection?")==QMessageBox.StandardButton.Yes:
             self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
+
+
+class WhatsAppTemplatesPage(Page):
+    def __init__(self,db:Database):
+        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("WhatsApp templates","Save polished messages once, then copy them whenever you need to contact a customer.")); top.addStretch(); add=QPushButton("＋ Add template"); add.setProperty("primary",True); add.clicked.connect(self.add_template); top.addWidget(add); layout.addLayout(top)
+        tools=QHBoxLayout()
+        for label,callback in [("Edit selected",self.edit_template),("Delete selected",self.delete_template)]:
+            button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
+        tools.addStretch(); layout.addLayout(tools)
+        body=QHBoxLayout(); body.setSpacing(14); list_card=Card(); list_layout=QVBoxLayout(list_card); list_layout.setContentsMargins(16,15,16,15); list_layout.addWidget(QLabel("SAVED TEMPLATES")); self.table=QTableWidget(0,1); self.table.setHorizontalHeaderLabels(["TEMPLATE"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.itemSelectionChanged.connect(self.show_selected); list_layout.addWidget(self.table); body.addWidget(list_card,1)
+        preview_card=Card(); preview_layout=QVBoxLayout(preview_card); preview_layout.setContentsMargins(18,16,18,16); self.preview_title=QLabel("SELECT A TEMPLATE"); self.preview_title.setStyleSheet("font-size:18px;font-weight:800"); preview_layout.addWidget(self.preview_title); self.preview=QTextEdit(); self.preview.setReadOnly(True); self.preview.setPlaceholderText("Your selected WhatsApp message will appear here."); preview_layout.addWidget(self.preview,1); self.copy_button=QPushButton("Copy message"); self.copy_button.setProperty("primary",True); self.copy_button.clicked.connect(self.copy_message); self.copy_button.setEnabled(False); preview_layout.addWidget(self.copy_button); body.addWidget(preview_card,2); layout.addLayout(body,1); self.refresh()
+
+    def selected_template(self):
+        row=self.table.currentRow()
+        if row<0 or not self.table.item(row,0): return None
+        matches=self.db.query("SELECT * FROM message_templates WHERE id=?",(self.table.item(row,0).data(Qt.ItemDataRole.UserRole),))
+        return matches[0] if matches else None
+
+    def refresh(self)->None:
+        rows=self.db.message_templates(); self.table.setRowCount(len(rows))
+        for i,row in enumerate(rows):
+            item=table_item(row["title"]); item.setData(Qt.ItemDataRole.UserRole,row["id"]); self.table.setItem(i,0,item); self.table.setRowHeight(i,44)
+        if rows: self.table.selectRow(0)
+        else: self.preview_title.setText("SELECT A TEMPLATE"); self.preview.clear(); self.copy_button.setEnabled(False)
+
+    def show_selected(self)->None:
+        template=self.selected_template()
+        if not template: self.preview_title.setText("SELECT A TEMPLATE"); self.preview.clear(); self.copy_button.setEnabled(False); return
+        self.preview_title.setText(template["title"]); self.preview.setPlainText(template["message_text"]); self.copy_button.setEnabled(True)
+
+    def add_template(self)->None:
+        dialog=MessageTemplateDialog(parent=self)
+        if dialog.exec(): values=dialog.values(); self.db.save_message_template(values["title"],values["message_text"]); self.refresh(); self.changed.emit()
+
+    def edit_template(self)->None:
+        template=self.selected_template()
+        if not template: QMessageBox.information(self,"Select a template","Select the message template you want to edit."); return
+        dialog=MessageTemplateDialog(template,self)
+        if dialog.exec(): values=dialog.values(); self.db.save_message_template(values["title"],values["message_text"],template["id"]); self.refresh(); self.changed.emit()
+
+    def delete_template(self)->None:
+        template=self.selected_template()
+        if not template: QMessageBox.information(self,"Select a template","Select the message template you want to delete."); return
+        if QMessageBox.question(self,"Delete template",f"Delete “{template['title']}”?")==QMessageBox.StandardButton.Yes: self.db.delete_message_template(template["id"]); self.refresh(); self.changed.emit()
+
+    def copy_message(self)->None:
+        message=self.preview.toPlainText().strip()
+        if not message: return
+        QApplication.clipboard().setText(message); QMessageBox.information(self,"Copied","Message copied to your clipboard.\n\nIt is ready to paste into WhatsApp.")
 
 
 class StockLevelPage(Page):

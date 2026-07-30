@@ -13,6 +13,7 @@ from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month
+from dxb_runway.screens import WhatsAppTemplatesPage
 
 
 def app():
@@ -40,11 +41,20 @@ def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):
     dialog.close()
 
 
+def test_whatsapp_template_copy_uses_clipboard_and_confirms(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); db.save_message_template("Follow-up","Hi, is your car still available?")
+    page=WhatsAppTemplatesPage(db); confirmations=[]; monkeypatch.setattr("dxb_runway.screens.QMessageBox.information",lambda *args: confirmations.append(args[2]))
+    page.copy_message()
+    assert application.clipboard().text()=="Hi, is your car still available?"
+    assert confirmations==["Message copied to your clipboard.\n\nIt is ready to paste into WhatsApp."]
+    page.close()
+
+
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","contacts","inspection","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","inspection","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert set(window.pages)=={"dashboard","contacts","inspection","templates","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
@@ -64,6 +74,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     stock=window.pages["stock"]
     contacts=window.pages["contacts"]
     inspection=window.pages["inspection"]
+    templates=window.pages["templates"]
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
     assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
@@ -90,6 +101,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     customer_id=db.query("SELECT id FROM customer_contacts WHERE customer_name='Notes test'")[0]["id"]; db.move_customer_to_inspection(customer_id,"2026-08-05"); contacts.refresh(); inspection.refresh()
     assert contacts.tables["today"].rowCount()==0 and inspection.table.rowCount()==1
     assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
+    db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
+    assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()

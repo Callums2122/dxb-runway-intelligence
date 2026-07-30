@@ -15,6 +15,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert "purchase_type" in {row[1] for row in db.query("PRAGMA table_info(vehicles)")}
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contacts'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contact_notes'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='message_templates'")
     assert "pipeline_stage" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
     assert "inspection_date" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
 
@@ -147,6 +148,16 @@ def test_performance_budget_is_stored_per_month(tmp_path: Path):
     db.set_performance_budget("2026-07",4500000)
     assert db.performance_budget("2026-07")==4500000
     assert db.performance_budget("2026-08")==3000000
+
+
+def test_whatsapp_message_templates_can_be_added_edited_and_deleted(tmp_path: Path):
+    db=Database(tmp_path/"runway.db")
+    template_id=db.save_message_template("Friendly follow-up","Hi, just checking in about your car.")
+    assert db.message_templates()[0]["message_text"]=="Hi, just checking in about your car."
+    db.save_message_template("Friendly follow-up","Hi, hope you are well. Is the car still available?",template_id)
+    assert "hope you are well" in db.message_templates()[0]["message_text"]
+    db.delete_message_template(template_id)
+    assert db.message_templates()==[]
 
 
 def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: Path):
