@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 MIGRATIONS: dict[int, str] = {
@@ -157,6 +157,10 @@ MIGRATIONS: dict[int, str] = {
       CHECK(pipeline_stage IN ('caller','inspection'));
     CREATE INDEX IF NOT EXISTS idx_customer_contacts_pipeline ON customer_contacts(pipeline_stage,status);
     """,
+    14: """
+    ALTER TABLE customer_contacts ADD COLUMN inspection_date TEXT;
+    CREATE INDEX IF NOT EXISTS idx_customer_contacts_inspection_date ON customer_contacts(pipeline_stage,inspection_date);
+    """,
 }
 
 
@@ -237,6 +241,11 @@ class Database:
                     if "pipeline_stage" not in columns:
                         connection.execute("ALTER TABLE customer_contacts ADD COLUMN pipeline_stage TEXT NOT NULL DEFAULT 'caller' CHECK(pipeline_stage IN ('caller','inspection'))")
                     connection.execute("CREATE INDEX IF NOT EXISTS idx_customer_contacts_pipeline ON customer_contacts(pipeline_stage,status)")
+                elif version == 14:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(customer_contacts)").fetchall()}
+                    if "inspection_date" not in columns:
+                        connection.execute("ALTER TABLE customer_contacts ADD COLUMN inspection_date TEXT")
+                    connection.execute("CREATE INDEX IF NOT EXISTS idx_customer_contacts_inspection_date ON customer_contacts(pipeline_stage,inspection_date)")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -506,16 +515,18 @@ class Database:
             tuple(params),
         )
 
-    def move_customer_to_inspection(self, customer_id: int) -> None:
+    def move_customer_to_inspection(self, customer_id: int, inspection_on: str | None = None) -> None:
+        inspection_date=(inspection_on or date.today().isoformat())[:10]
+        date.fromisoformat(inspection_date)
         changed=self.execute(
-            "UPDATE customer_contacts SET pipeline_stage='inspection',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='caller'",
-            (customer_id,),
+            "UPDATE customer_contacts SET pipeline_stage='inspection',inspection_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='caller'",
+            (inspection_date,customer_id),
         )
         if changed!=1: raise ValueError("Customer is no longer in the caller list")
 
     def return_customer_to_callers(self, customer_id: int) -> None:
         changed=self.execute(
-            "UPDATE customer_contacts SET pipeline_stage='caller',next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='inspection'",
+            "UPDATE customer_contacts SET pipeline_stage='caller',inspection_date=NULL,next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='inspection'",
             (date.today().isoformat(),customer_id),
         )
         if changed!=1: raise ValueError("Customer is no longer in inspection")

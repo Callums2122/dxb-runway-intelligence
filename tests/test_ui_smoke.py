@@ -83,8 +83,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert not contacts.notes_card.isHidden()
     contacts.close_notes()
     assert contacts.notes_card.isHidden() and contacts.tables["today"].selectedItems()==[]
-    customer_id=db.query("SELECT id FROM customer_contacts WHERE customer_name='Notes test'")[0]["id"]; db.move_customer_to_inspection(customer_id); contacts.refresh(); inspection.refresh()
-    assert contacts.tables["today"].rowCount()==0 and inspection.table.rowCount()==1 and inspection.table.item(0,1).text()=="2021 Audi RS6"
+    customer_id=db.query("SELECT id FROM customer_contacts WHERE customer_name='Notes test'")[0]["id"]; db.move_customer_to_inspection(customer_id,"2026-08-05"); contacts.refresh(); inspection.refresh()
+    assert contacts.tables["today"].rowCount()==0 and inspection.table.rowCount()==1
+    assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()

@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.4
+## Current release — 1.7.5
+
+### Scheduled inspections
+
+- Placed Add to inspection directly beside Sold on Customer Contact.
+- Adding a customer to Inspection now opens a calendar date picker.
+- The chosen inspection date is saved and displayed as the first column in Inspection.
+
+## 1.7.4
 
 ### Inspection pipeline
 

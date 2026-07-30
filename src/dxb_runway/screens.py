@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
-from .dialogs import CustomerContactDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
+from .dialogs import CustomerContactDialog, InspectionDateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
     dual_amount, estimate_monthly_interest, gbp_equivalent, money, repayment_months, simulate_scenario, to_aed,
@@ -336,7 +336,7 @@ class CustomerContactPage(Page):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         layout.addLayout(metrics)
         tools=QHBoxLayout()
-        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Move to inspection",self.move_to_inspection),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold)]:
+        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold),("Add to inspection",self.move_to_inspection)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.tabs=QTabWidget(); self.tables={}
@@ -420,8 +420,9 @@ class CustomerContactPage(Page):
         customer=self.selected_customer()
         if not customer: QMessageBox.information(self,"Select a customer","Select the caller you want to move into inspection."); return
         if customer["status"]!="active": QMessageBox.information(self,"Already sold","Sold customers cannot be moved into inspection."); return
-        if QMessageBox.question(self,"Move to inspection",f"Move {customer['customer_name']} and their {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']} into Inspection?")==QMessageBox.StandardButton.Yes:
-            self.db.move_customer_to_inspection(customer["id"]); self.close_notes(); self.refresh(); self.changed.emit()
+        dialog=InspectionDateDialog(customer,self)
+        if dialog.exec():
+            self.db.move_customer_to_inspection(customer["id"],dialog.value()); self.close_notes(); self.refresh(); self.changed.emit()
 
     def toggle_rapport(self)->None:
         customer=self.selected_customer()
@@ -445,7 +446,7 @@ class InspectionPage(Page):
         for label,callback in [("Return to callers",self.return_to_callers),("Edit customer",self.edit_customer),("Mark sold",self.mark_sold)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
-        self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE","PHONE","VALUATION","OFFERS","RAPPORT","LATEST NOTES"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.edit_customer); layout.addWidget(self.table,1); self.refresh()
+        self.table=QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["INSPECTION DATE","CUSTOMER","VEHICLE","MILEAGE","PHONE","VALUATION","OFFERS","RAPPORT","LATEST NOTES"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.edit_customer); layout.addWidget(self.table,1); self.refresh()
 
     def selected_customer(self):
         row=self.table.currentRow()
@@ -456,11 +457,11 @@ class InspectionPage(Page):
     def refresh(self)->None:
         rows=self.db.customer_contacts(search=self.search.text().strip(),stage="inspection"); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); self.count.set_value(str(len(rows)),"Moved from Customer contact"); self.table.setRowCount(len(rows))
         for i,row in enumerate(rows):
-            self.table.setRowHeight(i,72); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.table.setItem(i,0,first)
+            self.table.setRowHeight(i,72); first=table_item(row["inspection_date"] or "Date not set"); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.table.setItem(i,0,first); self.table.setItem(i,1,table_item(row["customer_name"]))
             valuation=Decimal(str(row["vehicle_price_aed"])); cash=Decimal(str(row["cash_offer_aed"])); consignment=Decimal(str(row["consignment_offer_aed"])); notes=self.db.customer_contact_notes(row["id"]); latest=notes[0]["note_text"] if notes else row["notes"] or "—"
             values=[f"{customer_vehicle_year(row['vehicle_age_years'])} {row['vehicle_name']}",f"{row['mileage']:,} km",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}","Red · strong" if row["rapport"]=="red" else "Green",latest]
-            for j,value in enumerate(values,1): self.table.setItem(i,j,table_item(str(value),Qt.AlignmentFlag.AlignVCenter))
-        for column,width in enumerate([135,175,110,100,135,150,105]): self.table.setColumnWidth(column,width)
+            for j,value in enumerate(values,2): self.table.setItem(i,j,table_item(str(value),Qt.AlignmentFlag.AlignVCenter))
+        for column,width in enumerate([125,135,175,110,100,135,150,105]): self.table.setColumnWidth(column,width)
 
     def return_to_callers(self)->None:
         customer=self.selected_customer()

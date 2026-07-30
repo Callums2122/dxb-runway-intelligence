@@ -265,6 +265,19 @@ class CustomerContactDialog(QDialog):
         return {"customer_name":self.name.text().strip(),"phone_last5":self.phone.text().strip(),"vehicle_name":self.vehicle.text().strip(),"mileage":self.mileage.value(),"vehicle_age_years":self.year.currentData(),"vehicle_price_aed":self.vehicle_price.value(),"cash_offer_aed":self.cash_offer.value(),"consignment_offer_aed":self.consignment_offer.value(),"rapport":self.rapport.currentData(),"notes":self.notes.text().strip()}
 
 
+class InspectionDateDialog(QDialog):
+    def __init__(self,customer,parent=None):
+        super().__init__(parent); self.setWindowTitle("Add to inspection"); self.setMinimumWidth(440)
+        root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
+        title=QLabel("ADD TO INSPECTION"); title.setObjectName("pageTitle"); root.addWidget(title)
+        detail=QLabel(f"Choose the inspection date for {customer['customer_name']} · {customer['vehicle_name']}."); detail.setObjectName("muted"); detail.setWordWrap(True); root.addWidget(detail)
+        form=QFormLayout(); self.inspection_date=QDateEdit(QDate.currentDate()); self.inspection_date.setCalendarPopup(True); self.inspection_date.setDisplayFormat("dddd, dd MMMM yyyy"); form.addRow("Inspection date",self.inspection_date); root.addLayout(form)
+        buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def value(self)->str:
+        return self.inspection_date.date().toString("yyyy-MM-dd")
+
+
 class SellVehicleDialog(QDialog):
     def __init__(self, vehicle, parent=None):
         super().__init__(parent); self.vehicle=vehicle; self.setWindowTitle("Move vehicle to sold"); self.setMinimumWidth(500)
