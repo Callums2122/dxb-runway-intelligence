@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 MIGRATIONS: dict[int, str] = {
@@ -152,6 +152,11 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_customer_contact_notes_customer ON customer_contact_notes(customer_id,created_at DESC,id DESC);
     """,
+    13: """
+    ALTER TABLE customer_contacts ADD COLUMN pipeline_stage TEXT NOT NULL DEFAULT 'caller'
+      CHECK(pipeline_stage IN ('caller','inspection'));
+    CREATE INDEX IF NOT EXISTS idx_customer_contacts_pipeline ON customer_contacts(pipeline_stage,status);
+    """,
 }
 
 
@@ -227,6 +232,11 @@ class Database:
                     columns = {row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
                     if "purchase_type" not in columns:
                         connection.executescript(MIGRATIONS[version])
+                elif version == 13:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(customer_contacts)").fetchall()}
+                    if "pipeline_stage" not in columns:
+                        connection.execute("ALTER TABLE customer_contacts ADD COLUMN pipeline_stage TEXT NOT NULL DEFAULT 'caller' CHECK(pipeline_stage IN ('caller','inspection'))")
+                    connection.execute("CREATE INDEX IF NOT EXISTS idx_customer_contacts_pipeline ON customer_contacts(pipeline_stage,status)")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -478,8 +488,10 @@ class Database:
             (name,vehicle,phone,int(values.get("mileage",0)),int(values.get("vehicle_age_years",0)),float(values.get("vehicle_price_aed",0)),float(values.get("cash_offer_aed",0)),float(values.get("consignment_offer_aed",0)),rapport,str(values.get("notes","")).strip(),customer_id),
         )
 
-    def customer_contacts(self, *, due: str | None = None, search: str = "", include_sold: bool = False) -> list[sqlite3.Row]:
+    def customer_contacts(self, *, due: str | None = None, search: str = "", include_sold: bool = False, stage: str | None = "caller") -> list[sqlite3.Row]:
         clauses=[]; params:list[Any]=[]
+        if stage is not None:
+            clauses.append("pipeline_stage=?"); params.append(stage)
         if not include_sold: clauses.append("status='active'")
         if due=="today":
             clauses.append("next_contact_date<=?"); params.append(date.today().isoformat())
@@ -493,6 +505,20 @@ class Database:
             f"SELECT * FROM customer_contacts {where} ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,next_contact_date,customer_name",
             tuple(params),
         )
+
+    def move_customer_to_inspection(self, customer_id: int) -> None:
+        changed=self.execute(
+            "UPDATE customer_contacts SET pipeline_stage='inspection',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='caller'",
+            (customer_id,),
+        )
+        if changed!=1: raise ValueError("Customer is no longer in the caller list")
+
+    def return_customer_to_callers(self, customer_id: int) -> None:
+        changed=self.execute(
+            "UPDATE customer_contacts SET pipeline_stage='caller',next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active' AND pipeline_stage='inspection'",
+            (date.today().isoformat(),customer_id),
+        )
+        if changed!=1: raise ValueError("Customer is no longer in inspection")
 
     def mark_customer_contacted(self, customer_id: int, contacted_on: str | None = None) -> None:
         contacted=date.fromisoformat((contacted_on or date.today().isoformat())[:10]); next_contact=contacted+timedelta(days=3)

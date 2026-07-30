@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.3
+## Current release — 1.7.4
+
+### Inspection pipeline
+
+- Added an Inspection tab under Leads for customers whose vehicles have progressed beyond caller follow-up.
+- Added a Move to inspection action that removes the customer from the three-day contact queue while preserving their details, offers and notes.
+- Inspection records can be edited, marked sold or returned to today's caller list.
+
+## 1.7.3
 
 ### Customer vehicle model years
 

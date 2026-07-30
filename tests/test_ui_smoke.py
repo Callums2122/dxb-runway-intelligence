@@ -42,8 +42,8 @@ def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","contacts","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert set(window.pages)=={"dashboard","contacts","inspection","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","inspection","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
@@ -62,6 +62,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles=window.pages["vehicles"]
     stock=window.pages["stock"]
     contacts=window.pages["contacts"]
+    inspection=window.pages["inspection"]
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
     vehicles.configure_month_options(date(2026,7,30))
@@ -82,6 +83,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert not contacts.notes_card.isHidden()
     contacts.close_notes()
     assert contacts.notes_card.isHidden() and contacts.tables["today"].selectedItems()==[]
+    customer_id=db.query("SELECT id FROM customer_contacts WHERE customer_name='Notes test'")[0]["id"]; db.move_customer_to_inspection(customer_id); contacts.refresh(); inspection.refresh()
+    assert contacts.tables["today"].rowCount()==0 and inspection.table.rowCount()==1 and inspection.table.item(0,1).text()=="2021 Audi RS6"
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()

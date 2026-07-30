@@ -15,6 +15,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert "purchase_type" in {row[1] for row in db.query("PRAGMA table_info(vehicles)")}
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contacts'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contact_notes'")
+    assert "pipeline_stage" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
 
 
 def test_rate_snapshot_migration_updates_only_untouched_old_default(tmp_path: Path):
@@ -152,6 +153,10 @@ def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: 
     customer_id=db.add_customer_contact({"customer_name":"Sam","vehicle_name":"BMW M4","phone_last5":"12345","mileage":42000,"vehicle_age_years":2021,"vehicle_price_aed":210000,"cash_offer_aed":190000,"consignment_offer_aed":205000,"next_contact_date":"2026-07-30"})
     row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
     assert row["rapport"]=="green" and row["next_contact_date"]=="2026-07-30" and row["vehicle_age_years"]==2021
+    db.move_customer_to_inspection(customer_id)
+    assert db.customer_contacts()==[] and db.customer_contacts(stage="inspection")[0]["id"]==customer_id
+    db.return_customer_to_callers(customer_id)
+    assert db.customer_contacts()[0]["id"]==customer_id
     assert db.toggle_customer_rapport(customer_id)=="red"
     db.mark_customer_contacted(customer_id,"2026-07-30")
     row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]

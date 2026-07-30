@@ -336,7 +336,7 @@ class CustomerContactPage(Page):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         layout.addLayout(metrics)
         tools=QHBoxLayout()
-        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold)]:
+        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Move to inspection",self.move_to_inspection),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.tabs=QTabWidget(); self.tables={}
@@ -416,6 +416,13 @@ class CustomerContactPage(Page):
         if customer["status"]!="active": QMessageBox.information(self,"Already sold","Sold customers are kept only for reference."); return
         self.db.mark_customer_contacted(customer["id"]); self.refresh(); self.changed.emit()
 
+    def move_to_inspection(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the caller you want to move into inspection."); return
+        if customer["status"]!="active": QMessageBox.information(self,"Already sold","Sold customers cannot be moved into inspection."); return
+        if QMessageBox.question(self,"Move to inspection",f"Move {customer['customer_name']} and their {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']} into Inspection?")==QMessageBox.StandardButton.Yes:
+            self.db.move_customer_to_inspection(customer["id"]); self.close_notes(); self.refresh(); self.changed.emit()
+
     def toggle_rapport(self)->None:
         customer=self.selected_customer()
         if not customer: QMessageBox.information(self,"Select a customer","Select a customer first."); return
@@ -426,6 +433,51 @@ class CustomerContactPage(Page):
         if not customer: QMessageBox.information(self,"Select a customer","Select the customer whose vehicle has sold."); return
         if customer["status"]!="active": QMessageBox.information(self,"Already sold","This customer is already outside the contact queue."); return
         if QMessageBox.question(self,"Mark vehicle sold",f"Remove {customer['customer_name']} from the daily contact queue? Their record will remain searchable.")==QMessageBox.StandardButton.Yes:
+            self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
+
+
+class InspectionPage(Page):
+    def __init__(self,db:Database):
+        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Inspection","Customers whose vehicles have progressed from caller follow-up to inspection.")); top.addStretch()
+        self.count=MetricCard("Awaiting inspection",accent=COLORS["purple"]); self.count.setMaximumWidth(230); top.addWidget(self.count); layout.addLayout(top)
+        tools=QHBoxLayout()
+        for label,callback in [("Return to callers",self.return_to_callers),("Edit customer",self.edit_customer),("Mark sold",self.mark_sold)]:
+            button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
+        tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
+        self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE","PHONE","VALUATION","OFFERS","RAPPORT","LATEST NOTES"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.edit_customer); layout.addWidget(self.table,1); self.refresh()
+
+    def selected_customer(self):
+        row=self.table.currentRow()
+        if row<0 or not self.table.item(row,0): return None
+        matches=self.db.query("SELECT * FROM customer_contacts WHERE id=?",(self.table.item(row,0).data(Qt.ItemDataRole.UserRole),))
+        return matches[0] if matches else None
+
+    def refresh(self)->None:
+        rows=self.db.customer_contacts(search=self.search.text().strip(),stage="inspection"); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); self.count.set_value(str(len(rows)),"Moved from Customer contact"); self.table.setRowCount(len(rows))
+        for i,row in enumerate(rows):
+            self.table.setRowHeight(i,72); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.table.setItem(i,0,first)
+            valuation=Decimal(str(row["vehicle_price_aed"])); cash=Decimal(str(row["cash_offer_aed"])); consignment=Decimal(str(row["consignment_offer_aed"])); notes=self.db.customer_contact_notes(row["id"]); latest=notes[0]["note_text"] if notes else row["notes"] or "—"
+            values=[f"{customer_vehicle_year(row['vehicle_age_years'])} {row['vehicle_name']}",f"{row['mileage']:,} km",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}","Red · strong" if row["rapport"]=="red" else "Green",latest]
+            for j,value in enumerate(values,1): self.table.setItem(i,j,table_item(str(value),Qt.AlignmentFlag.AlignVCenter))
+        for column,width in enumerate([135,175,110,100,135,150,105]): self.table.setColumnWidth(column,width)
+
+    def return_to_callers(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the inspection you want to return to callers."); return
+        if QMessageBox.question(self,"Return to callers",f"Return {customer['customer_name']} to today's contact list?")==QMessageBox.StandardButton.Yes:
+            self.db.return_customer_to_callers(customer["id"]); self.refresh(); self.changed.emit()
+
+    def edit_customer(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select an inspection first."); return
+        dialog=CustomerContactDialog(self.db,customer,self)
+        if dialog.exec(): self.db.update_customer_contact(customer["id"],dialog.values()); self.refresh(); self.changed.emit()
+
+    def mark_sold(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the inspected vehicle that sold."); return
+        if QMessageBox.question(self,"Mark vehicle sold",f"Mark {customer['customer_name']}'s vehicle as sold and remove it from Inspection?")==QMessageBox.StandardButton.Yes:
             self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
 
 
