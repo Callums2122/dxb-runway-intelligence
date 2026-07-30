@@ -283,14 +283,21 @@ class MessageTemplateDialog(QDialog):
         super().__init__(parent); self.setWindowTitle("WhatsApp message template"); self.setMinimumSize(620,430)
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("EDIT TEMPLATE" if template else "ADD WHATSAPP TEMPLATE"); title.setObjectName("pageTitle"); root.addWidget(title)
-        copy=QLabel("Give the message a short name, then write it exactly as you want to paste it into WhatsApp."); copy.setObjectName("muted"); copy.setWordWrap(True); root.addWidget(copy)
+        copy=QLabel("Give the message a short name. Insert smart fields wherever the customer's name or vehicle should appear."); copy.setObjectName("muted"); copy.setWordWrap(True); root.addWidget(copy)
         form=QFormLayout(); self.name=QLineEdit(); self.name.setPlaceholderText("Example: First friendly follow-up"); self.message=QTextEdit(); self.message.setPlaceholderText("Type your WhatsApp message…"); self.message.setMinimumHeight(220); form.addRow("Template name",self.name); form.addRow("Message",self.message); root.addLayout(form,1)
+        fields=QHBoxLayout(); fields.addWidget(QLabel("INSERT SMART FIELD"))
+        for label,value in [("Customer name","{{customer_name}}"),("Year, make & model","{{vehicle}}")]:
+            button=QPushButton(label); button.clicked.connect(lambda checked=False,text=value:self.insert_field(text)); fields.addWidget(button)
+        fields.addStretch(); root.addLayout(fields)
         if template: self.name.setText(template["title"]); self.message.setPlainText(template["message_text"])
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def validate_and_accept(self)->None:
         if not self.name.text().strip() or not self.message.toPlainText().strip(): QMessageBox.warning(self,"Template required","Enter both a template name and message."); return
         self.accept()
+
+    def insert_field(self,value:str)->None:
+        self.message.insertPlainText(value); self.message.setFocus()
 
     def values(self)->dict:
         return {"title":self.name.text().strip(),"message_text":self.message.toPlainText().strip()}

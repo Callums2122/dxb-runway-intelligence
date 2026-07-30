@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.9
+## Current release — 1.8.0
+
+### Personalised WhatsApp templates
+
+- Added one-click smart fields for customer name and year/make/model inside the template editor.
+- Added a customer selector that renders a live personalised message before copying.
+- Copy is held back when a template needs customer details until a customer is chosen, preventing unfilled placeholders from reaching WhatsApp.
+
+## 1.7.9
 
 ### WhatsApp message templates
 

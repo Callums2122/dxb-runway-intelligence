@@ -50,6 +50,13 @@ def test_whatsapp_template_copy_uses_clipboard_and_confirms(tmp_path: Path,monke
     page.close()
 
 
+def test_whatsapp_template_autofills_customer_and_vehicle(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); db.add_customer_contact({"customer_name":"Sam","vehicle_name":"Jeep Wrangler","vehicle_age_years":2021,"phone_last5":"12345"}); db.save_message_template("Personal","Hi {{customer_name}}, is your {{vehicle}} still available?")
+    page=WhatsAppTemplatesPage(db); assert not page.copy_button.isEnabled(); page.customer.setCurrentIndex(1)
+    assert page.preview.toPlainText()=="Hi Sam, is your 2021 Jeep Wrangler still available?"
+    assert page.copy_button.isEnabled(); page.close()
+
+
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
