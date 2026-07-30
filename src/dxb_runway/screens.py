@@ -33,6 +33,11 @@ def page_scroll(content: QWidget) -> QScrollArea:
     return area
 
 
+def customer_vehicle_year(stored_value: int) -> int:
+    value=int(stored_value)
+    return value if 2018<=value<=2026 else max(2018,min(2026,2026-value))
+
+
 def table_item(text: str, alignment: Qt.AlignmentFlag | None = None, color: str | None = None) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     if alignment: item.setTextAlignment(alignment)
@@ -336,7 +341,7 @@ class CustomerContactPage(Page):
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.tabs=QTabWidget(); self.tables={}
         for key,label in [("today","Contact today"),("tomorrow","Tomorrow"),("all","All customers")]:
-            table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE / AGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); table.itemSelectionChanged.connect(self.show_selected_notes); self.tables[key]=table; self.tabs.addTab(table,label)
+            table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); table.itemSelectionChanged.connect(self.show_selected_notes); self.tables[key]=table; self.tabs.addTab(table,label)
         self.tabs.currentChanged.connect(self.show_selected_notes); layout.addWidget(self.tabs,1)
         self.notes_card=Card(); notes_layout=QVBoxLayout(self.notes_card); notes_layout.setContentsMargins(16,14,16,14); notes_top=QHBoxLayout(); self.notes_title=QLabel("CUSTOMER NOTES"); self.notes_title.setStyleSheet("font-weight:800"); notes_top.addWidget(self.notes_title); notes_top.addStretch(); delete_note=QPushButton("Delete selected note"); delete_note.clicked.connect(self.delete_note); notes_top.addWidget(delete_note); close_notes=QPushButton("Close notes"); close_notes.clicked.connect(self.close_notes); notes_top.addWidget(close_notes); notes_layout.addLayout(notes_top)
         self.notes_table=QTableWidget(0,2); self.notes_table.setHorizontalHeaderLabels(["ADDED","NOTE"]); self.notes_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.notes_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.notes_table.verticalHeader().hide(); self.notes_table.horizontalHeader().setStretchLastSection(True); self.notes_table.setMaximumHeight(150); notes_layout.addWidget(self.notes_table)
@@ -360,7 +365,7 @@ class CustomerContactPage(Page):
             table.setRowHeight(i,72); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or "Select to open customer notes"); table.setItem(i,0,first)
             valuation=Decimal(str(row["vehicle_price_aed"])); cash=Decimal(str(row["cash_offer_aed"])); consignment=Decimal(str(row["consignment_offer_aed"]))
             status=f"SOLD · {row['sold_date']}" if row["status"]=="sold" else f"Next · {row['next_contact_date']}\n{contact_countdown(row['next_contact_date'])}"; rapport="Red · strong" if row["rapport"]=="red" else "Green"; final=f"{rapport}\n{status}"
-            values=[row["vehicle_name"],f"{row['mileage']:,} km · {row['vehicle_age_years']} yrs",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}",final]
+            values=[f"{customer_vehicle_year(row['vehicle_age_years'])} {row['vehicle_name']}",f"{row['mileage']:,} km",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}",final]
             for j,value in enumerate(values,1):
                 color=COLORS["red"] if j==6 and row["rapport"]=="red" else COLORS["green"] if j==6 and row["rapport"]=="green" else None
                 item=table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j in {2,4,5,6} else Qt.AlignmentFlag.AlignVCenter,color)
@@ -371,7 +376,7 @@ class CustomerContactPage(Page):
     def show_selected_notes(self)->None:
         customer=self.selected_customer()
         if not customer: self.notes_card.hide(); return
-        self.notes_card.show(); self.notes_title.setText(f"NOTES · {customer['customer_name']} · {customer['vehicle_name']}")
+        self.notes_card.show(); self.notes_title.setText(f"NOTES · {customer['customer_name']} · {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']}")
         notes=self.db.customer_contact_notes(customer["id"]); self.notes_table.setRowCount(len(notes))
         for i,note in enumerate(notes):
             self.notes_table.setRowHeight(i,42); added=table_item(note["created_at"][:16].replace("T"," ")); added.setData(Qt.ItemDataRole.UserRole,note["id"]); self.notes_table.setItem(i,0,added); self.notes_table.setItem(i,1,table_item(note["note_text"]))

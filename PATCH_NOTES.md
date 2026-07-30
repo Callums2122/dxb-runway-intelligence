@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.2
+## Current release — 1.7.3
+
+### Customer vehicle model years
+
+- Replaced the vehicle-age number input with a model-year dropdown covering 2018 through 2026.
+- Customer lists and notes now show the model year before the vehicle, such as `2021 Jeep Wrangler`.
+- Existing age-based customer records are displayed as their equivalent model year without losing their saved details.
+
+## 1.7.2
 
 ### Dismissible customer notes
 

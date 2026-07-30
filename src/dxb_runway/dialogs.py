@@ -242,15 +242,18 @@ class CustomerContactDialog(QDialog):
         self.phone=QLineEdit(); self.phone.setPlaceholderText("Last 5 digits"); self.phone.setMaxLength(5)
         self.vehicle=QLineEdit(); self.vehicle.setPlaceholderText("Make and model")
         self.mileage=QSpinBox(); self.mileage.setRange(0,2_000_000); self.mileage.setGroupSeparatorShown(True); self.mileage.setSuffix(" km")
-        self.age=QSpinBox(); self.age.setRange(0,100); self.age.setSuffix(" years")
+        self.year=QComboBox()
+        for model_year in range(2018,2027): self.year.addItem(str(model_year),model_year)
+        self.year.setCurrentIndex(self.year.findData(2026))
         self.vehicle_price=MoneyBox(); self.cash_offer=MoneyBox(); self.consignment_offer=MoneyBox()
         self.rapport=QComboBox(); self.rapport.addItem("Green · Default","green"); self.rapport.addItem("Red · Strong rapport","red")
         self.notes=QLineEdit(); self.notes.setPlaceholderText("Optional context")
         form.addRow("Customer",self.name); form.addRow("Phone · last 5 digits",self.phone); form.addRow("Vehicle",self.vehicle)
-        form.addRow("Mileage",self.mileage); form.addRow("Vehicle age",self.age); form.addRow("Vehicle price · AED",self.vehicle_price)
+        form.addRow("Mileage",self.mileage); form.addRow("Model year",self.year); form.addRow("Vehicle price · AED",self.vehicle_price)
         form.addRow("Cash offer · AED",self.cash_offer); form.addRow("Consignment offer · AED",self.consignment_offer); form.addRow("Rapport",self.rapport); form.addRow("Notes",self.notes); root.addLayout(form)
         if customer:
-            self.name.setText(customer["customer_name"]); self.phone.setText(customer["phone_last5"]); self.vehicle.setText(customer["vehicle_name"]); self.mileage.setValue(customer["mileage"]); self.age.setValue(customer["vehicle_age_years"]); self.vehicle_price.setValue(customer["vehicle_price_aed"]); self.cash_offer.setValue(customer["cash_offer_aed"]); self.consignment_offer.setValue(customer["consignment_offer_aed"]); self.rapport.setCurrentIndex(1 if customer["rapport"]=="red" else 0); self.notes.setText(customer["notes"])
+            stored_year=int(customer["vehicle_age_years"]); model_year=stored_year if 2018<=stored_year<=2026 else max(2018,min(2026,2026-stored_year))
+            self.name.setText(customer["customer_name"]); self.phone.setText(customer["phone_last5"]); self.vehicle.setText(customer["vehicle_name"]); self.mileage.setValue(customer["mileage"]); self.year.setCurrentIndex(self.year.findData(model_year)); self.vehicle_price.setValue(customer["vehicle_price_aed"]); self.cash_offer.setValue(customer["cash_offer_aed"]); self.consignment_offer.setValue(customer["consignment_offer_aed"]); self.rapport.setCurrentIndex(1 if customer["rapport"]=="red" else 0); self.notes.setText(customer["notes"])
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def validate_and_accept(self)->None:
@@ -259,7 +262,7 @@ class CustomerContactDialog(QDialog):
         self.accept()
 
     def values(self)->dict:
-        return {"customer_name":self.name.text().strip(),"phone_last5":self.phone.text().strip(),"vehicle_name":self.vehicle.text().strip(),"mileage":self.mileage.value(),"vehicle_age_years":self.age.value(),"vehicle_price_aed":self.vehicle_price.value(),"cash_offer_aed":self.cash_offer.value(),"consignment_offer_aed":self.consignment_offer.value(),"rapport":self.rapport.currentData(),"notes":self.notes.text().strip()}
+        return {"customer_name":self.name.text().strip(),"phone_last5":self.phone.text().strip(),"vehicle_name":self.vehicle.text().strip(),"mileage":self.mileage.value(),"vehicle_age_years":self.year.currentData(),"vehicle_price_aed":self.vehicle_price.value(),"cash_offer_aed":self.cash_offer.value(),"consignment_offer_aed":self.consignment_offer.value(),"rapport":self.rapport.currentData(),"notes":self.notes.text().strip()}
 
 
 class SellVehicleDialog(QDialog):

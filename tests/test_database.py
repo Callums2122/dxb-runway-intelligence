@@ -149,9 +149,9 @@ def test_performance_budget_is_stored_per_month(tmp_path: Path):
 
 def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: Path):
     db=Database(tmp_path/"runway.db")
-    customer_id=db.add_customer_contact({"customer_name":"Sam","vehicle_name":"BMW M4","phone_last5":"12345","mileage":42000,"vehicle_age_years":4,"vehicle_price_aed":210000,"cash_offer_aed":190000,"consignment_offer_aed":205000,"next_contact_date":"2026-07-30"})
+    customer_id=db.add_customer_contact({"customer_name":"Sam","vehicle_name":"BMW M4","phone_last5":"12345","mileage":42000,"vehicle_age_years":2021,"vehicle_price_aed":210000,"cash_offer_aed":190000,"consignment_offer_aed":205000,"next_contact_date":"2026-07-30"})
     row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
-    assert row["rapport"]=="green" and row["next_contact_date"]=="2026-07-30"
+    assert row["rapport"]=="green" and row["next_contact_date"]=="2026-07-30" and row["vehicle_age_years"]==2021
     assert db.toggle_customer_rapport(customer_id)=="red"
     db.mark_customer_contacted(customer_id,"2026-07-30")
     row=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]

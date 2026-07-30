@@ -9,9 +9,9 @@ from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QApplication
 
 from dxb_runway.database import Database
-from dxb_runway.dialogs import OnboardingDialog
+from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, latest_occurrence_for_month
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month
 
 
 def app():
@@ -24,6 +24,18 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
     dialog=OnboardingDialog(db)
     assert dialog.pages.count()==4
     assert dialog.fields["uk_cash_gbp"].value()==2000
+    dialog.close()
+
+
+def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db")
+    dialog=CustomerContactDialog(db)
+    assert [dialog.year.itemData(i) for i in range(dialog.year.count())]==list(range(2018,2027))
+    assert dialog.year.currentData()==2026
+    dialog.year.setCurrentIndex(dialog.year.findData(2021))
+    assert dialog.values()["vehicle_age_years"]==2021
+    assert customer_vehicle_year(2021)==2021
+    assert customer_vehicle_year(5)==2021
     dialog.close()
 
 
@@ -64,8 +76,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles.refresh()
     assert history.table.columnCount()==6
     assert set(contacts.tables)=={"today","tomorrow","all"} and contacts.tables["today"].columnCount()==7
-    db.add_customer_contact({"customer_name":"Notes test","vehicle_name":"Audi RS6","phone_last5":"54321"})
+    db.add_customer_contact({"customer_name":"Notes test","vehicle_name":"Audi RS6","phone_last5":"54321","vehicle_age_years":2021})
     contacts.refresh(); contacts.tables["today"].selectRow(0); application.processEvents()
+    assert contacts.tables["today"].item(0,1).text()=="2021 Audi RS6"
     assert not contacts.notes_card.isHidden()
     contacts.close_notes()
     assert contacts.notes_card.isHidden() and contacts.tables["today"].selectedItems()==[]
