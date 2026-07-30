@@ -43,6 +43,11 @@ def test_cars_to_next_tier_at_example_margin():
     assert result.cars_to_next_tier==12
 
 
+def test_earnings_can_use_app_wide_salary_override():
+    result=calculate_earnings(year=2026,month=7,budget_aed=3_000_000,eligible_profit_aed=0,salary_aed=9250)
+    assert result.salary_aed==Decimal("9250.00") and result.total_earned_aed==Decimal("9250.00")
+
+
 def test_live_vehicle_profit_uses_the_selected_month_target_schedule():
     april=calculate_earnings(year=2026,month=4,budget_aed=3_000_000,eligible_profit_aed=260_000)
     may=calculate_earnings(year=2026,month=5,budget_aed=3_000_000,eligible_profit_aed=260_000)

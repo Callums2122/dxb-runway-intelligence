@@ -547,13 +547,15 @@ class VehicleDeskPage(Page):
     def __init__(self, db: Database):
         super().__init__(db); outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(15)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Vehicle desk","Green is the current month; orange is the commission being paid now.")); top.addStretch(); self.month=QComboBox(); self.month.addItems(list(calendar.month_name)[1:]); self.configure_month_options(); self.month.setCurrentIndex(date.today().month-1); self.month.currentIndexChanged.connect(self.refresh); top.addWidget(self.month); root.addLayout(top)
-        controls=Card(); control_grid=QGridLayout(controls); control_grid.setContentsMargins(16,14,16,14); self.budget=MoneyBox(); self.budget.setValue(3_000_000); save_budget=QPushButton("Save month budget"); save_budget.clicked.connect(self.save_budget)
-        control_grid.addWidget(QLabel("ASSIGNED PURCHASING BUDGET · AED"),0,0); self.budget_remaining=QLabel(); self.budget_remaining.setToolTip("Assigned purchasing budget minus cash purchases in the selected month. Consignment stock is excluded."); control_grid.addWidget(self.budget_remaining,0,1,1,2); control_grid.addWidget(self.budget,1,0); control_grid.addWidget(save_budget,1,1); root.addWidget(controls)
+        controls=Card(); control_grid=QGridLayout(controls); control_grid.setContentsMargins(16,14,16,14); control_grid.setHorizontalSpacing(12); self.budget=MoneyBox(); self.budget.setValue(3_000_000); save_budget=QPushButton("Save month budget"); save_budget.clicked.connect(self.save_budget); self.salary=MoneyBox(); self.salary.setValue(float(db.get_setting("salary_aed","6000"))); save_salary=QPushButton("Save monthly salary"); save_salary.clicked.connect(self.save_salary)
+        control_grid.addWidget(QLabel("SELECTED MONTH PURCHASING BUDGET · AED"),0,0); self.budget_remaining=QLabel(); self.budget_remaining.setToolTip("Assigned purchasing budget minus cash purchases in the selected month. Consignment stock is excluded."); control_grid.addWidget(self.budget_remaining,0,1); control_grid.addWidget(QLabel("MONTHLY BASE SALARY · AED"),0,2); control_grid.addWidget(self.budget,1,0); control_grid.addWidget(save_budget,1,1); control_grid.addWidget(self.salary,1,2); control_grid.addWidget(save_salary,1,3); root.addWidget(controls)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
         for i,(key,label,color) in enumerate([("sold","Sold this month",COLORS["green"]),("profit","Realised profit",COLORS["green"]),("commission","Commission earned",COLORS["green"]),("total","Total earned",COLORS["purple"])]):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         root.addLayout(metrics)
         tier_card=Card(); tier_layout=QVBoxLayout(tier_card); tier_layout.setContentsMargins(18,15,18,15); tier_top=QHBoxLayout(); self.tier=QLabel("BASELINE · 4%"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{COLORS['cyan']}"); tier_top.addWidget(self.tier); tier_top.addStretch(); self.achievement=QLabel(); self.achievement.setObjectName("muted"); tier_top.addWidget(self.achievement); tier_layout.addLayout(tier_top); self.schedule=QLabel(); self.schedule.setObjectName("muted"); self.schedule.setWordWrap(True); tier_layout.addWidget(self.schedule); self.tier_progress=QProgressBar(); tier_layout.addWidget(self.tier_progress); root.addWidget(tier_card)
+        tier_matrix=Card(); matrix_layout=QVBoxLayout(tier_matrix); matrix_layout.setContentsMargins(16,15,16,15); matrix_layout.addWidget(SectionHeader("Monthly tier percentages","Every live month, its purchasing budget, target percentages and achieved commission rate."))
+        self.tier_table=QTableWidget(12,7); self.tier_table.setHorizontalHeaderLabels(["MONTH","BUDGET · AED","BASELINE RATE","TIER 3 TARGET / RATE","TIER 2 TARGET / RATE","TIER 1 TARGET / RATE","ACHIEVED TIER / RATE"]); self.tier_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.tier_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.tier_table.verticalHeader().hide(); self.tier_table.horizontalHeader().setStretchLastSection(True); self.tier_table.setMinimumHeight(390); matrix_layout.addWidget(self.tier_table); root.addWidget(tier_matrix)
         sections=QHBoxLayout(); sections.setSpacing(12)
         sold_card=Card(); sold_layout=QVBoxLayout(sold_card); sold_layout.setContentsMargins(16,15,16,15); sold_head=QHBoxLayout(); sold_head.addWidget(SectionHeader("Sold in selected month","The view resets with each month; all earlier months remain available above.")); sold_head.addStretch(); undo=QPushButton("Return selected to stock"); undo.clicked.connect(self.return_selected); sold_head.addWidget(undo); sold_layout.addLayout(sold_head)
         self.sold_table=QTableWidget(0,5); self.sold_table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","SOLD","REALISED PROFIT","COMMISSION"]); self.sold_table.setWordWrap(True); self.sold_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.sold_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.sold_table.verticalHeader().hide(); self.sold_table.horizontalHeader().setStretchLastSection(True); sold_layout.addWidget(self.sold_table); sections.addWidget(sold_card,1); root.addLayout(sections,1)
@@ -589,10 +591,11 @@ class VehicleDeskPage(Page):
         value=table.item(row,0).data(Qt.ItemDataRole.UserRole); return int(value) if value is not None else None
 
     def refresh(self)->None:
-        month=self.selected_month(); year,month_number=(int(value) for value in month.split("-")); month_label=calendar.month_name[month_number]; rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); budget=self.db.performance_budget(month); purchased_total=self.db.monthly_vehicle_purchase_total(month); remaining_budget=money(budget-purchased_total)
+        month=self.selected_month(); year,month_number=(int(value) for value in month.split("-")); month_label=calendar.month_name[month_number]; rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); salary=Decimal(self.db.get_setting("salary_aed","6000")); budget=self.db.performance_budget(month); purchased_total=self.db.monthly_vehicle_purchase_total(month); remaining_budget=money(budget-purchased_total)
         self.budget.blockSignals(True); self.budget.setValue(float(budget)); self.budget.blockSignals(False)
+        self.salary.blockSignals(True); self.salary.setValue(float(salary)); self.salary.blockSignals(False)
         remaining_aed,remaining_gbp=dual_amount(remaining_budget,rate); remaining_color=COLORS["red"] if remaining_budget<0 else COLORS["amber"] if budget>0 and remaining_budget/budget<Decimal("0.15") else COLORS["green"]; self.budget_remaining.setText(f"BUDGET REMAINING  ·  {remaining_aed}  /  {remaining_gbp}"); self.budget_remaining.setStyleSheet(f"color:{remaining_color};font-weight:800")
-        sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),average_margin_aed=24700)
+        sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),average_margin_aed=24700,salary_aed=salary)
         if month<=date.today().strftime("%Y-%m") and (sold or month==date.today().strftime("%Y-%m")): self.sync_earnings(result,year,month_number)
         rate_pct=f"{float(result.rate*100):g}%"; self.current_result=result; self.metrics["sold"].set_value(str(len(sold)),month_label); profit_aed,profit_gbp=dual_amount(realised,rate,signed=True); self.metrics["profit"].set_value(profit_aed,profit_gbp,COLORS["red"] if realised<0 else COLORS["green"]); commission_aed,commission_gbp=dual_amount(result.commission_aed,rate); self.metrics["commission"].set_value(commission_aed,f"{commission_gbp} · Commission only · {result.tier.value} at {rate_pct}"); total_aed,total_gbp=dual_amount(result.total_earned_aed,rate); self.metrics["total"].set_value(total_aed,f"{total_gbp} · Base AED {result.salary_aed:,.0f} + commission AED {result.commission_aed:,.0f}")
         tier_color=COLORS["green"] if result.tier!=CommissionTier.BASELINE else COLORS["cyan"]; self.tier.setText(f"{result.tier.value.upper()} · {rate_pct}"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{tier_color}")
@@ -603,6 +606,17 @@ class VehicleDeskPage(Page):
             values.insert(0,"Cash purchase" if row["purchase_type"]=="cash" else "Consignment")
             for j,value in enumerate(values,1): self.sold_table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight,color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j in {3,4} and profit>=0 else COLORS["red"] if j in {3,4} else None))
         self.sold_table.setColumnWidth(0,140); self.sold_table.setColumnWidth(1,120); self.sold_table.setColumnWidth(2,95); self.sold_table.setColumnWidth(3,150); self.sold_table.horizontalHeader().setStretchLastSection(True)
+        self.refresh_tier_table(salary)
+
+    def refresh_tier_table(self,salary:Decimal)->None:
+        self.tier_table.setRowCount(12)
+        for row_index in range(12):
+            month_number=row_index+1; month=str(self.month.itemData(row_index,Qt.ItemDataRole.UserRole)); year=int(month[:4]); budget=self.db.performance_budget(month); sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(vehicle["realised_profit_aed"])) for vehicle in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=salary); t3,t2,t1=TARGET_PERCENTAGES[month_number]
+            values=[self.month.itemText(row_index),f"{budget:,.0f}","4%",f"{t3*100:g}% / 5%",f"{t2*100:g}% / 6.5%",f"{t1*100:g}% / 8%",f"{result.tier.value} / {result.rate*100:g}%"]
+            for column,value in enumerate(values):
+                item=table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if column else Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if column==6 and result.tier!=CommissionTier.BASELINE else COLORS["cyan"] if column==6 else None); self.tier_table.setItem(row_index,column,item)
+            self.tier_table.setRowHeight(row_index,40)
+        for column,width in enumerate([125,125,105,145,145,145]): self.tier_table.setColumnWidth(column,width)
 
     def sync_earnings(self,result,year:int,month_number:int)->None:
         earned_date=date(year,month_number,calendar.monthrange(year,month_number)[1]).isoformat()
@@ -610,6 +624,11 @@ class VehicleDeskPage(Page):
 
     def save_budget(self)->None:
         self.db.set_performance_budget(self.selected_month(),self.budget.value()); self.refresh(); self.changed.emit()
+
+    def save_salary(self)->None:
+        self.db.set_setting("salary_aed",f"{self.salary.value():.2f}")
+        current=date.today().strftime("%Y-%m"); year,month_number=(int(value) for value in current.split("-")); budget=self.db.performance_budget(current); sold=self.db.sold_vehicles(current); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=self.salary.value()); self.sync_earnings(result,year,month_number)
+        self.refresh(); self.changed.emit()
 
     def return_selected(self)->None:
         vehicle_id=self.selected_id(self.sold_table)

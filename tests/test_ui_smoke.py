@@ -65,6 +65,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     inspection=window.pages["inspection"]
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
+    assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
     vehicles.configure_month_options(date(2026,7,30))
     assert vehicles.month.itemText(6)=="July 2026"
     assert vehicles.month.itemText(7)=="August 2025"
@@ -90,6 +91,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
     assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()
+    vehicles.salary.setValue(9250); vehicles.save_salary(); assert db.get_setting("salary_aed")=="9250.00" and vehicles.current_result.salary_aed==Decimal("9250.00")
     synced=db.query("SELECT salary_aed,commission_aed FROM earnings WHERE year=? AND month=?",(date.today().year,date.today().month))[0]
     assert Decimal(str(synced["salary_aed"]))==vehicles.current_result.salary_aed
     assert Decimal(str(synced["commission_aed"]))==vehicles.current_result.commission_aed

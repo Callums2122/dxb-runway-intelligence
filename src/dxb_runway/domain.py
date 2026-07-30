@@ -128,6 +128,7 @@ def calculate_earnings(
     eligible_profit_aed: Decimal | float | int | str,
     average_margin_aed: Decimal | float | int | str = 24700,
     deductions_aed: Decimal | float | int | str = 0,
+    salary_aed: Decimal | float | int | str | None = None,
 ) -> EarningsResult:
     if month not in TARGET_PERCENTAGES:
         raise ValueError("Month must be between 1 and 12")
@@ -151,7 +152,9 @@ def calculate_earnings(
         tier, next_tier, next_target = CommissionTier.BASELINE, CommissionTier.TIER_3, targets[0]
     rate = COMMISSION_RATES[tier]
     commission = money(profit * rate)
-    salary = basic_salary(budget)
+    salary = basic_salary(budget) if salary_aed is None else money(salary_aed)
+    if salary < 0:
+        raise ValueError("Salary cannot be negative")
     total = money(max(Decimal("0"), salary + commission - deductions))
     distance = money(max(Decimal("0"), (next_target or profit) - profit))
     cars = 0 if distance == 0 or average_margin == 0 else int((distance / average_margin).to_integral_value(rounding=ROUND_CEILING))

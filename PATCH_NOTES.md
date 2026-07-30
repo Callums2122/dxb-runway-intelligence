@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.5
+## Current release — 1.7.6
+
+### Monthly tier overview and global salary
+
+- Added a 12-month Vehicle Desk table showing each month's purchasing budget, every tier target percentage, commission rate and achieved tier.
+- Added monthly base salary editing beside the selected month's budget controls.
+- Saving salary updates the app-wide setting and immediately recalculates current earnings across the app.
+
+## 1.7.5
 
 ### Scheduled inspections
 
