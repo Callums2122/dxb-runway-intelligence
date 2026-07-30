@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.0
+## Current release — 1.8.1
+
+### Scalable customer search
+
+- Replaced the long personalisation dropdown with a searchable customer selector.
+- Search matches any part of the customer name, vehicle or last five phone digits.
+- Results include year/make/model, phone suffix and Caller or Inspection context, with a compact 12-result popup.
+- Typing alone never reuses an old customer selection; a matching customer must be deliberately selected before smart fields can be copied.
+
+## 1.8.0
 
 ### Personalised WhatsApp templates
 

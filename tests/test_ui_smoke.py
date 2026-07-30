@@ -57,6 +57,17 @@ def test_whatsapp_template_autofills_customer_and_vehicle(tmp_path: Path):
     assert page.copy_button.isEnabled(); page.close()
 
 
+def test_whatsapp_customer_picker_searches_large_lists_safely(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db")
+    for index in range(30): db.add_customer_contact({"customer_name":f"Customer {index:02d}","vehicle_name":"Jeep Wrangler" if index==23 else "BMW M4","vehicle_age_years":2021,"phone_last5":f"{index:05d}"})
+    db.save_message_template("Personal","Hi {{customer_name}}, is your {{vehicle}} available?"); page=WhatsAppTemplatesPage(db)
+    assert page.customer.maxVisibleItems()==12 and page.customer.completer().filterMode()==Qt.MatchFlag.MatchContains
+    page.customer.setEditText("00023"); assert page.customer.currentIndex()==-1 and not page.copy_button.isEnabled()
+    match=page.customer.findText("Customer 23",Qt.MatchFlag.MatchStartsWith); page.customer.setCurrentIndex(match)
+    assert "Hi Customer 23" in page.preview.toPlainText() and "2021 Jeep Wrangler" in page.preview.toPlainText()
+    page.close()
+
+
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)

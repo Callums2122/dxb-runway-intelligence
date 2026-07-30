@@ -491,7 +491,7 @@ class WhatsAppTemplatesPage(Page):
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); layout.addLayout(tools)
         body=QHBoxLayout(); body.setSpacing(14); list_card=Card(); list_layout=QVBoxLayout(list_card); list_layout.setContentsMargins(16,15,16,15); list_layout.addWidget(QLabel("SAVED TEMPLATES")); self.table=QTableWidget(0,1); self.table.setHorizontalHeaderLabels(["TEMPLATE"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.itemSelectionChanged.connect(self.show_selected); list_layout.addWidget(self.table); body.addWidget(list_card,1)
-        preview_card=Card(); preview_layout=QVBoxLayout(preview_card); preview_layout.setContentsMargins(18,16,18,16); self.preview_title=QLabel("SELECT A TEMPLATE"); self.preview_title.setStyleSheet("font-size:18px;font-weight:800"); preview_layout.addWidget(self.preview_title); customer_row=QHBoxLayout(); customer_row.addWidget(QLabel("PERSONALISE FOR")); self.customer=QComboBox(); self.customer.currentIndexChanged.connect(self.show_selected); customer_row.addWidget(self.customer,1); preview_layout.addLayout(customer_row); self.preview=QTextEdit(); self.preview.setReadOnly(True); self.preview.setPlaceholderText("Your selected WhatsApp message will appear here."); preview_layout.addWidget(self.preview,1); self.copy_button=QPushButton("Copy personalised message"); self.copy_button.setProperty("primary",True); self.copy_button.clicked.connect(self.copy_message); self.copy_button.setEnabled(False); preview_layout.addWidget(self.copy_button); body.addWidget(preview_card,2); layout.addLayout(body,1); self.refresh()
+        preview_card=Card(); preview_layout=QVBoxLayout(preview_card); preview_layout.setContentsMargins(18,16,18,16); self.preview_title=QLabel("SELECT A TEMPLATE"); self.preview_title.setStyleSheet("font-size:18px;font-weight:800"); preview_layout.addWidget(self.preview_title); customer_row=QHBoxLayout(); customer_row.addWidget(QLabel("SEARCH CUSTOMER")); self.customer=QComboBox(); self.customer.setEditable(True); self.customer.setInsertPolicy(QComboBox.InsertPolicy.NoInsert); self.customer.setMaxVisibleItems(12); self.customer.setMinimumWidth(420); self.customer.lineEdit().setPlaceholderText("Type a name, vehicle or last 5 phone digits…"); self.customer.lineEdit().setClearButtonEnabled(True); self.customer.completer().setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive); self.customer.completer().setFilterMode(Qt.MatchFlag.MatchContains); self.customer.currentIndexChanged.connect(self.show_selected); self.customer.editTextChanged.connect(self.customer_search_changed); customer_row.addWidget(self.customer,1); preview_layout.addLayout(customer_row); self.customer_hint=QLabel("Search across active callers and inspections, then choose the correct customer."); self.customer_hint.setObjectName("muted"); preview_layout.addWidget(self.customer_hint); self.preview=QTextEdit(); self.preview.setReadOnly(True); self.preview.setPlaceholderText("Your selected WhatsApp message will appear here."); preview_layout.addWidget(self.preview,1); self.copy_button=QPushButton("Copy personalised message"); self.copy_button.setProperty("primary",True); self.copy_button.clicked.connect(self.copy_message); self.copy_button.setEnabled(False); preview_layout.addWidget(self.copy_button); body.addWidget(preview_card,2); layout.addLayout(body,1); self.refresh()
 
     def selected_template(self):
         row=self.table.currentRow()
@@ -500,8 +500,10 @@ class WhatsAppTemplatesPage(Page):
         return matches[0] if matches else None
 
     def refresh(self)->None:
-        selected_customer=self.customer.currentData(); self.customer.blockSignals(True); self.customer.clear(); self.customer.addItem("Choose a customer…",None)
-        for customer in self.db.customer_contacts(stage=None): self.customer.addItem(f"{customer['customer_name']} · {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']}",customer["id"])
+        selected_customer=self.customer.currentData(); self.customer.blockSignals(True); self.customer.clear(); self.customer.addItem("Choose or search for a customer…",None)
+        for customer in self.db.customer_contacts(stage=None):
+            stage="Inspection" if customer["pipeline_stage"]=="inspection" else "Caller"
+            self.customer.addItem(f"{customer['customer_name']} · {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']} · ••••• {customer['phone_last5']} · {stage}",customer["id"])
         if selected_customer is not None: self.customer.setCurrentIndex(max(0,self.customer.findData(selected_customer)))
         self.customer.blockSignals(False); rows=self.db.message_templates(); self.table.setRowCount(len(rows))
         for i,row in enumerate(rows):
@@ -512,13 +514,19 @@ class WhatsAppTemplatesPage(Page):
     def show_selected(self)->None:
         template=self.selected_template()
         if not template: self.preview_title.setText("SELECT A TEMPLATE"); self.preview.clear(); self.copy_button.setEnabled(False); return
-        message=template["message_text"]; needs_customer="{{customer_name}}" in message or "{{vehicle}}" in message; customer_id=self.customer.currentData(); customer=None
+        message=template["message_text"]; needs_customer="{{customer_name}}" in message or "{{vehicle}}" in message; customer_id=self.customer.currentData() if self.customer.currentIndex()>0 else None; customer=None
         if customer_id is not None:
             rows=self.db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,)); customer=rows[0] if rows else None
         if customer:
             message=message.replace("{{customer_name}}",customer["customer_name"]).replace("{{vehicle}}",f"{customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']}")
         self.preview_title.setText(template["title"]); self.preview.setPlainText(message); self.copy_button.setEnabled(not needs_customer or customer is not None)
         self.copy_button.setToolTip("Choose a customer to fill the smart fields before copying." if needs_customer and customer is None else "Copy this finished message to the clipboard.")
+
+    def customer_search_changed(self,text:str)->None:
+        index=self.customer.currentIndex()
+        if index>=0 and text!=self.customer.itemText(index):
+            self.customer.blockSignals(True); self.customer.setCurrentIndex(-1); self.customer.setEditText(text); self.customer.blockSignals(False)
+        if self.customer.currentIndex()<0: self.show_selected()
 
     def add_template(self)->None:
         dialog=MessageTemplateDialog(parent=self)
