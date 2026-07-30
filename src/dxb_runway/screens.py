@@ -968,7 +968,7 @@ class CalendarPage(Page):
 
         self.calendar=PlayfulCalendar(); self.calendar.selectionChanged.connect(self.refresh_events); self.calendar.currentPageChanged.connect(self.update_month_title); calendar_l.addWidget(self.calendar,1)
         legend=QHBoxLayout(); legend.setSpacing(14); legend.addStretch()
-        for label,color in [("Salary",COLORS["green"]),("Commission",COLORS["purple"]),("Bills",COLORS["amber"]),("Cards",COLORS["red"]),("Reminder",COLORS["cyan"])]:
+        for label,color in [("Salary",COLORS["green"]),("Commission",COLORS["purple"]),("Inspection",COLORS["cyan"]),("Bills",COLORS["amber"]),("Cards",COLORS["red"]),("Reminder",COLORS["cyan"])]:
             item=QLabel(f"<span style='color:{color};font-size:16px'>●</span>&nbsp; {label}"); item.setObjectName("muted"); legend.addWidget(item)
         legend.addStretch(); calendar_l.addLayout(legend)
         body.addWidget(calendar_card,2)
@@ -995,9 +995,19 @@ class CalendarPage(Page):
     def update_month_title(self,year:int,month:int)->None:
         self.month_title.setText(QDate(year,month,1).toString("MMMM yyyy"))
 
+    def inspection_events(self,on_date:str|None=None):
+        where=" AND inspection_date=?" if on_date else ""
+        params=(on_date,) if on_date else ()
+        return self.db.query(
+            "SELECT customer_name || ' · Vehicle inspection' title,inspection_date event_date,'inspection' event_type,"
+            "CASE WHEN vehicle_age_years BETWEEN 2018 AND 2026 THEN vehicle_age_years ELSE MAX(2018,MIN(2026,2026-vehicle_age_years)) END || ' ' || vehicle_name || ' · phone ••••• ' || phone_last5 notes,"
+            "0 completed,id FROM customer_contacts WHERE pipeline_stage='inspection' AND status='active' AND inspection_date IS NOT NULL"+where,
+            params,
+        )
+
     def refresh(self)->None:
-        rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date IS NOT NULL AND b.planned_aed>0")
-        colors={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}
+        rows=self.db.query("SELECT * FROM reminders WHERE completed=0")+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE received=0")+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date IS NOT NULL AND b.planned_aed>0")+self.inspection_events()
+        colors={"salary":COLORS["green"],"commission":COLORS["purple"],"inspection":COLORS["cyan"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}
         event_colors={}
         for row in rows:
             qdate=QDate.fromString(row["event_date"],"yyyy-MM-dd")
@@ -1006,14 +1016,14 @@ class CalendarPage(Page):
         self.refresh_events()
 
     def refresh_events(self)->None:
-        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd\nd MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date=? AND b.planned_aed>0",(selected,))
+        clear_layout(self.events); selected=self.calendar.selectedDate().toString("yyyy-MM-dd"); self.day.setText(self.calendar.selectedDate().toString("dddd\nd MMMM")); rows=self.db.query("SELECT * FROM reminders WHERE event_date=?",(selected,))+self.db.query("SELECT 'Commission payment' title,payment_date event_date,'commission' event_type,'' notes,0 completed,id FROM earnings WHERE payment_date=? AND received=0",(selected,))+self.db.query("SELECT c.name || ' due' title,b.due_date event_date,'rent' event_type,'AED ' || printf('%,.2f',b.planned_aed) notes,0 completed,b.id FROM budgets b JOIN categories c ON c.id=b.category_id WHERE b.due_date=? AND b.planned_aed>0",(selected,))+self.inspection_events(selected)
         if not rows:
             empty=QFrame(); empty.setObjectName("calendarEmpty"); empty_l=QVBoxLayout(empty); empty_l.setContentsMargins(16,18,16,18)
             icon=QLabel("✦"); icon.setObjectName("calendarEmptyIcon"); empty_l.addWidget(icon,0,Qt.AlignmentFlag.AlignCenter)
             label=QLabel("Nothing due — enjoy the clear space."); label.setObjectName("muted"); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setWordWrap(True); empty_l.addWidget(label)
             self.events.addWidget(empty)
         for row in rows:
-            event_type=str(row["event_type"]); accent={"salary":COLORS["green"],"commission":COLORS["purple"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}.get(event_type,COLORS["cyan"])
+            event_type=str(row["event_type"]); accent={"salary":COLORS["green"],"commission":COLORS["purple"],"inspection":COLORS["cyan"],"rent":COLORS["amber"],"card":COLORS["red"],"subscription":COLORS["cyan"]}.get(event_type,COLORS["cyan"])
             card=QFrame(); card.setProperty("eventCard",True); card.setStyleSheet(f"QFrame[eventCard='true']{{background:#141a24;border:1px solid #202937;border-left:4px solid {accent};border-radius:10px;}}")
             lay=QVBoxLayout(card); lay.setContentsMargins(14,12,14,12); title=QLabel(row["title"]); title.setStyleSheet("font-weight:700;font-size:14px"); lay.addWidget(title); meta=QLabel(event_type.upper()); meta.setStyleSheet(f"color:{accent};font-size:10px;font-weight:700;letter-spacing:1px"); lay.addWidget(meta)
             if row["notes"]: detail=QLabel(row["notes"]); detail.setObjectName("muted"); lay.addWidget(detail)

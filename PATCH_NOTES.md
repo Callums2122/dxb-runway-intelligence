@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.7
+## Current release — 1.7.8
+
+### Inspection calendar sync
+
+- Scheduled vehicle inspections now appear automatically on their chosen date in Calendar.
+- Calendar inspection cards show the customer, model year, vehicle and phone suffix.
+- Returning an inspection to callers or marking it sold removes the active inspection from Calendar.
+
+## 1.7.7
 
 ### Tier earnings preview
 

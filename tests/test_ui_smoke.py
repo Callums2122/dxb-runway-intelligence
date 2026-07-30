@@ -144,6 +144,11 @@ def test_budget_tracks_transactions_and_places_rent_due_in_calendar(tmp_path: Pa
     assert "AED +750" in budget.category_cards[groceries].remaining.text()
     calendar=CalendarPage(db)
     assert QDate(2026,7,25) in calendar.calendar.event_colors
+    customer_id=db.add_customer_contact({"customer_name":"Calendar seller","vehicle_name":"Jeep Wrangler","vehicle_age_years":2021,"phone_last5":"12345"}); db.move_customer_to_inspection(customer_id,"2026-08-05"); calendar.refresh()
+    assert QDate(2026,8,5) in calendar.calendar.event_colors
+    inspection_event=calendar.inspection_events("2026-08-05")[0]
+    assert inspection_event["title"]=="Calendar seller · Vehicle inspection" and "2021 Jeep Wrangler" in inspection_event["notes"]
+    db.return_customer_to_callers(customer_id); calendar.refresh(); assert calendar.inspection_events("2026-08-05")==[]
     budget.close(); calendar.close()
 
 
