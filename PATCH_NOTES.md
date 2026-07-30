@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.6.1
+## Current release — 1.6.2
+
+### Commission month cues
+
+- Added the year to every Vehicle Desk month option.
+- Highlighted the current month in green.
+- Highlighted the month two months behind in orange to show the commission being paid now.
+
+## 1.6.1
 
 ### Clean rolling Vehicle Desk
 

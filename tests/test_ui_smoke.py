@@ -49,7 +49,17 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles=window.pages["vehicles"]
     stock=window.pages["stock"]
     history=window.pages["vehicle_history"]
-    assert vehicles.month.count()==12 and vehicles.month.itemText(7)=="August"
+    assert vehicles.month.count()==12
+    vehicles.configure_month_options(date(2026,7,30))
+    assert vehicles.month.itemText(6)=="July 2026"
+    assert vehicles.month.itemText(7)=="August 2025"
+    assert vehicles.month.itemData(6,Qt.ItemDataRole.BackgroundRole).name()=="#174f40"
+    assert vehicles.month.itemData(4,Qt.ItemDataRole.BackgroundRole).name()=="#5a4316"
+    vehicles.month.setCurrentIndex(4)
+    assert vehicles.selected_month()=="2026-05"
+    vehicles.configure_month_options()
+    vehicles.month.setCurrentIndex(date.today().month-1)
+    vehicles.refresh()
     assert history.table.columnCount()==6
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics

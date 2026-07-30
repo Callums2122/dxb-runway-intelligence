@@ -377,7 +377,7 @@ class StockLevelPage(Page):
 class VehicleDeskPage(Page):
     def __init__(self, db: Database):
         super().__init__(db); outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(15)
-        top=QHBoxLayout(); top.addWidget(SectionHeader("Vehicle desk","A clean view of the latest occurrence of each month.")); top.addStretch(); self.month=QComboBox(); self.month.addItems(list(calendar.month_name)[1:]); self.month.setCurrentIndex(date.today().month-1); self.month.currentIndexChanged.connect(self.refresh); top.addWidget(self.month); root.addLayout(top)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Vehicle desk","Green is the current month; orange is the commission being paid now.")); top.addStretch(); self.month=QComboBox(); self.month.addItems(list(calendar.month_name)[1:]); self.configure_month_options(); self.month.setCurrentIndex(date.today().month-1); self.month.currentIndexChanged.connect(self.refresh); top.addWidget(self.month); root.addLayout(top)
         controls=Card(); control_grid=QGridLayout(controls); control_grid.setContentsMargins(16,14,16,14); self.budget=MoneyBox(); self.budget.setValue(3_000_000); save_budget=QPushButton("Save month budget"); save_budget.clicked.connect(self.save_budget)
         control_grid.addWidget(QLabel("ASSIGNED PURCHASING BUDGET · AED"),0,0); self.budget_remaining=QLabel(); self.budget_remaining.setToolTip("Assigned purchasing budget minus cash purchases in the selected month. Consignment stock is excluded."); control_grid.addWidget(self.budget_remaining,0,1,1,2); control_grid.addWidget(self.budget,1,0); control_grid.addWidget(save_budget,1,1); root.addWidget(controls)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
@@ -393,12 +393,26 @@ class VehicleDeskPage(Page):
     def check_month_rollover(self)->None:
         new_month=date.today().strftime("%Y-%m")
         if new_month!=self.system_month:
+            self.configure_month_options()
             self.month.setCurrentIndex(date.today().month-1)
             self.system_month=new_month
             self.refresh()
 
+    def configure_month_options(self,today:date|None=None)->None:
+        current=today or date.today(); payment_month=((current.month-3)%12)+1
+        for month_number in range(1,13):
+            month_key=latest_occurrence_for_month(month_number,current); year=int(month_key[:4])
+            self.month.setItemText(month_number-1,f"{calendar.month_name[month_number]} {year}")
+            self.month.setItemData(month_number-1,month_key,Qt.ItemDataRole.UserRole)
+            background=QColor("#174f40") if month_number==current.month else QColor("#5a4316") if month_number==payment_month else QColor()
+            foreground=QColor(COLORS["green"]) if month_number==current.month else QColor(COLORS["amber"]) if month_number==payment_month else QColor(COLORS["text"])
+            tooltip="Current month" if month_number==current.month else "Commission paid this month · two-month delay" if month_number==payment_month else ""
+            self.month.setItemData(month_number-1,background,Qt.ItemDataRole.BackgroundRole)
+            self.month.setItemData(month_number-1,foreground,Qt.ItemDataRole.ForegroundRole)
+            self.month.setItemData(month_number-1,tooltip,Qt.ItemDataRole.ToolTipRole)
+
     def selected_month(self)->str:
-        return latest_occurrence_for_month(self.month.currentIndex()+1)
+        return str(self.month.currentData(Qt.ItemDataRole.UserRole))
 
     def selected_id(self, table: QTableWidget) -> int | None:
         row=table.currentRow()
