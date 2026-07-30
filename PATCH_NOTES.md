@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.1
+## Current release — 1.8.2
+
+### Empty search and duplicate-customer results
+
+- Split customer lookup into an always-empty search box and a separate matching-results dropdown.
+- Multiple matches—including identical customer names—remain available for deliberate selection.
+- Each result includes vehicle, phone suffix and Caller or Inspection status so duplicate names are easy to distinguish.
+- Starting a new search clears the previous customer immediately.
+
+## 1.8.1
 
 ### Scalable customer search
 

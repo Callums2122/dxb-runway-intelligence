@@ -52,7 +52,7 @@ def test_whatsapp_template_copy_uses_clipboard_and_confirms(tmp_path: Path,monke
 
 def test_whatsapp_template_autofills_customer_and_vehicle(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.add_customer_contact({"customer_name":"Sam","vehicle_name":"Jeep Wrangler","vehicle_age_years":2021,"phone_last5":"12345"}); db.save_message_template("Personal","Hi {{customer_name}}, is your {{vehicle}} still available?")
-    page=WhatsAppTemplatesPage(db); assert not page.copy_button.isEnabled(); page.customer.setCurrentIndex(1)
+    page=WhatsAppTemplatesPage(db); assert page.customer_search.text()=="" and not page.copy_button.isEnabled(); page.customer_search.setText("Sam"); page.customer.setCurrentIndex(1)
     assert page.preview.toPlainText()=="Hi Sam, is your 2021 Jeep Wrangler still available?"
     assert page.copy_button.isEnabled(); page.close()
 
@@ -61,10 +61,11 @@ def test_whatsapp_customer_picker_searches_large_lists_safely(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db")
     for index in range(30): db.add_customer_contact({"customer_name":f"Customer {index:02d}","vehicle_name":"Jeep Wrangler" if index==23 else "BMW M4","vehicle_age_years":2021,"phone_last5":f"{index:05d}"})
     db.save_message_template("Personal","Hi {{customer_name}}, is your {{vehicle}} available?"); page=WhatsAppTemplatesPage(db)
-    assert page.customer.maxVisibleItems()==12 and page.customer.completer().filterMode()==Qt.MatchFlag.MatchContains
-    page.customer.setEditText("00023"); assert page.customer.currentIndex()==-1 and not page.copy_button.isEnabled()
-    match=page.customer.findText("Customer 23",Qt.MatchFlag.MatchStartsWith); page.customer.setCurrentIndex(match)
+    assert page.customer_search.text()=="" and page.customer.maxVisibleItems()==12
+    page.customer_search.setText("00023"); assert page.customer.count()==2 and page.customer.currentIndex()==0 and not page.copy_button.isEnabled()
+    page.customer.setCurrentIndex(1)
     assert "Hi Customer 23" in page.preview.toPlainText() and "2021 Jeep Wrangler" in page.preview.toPlainText()
+    page.customer_search.setText("Customer"); assert page.customer.count()==31 and page.customer.itemText(1).startswith("Customer 00")
     page.close()
 
 
