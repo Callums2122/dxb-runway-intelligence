@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, latest_occurrence_for_month
 
 
 def app():
@@ -30,8 +30,8 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","reports","settings"]]
+    assert set(window.pages)=={"dashboard","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
@@ -48,6 +48,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert "★" not in transactions.table.item(0,5).text()
     vehicles=window.pages["vehicles"]
     stock=window.pages["stock"]
+    history=window.pages["vehicle_history"]
+    assert vehicles.month.count()==12 and vehicles.month.itemText(7)=="August"
+    assert history.table.columnCount()==6
     assert stock.table.columnCount()==6
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
@@ -60,6 +63,12 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     window.show(); application.processEvents(); window.navigate("transactions")
     assert window.pages["transactions"].graphicsEffect() is None
     window.close()
+
+
+def test_vehicle_desk_month_names_roll_to_latest_occurrence_without_deleting_history():
+    assert latest_occurrence_for_month(8,date(2026,7,31))=="2025-08"
+    assert latest_occurrence_for_month(8,date(2026,8,1))=="2026-08"
+    assert latest_occurrence_for_month(7,date(2026,8,1))=="2026-07"
 
 
 def test_calendar_wheel_moves_only_once_per_gesture():

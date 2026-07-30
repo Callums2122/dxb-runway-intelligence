@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.6.0
+## Current release — 1.6.1
+
+### Clean rolling Vehicle Desk
+
+- Replaced the full date control with a simple January-to-December month selector.
+- Each month name automatically points to its latest occurrence; August 2025 becomes August 2026 when August 2026 starts.
+- Kept all earlier monthly data intact.
+- Added Vehicle History under Misc / Other for compact year-on-year comparison.
+
+## 1.6.0
 
 ### Dedicated Stock Level
 

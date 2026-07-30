@@ -54,6 +54,13 @@ def category_label(category: str | None) -> str:
     return f"{CATEGORY_ICONS.get(name, '●')}  {name}"
 
 
+def latest_occurrence_for_month(month_number: int, today: date | None = None) -> str:
+    """Map a month name to its latest occurrence without exposing years in Vehicle Desk."""
+    current=today or date.today()
+    year=current.year if month_number<=current.month else current.year-1
+    return f"{year:04d}-{month_number:02d}"
+
+
 class TransactionHighlightDelegate(QStyledItemDelegate):
     def paint(self,painter,option,index)->None:
         super().paint(painter,option,index)
@@ -370,7 +377,7 @@ class StockLevelPage(Page):
 class VehicleDeskPage(Page):
     def __init__(self, db: Database):
         super().__init__(db); outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(15)
-        top=QHBoxLayout(); top.addWidget(SectionHeader("Vehicle desk","Monthly sold performance and commission tiers.")); top.addStretch(); self.month=QDateEdit(QDate.currentDate()); self.month.setCalendarPopup(True); self.month.setDisplayFormat("MMMM yyyy"); self.month.dateChanged.connect(self.refresh); top.addWidget(self.month); root.addLayout(top)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Vehicle desk","A clean view of the latest occurrence of each month.")); top.addStretch(); self.month=QComboBox(); self.month.addItems(list(calendar.month_name)[1:]); self.month.setCurrentIndex(date.today().month-1); self.month.currentIndexChanged.connect(self.refresh); top.addWidget(self.month); root.addLayout(top)
         controls=Card(); control_grid=QGridLayout(controls); control_grid.setContentsMargins(16,14,16,14); self.budget=MoneyBox(); self.budget.setValue(3_000_000); save_budget=QPushButton("Save month budget"); save_budget.clicked.connect(self.save_budget)
         control_grid.addWidget(QLabel("ASSIGNED PURCHASING BUDGET · AED"),0,0); self.budget_remaining=QLabel(); self.budget_remaining.setToolTip("Assigned purchasing budget minus cash purchases in the selected month. Consignment stock is excluded."); control_grid.addWidget(self.budget_remaining,0,1,1,2); control_grid.addWidget(self.budget,1,0); control_grid.addWidget(save_budget,1,1); root.addWidget(controls)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
@@ -381,13 +388,17 @@ class VehicleDeskPage(Page):
         sections=QHBoxLayout(); sections.setSpacing(12)
         sold_card=Card(); sold_layout=QVBoxLayout(sold_card); sold_layout.setContentsMargins(16,15,16,15); sold_head=QHBoxLayout(); sold_head.addWidget(SectionHeader("Sold in selected month","The view resets with each month; all earlier months remain available above.")); sold_head.addStretch(); undo=QPushButton("Return selected to stock"); undo.clicked.connect(self.return_selected); sold_head.addWidget(undo); sold_layout.addLayout(sold_head)
         self.sold_table=QTableWidget(0,5); self.sold_table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","SOLD","REALISED PROFIT","COMMISSION"]); self.sold_table.setWordWrap(True); self.sold_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.sold_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.sold_table.verticalHeader().hide(); self.sold_table.horizontalHeader().setStretchLastSection(True); sold_layout.addWidget(self.sold_table); sections.addWidget(sold_card,1); root.addLayout(sections,1)
-        foot=QLabel("Commission is an estimate. When the month crosses a tier, the new rate is applied to the full realised eligible profit immediately. Salary and commission sync automatically to Overview, Calendar and Reports as pending earnings."); foot.setObjectName("muted"); foot.setWordWrap(True); root.addWidget(foot); outer.addWidget(page_scroll(content)); self.system_month=QDate.currentDate().toString("yyyy-MM"); self.month_timer=QTimer(self); self.month_timer.setInterval(60_000); self.month_timer.timeout.connect(self.check_month_rollover); self.month_timer.start(); self.refresh()
+        foot=QLabel("Each month name always shows its latest occurrence. Older years remain stored under Misc → Vehicle history. Commission syncs automatically to Overview, Calendar and Reports."); foot.setObjectName("muted"); foot.setWordWrap(True); root.addWidget(foot); outer.addWidget(page_scroll(content)); self.system_month=date.today().strftime("%Y-%m"); self.month_timer=QTimer(self); self.month_timer.setInterval(60_000); self.month_timer.timeout.connect(self.check_month_rollover); self.month_timer.start(); self.refresh()
 
     def check_month_rollover(self)->None:
-        new_month=QDate.currentDate().toString("yyyy-MM")
-        if new_month!=self.system_month and self.month.date().toString("yyyy-MM")==self.system_month:
-            self.month.setDate(QDate.currentDate())
-        self.system_month=new_month
+        new_month=date.today().strftime("%Y-%m")
+        if new_month!=self.system_month:
+            self.month.setCurrentIndex(date.today().month-1)
+            self.system_month=new_month
+            self.refresh()
+
+    def selected_month(self)->str:
+        return latest_occurrence_for_month(self.month.currentIndex()+1)
 
     def selected_id(self, table: QTableWidget) -> int | None:
         row=table.currentRow()
@@ -395,14 +406,14 @@ class VehicleDeskPage(Page):
         value=table.item(row,0).data(Qt.ItemDataRole.UserRole); return int(value) if value is not None else None
 
     def refresh(self)->None:
-        month=self.month.date().toString("yyyy-MM"); year=self.month.date().year(); month_number=self.month.date().month(); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); budget=self.db.performance_budget(month); purchased_total=self.db.monthly_vehicle_purchase_total(month); remaining_budget=money(budget-purchased_total)
+        month=self.selected_month(); year,month_number=(int(value) for value in month.split("-")); month_label=calendar.month_name[month_number]; rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); budget=self.db.performance_budget(month); purchased_total=self.db.monthly_vehicle_purchase_total(month); remaining_budget=money(budget-purchased_total)
         self.budget.blockSignals(True); self.budget.setValue(float(budget)); self.budget.blockSignals(False)
         remaining_aed,remaining_gbp=dual_amount(remaining_budget,rate); remaining_color=COLORS["red"] if remaining_budget<0 else COLORS["amber"] if budget>0 and remaining_budget/budget<Decimal("0.15") else COLORS["green"]; self.budget_remaining.setText(f"BUDGET REMAINING  ·  {remaining_aed}  /  {remaining_gbp}"); self.budget_remaining.setStyleSheet(f"color:{remaining_color};font-weight:800")
         sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),average_margin_aed=24700)
         if month<=date.today().strftime("%Y-%m") and (sold or month==date.today().strftime("%Y-%m")): self.sync_earnings(result,year,month_number)
-        rate_pct=f"{float(result.rate*100):g}%"; self.current_result=result; self.metrics["sold"].set_value(str(len(sold)),self.month.date().toString("MMMM yyyy")); profit_aed,profit_gbp=dual_amount(realised,rate,signed=True); self.metrics["profit"].set_value(profit_aed,profit_gbp,COLORS["red"] if realised<0 else COLORS["green"]); commission_aed,commission_gbp=dual_amount(result.commission_aed,rate); self.metrics["commission"].set_value(commission_aed,f"{commission_gbp} · Commission only · {result.tier.value} at {rate_pct}"); total_aed,total_gbp=dual_amount(result.total_earned_aed,rate); self.metrics["total"].set_value(total_aed,f"{total_gbp} · Base AED {result.salary_aed:,.0f} + commission AED {result.commission_aed:,.0f}")
+        rate_pct=f"{float(result.rate*100):g}%"; self.current_result=result; self.metrics["sold"].set_value(str(len(sold)),month_label); profit_aed,profit_gbp=dual_amount(realised,rate,signed=True); self.metrics["profit"].set_value(profit_aed,profit_gbp,COLORS["red"] if realised<0 else COLORS["green"]); commission_aed,commission_gbp=dual_amount(result.commission_aed,rate); self.metrics["commission"].set_value(commission_aed,f"{commission_gbp} · Commission only · {result.tier.value} at {rate_pct}"); total_aed,total_gbp=dual_amount(result.total_earned_aed,rate); self.metrics["total"].set_value(total_aed,f"{total_gbp} · Base AED {result.salary_aed:,.0f} + commission AED {result.commission_aed:,.0f}")
         tier_color=COLORS["green"] if result.tier!=CommissionTier.BASELINE else COLORS["cyan"]; self.tier.setText(f"{result.tier.value.upper()} · {rate_pct}"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{tier_color}")
-        t3,t2,t1=TARGET_PERCENTAGES[month_number]; achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget"); self.schedule.setText(f"{self.month.date().toString('MMMM')} targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); self.tier_progress.setRange(0,max(1,int(t1*10000))); self.tier_progress.setValue(max(0,min(self.tier_progress.maximum(),int(achieved*100))))
+        t3,t2,t1=TARGET_PERCENTAGES[month_number]; achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget"); self.schedule.setText(f"{month_label} targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); self.tier_progress.setRange(0,max(1,int(t1*10000))); self.tier_progress.setValue(max(0,min(self.tier_progress.maximum(),int(achieved*100))))
         self.sold_table.setRowCount(len(sold))
         for i,row in enumerate(sold):
             self.sold_table.setRowHeight(i,56); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(f"Sale price · AED {row['sold_price_aed']:,.0f}"); self.sold_table.setItem(i,0,first); profit=Decimal(str(row["realised_profit_aed"])); commission=money(profit*result.rate) if realised>0 else Decimal("0"); values=[row["sold_date"],f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP",f"{commission:+,.0f} AED\n{gbp_equivalent(commission,rate):+,.0f} GBP"]
@@ -415,12 +426,38 @@ class VehicleDeskPage(Page):
         self.db.execute("INSERT INTO earnings(year,month,purchasing_budget_aed,eligible_profit_aed,average_margin_aed,deductions_aed,tier,salary_aed,commission_aed,earned_date,payment_date,received) VALUES (?,?,?,?,?,?,?,?,?,?,?,0) ON CONFLICT(year,month) DO UPDATE SET purchasing_budget_aed=excluded.purchasing_budget_aed,eligible_profit_aed=excluded.eligible_profit_aed,average_margin_aed=excluded.average_margin_aed,deductions_aed=excluded.deductions_aed,tier=excluded.tier,salary_aed=excluded.salary_aed,commission_aed=excluded.commission_aed,earned_date=excluded.earned_date,payment_date=excluded.payment_date",(year,month_number,float(result.budget_aed),float(result.eligible_profit_aed),24700,0,result.tier.value,float(result.salary_aed),float(result.commission_aed),earned_date,result.payment_date.isoformat()))
 
     def save_budget(self)->None:
-        self.db.set_performance_budget(self.month.date().toString("yyyy-MM"),self.budget.value()); self.refresh(); self.changed.emit()
+        self.db.set_performance_budget(self.selected_month(),self.budget.value()); self.refresh(); self.changed.emit()
 
     def return_selected(self)->None:
         vehicle_id=self.selected_id(self.sold_table)
         if vehicle_id is None: QMessageBox.information(self,"Select a car","Select a sold vehicle first."); return
         if QMessageBox.question(self,"Return to stock","Move this vehicle back to current stock and remove its profit from this month?")==QMessageBox.StandardButton.Yes: self.db.return_vehicle_to_stock(vehicle_id); self.refresh(); self.changed.emit()
+
+
+class VehicleHistoryPage(Page):
+    def __init__(self,db:Database):
+        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        layout.addWidget(SectionHeader("Vehicle history","Archived monthly performance stays available for year-on-year comparison."))
+        note=QLabel("Vehicle Desk shows only the latest occurrence of each month name. Nothing is deleted when a month rolls into a new year."); note.setObjectName("muted"); note.setWordWrap(True); layout.addWidget(note)
+        self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["MONTH","CARS SOLD","REALISED PROFIT","COMMISSION","PURCHASING BUDGET","CASH PURCHASED"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); self.refresh()
+
+    def refresh(self)->None:
+        months=self.db.query(
+            "SELECT month FROM performance_months UNION "
+            "SELECT substr(sold_date,1,7) month FROM vehicles WHERE sold_date IS NOT NULL UNION "
+            "SELECT printf('%04d-%02d',year,month) month FROM earnings ORDER BY month DESC"
+        )
+        rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); self.table.setRowCount(len(months))
+        for i,item in enumerate(months):
+            month=item["month"]; year,month_number=(int(value) for value in month.split("-")); sold=self.db.sold_vehicles(month)
+            realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); earnings=self.db.query("SELECT commission_aed FROM earnings WHERE year=? AND month=?",(year,month_number)); commission=Decimal(str(earnings[0]["commission_aed"])) if earnings else Decimal("0")
+            budget=self.db.performance_budget(month); purchased=self.db.monthly_vehicle_purchase_total(month); label=date(year,month_number,1).strftime("%B %Y")
+            values=[label,str(len(sold)),*["\n".join(dual_amount(value,rate,signed=value in {realised,commission})) for value in (realised,commission,budget,purchased)]]
+            self.table.setRowHeight(i,56)
+            for j,value in enumerate(values):
+                color=COLORS["green"] if j in {2,3} and (realised if j==2 else commission)>=0 else COLORS["red"] if j in {2,3} else None
+                self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j else Qt.AlignmentFlag.AlignVCenter,color))
+        self.table.setColumnWidth(0,140); self.table.setColumnWidth(1,95); self.table.setColumnWidth(2,150); self.table.setColumnWidth(3,150); self.table.setColumnWidth(4,165)
 
 
 class TransactionsPage(Page):
