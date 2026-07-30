@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.7.0
+## Current release — 1.7.1
+
+### Contact countdowns and conversation notes
+
+- Kept the exact next-contact date and added a live days-left, due-today or overdue label.
+- Added a customer notes panel that appears when a customer row is selected.
+- Added timestamped conversation notes with quick entry.
+- Added individual note deletion while preserving the main customer record.
+
+## 1.7.0
 
 ### Three-day customer rapport tracker
 

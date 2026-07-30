@@ -14,6 +14,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert "due_date" in {row[1] for row in db.query("PRAGMA table_info(budgets)")}
     assert "purchase_type" in {row[1] for row in db.query("PRAGMA table_info(vehicles)")}
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contacts'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contact_notes'")
 
 
 def test_rate_snapshot_migration_updates_only_untouched_old_default(tmp_path: Path):
@@ -159,6 +160,11 @@ def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: 
     assert db.customer_contacts()==[]
     archived=db.customer_contacts(search="12345",include_sold=True)
     assert len(archived)==1 and archived[0]["status"]=="sold" and archived[0]["sold_date"]=="2026-08-01"
+    first=db.add_customer_contact_note(customer_id,"Seller wants to finish the paid advert first")
+    second=db.add_customer_contact_note(customer_id,"Friendly follow-up completed")
+    assert [row["id"] for row in db.customer_contact_notes(customer_id)]==[second,first]
+    db.delete_customer_contact_note(customer_id,second)
+    assert [row["note_text"] for row in db.customer_contact_notes(customer_id)]==["Seller wants to finish the paid advert first"]
 
 
 def test_soft_delete_and_undo(tmp_path: Path):

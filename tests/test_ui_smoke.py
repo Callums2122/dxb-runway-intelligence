@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from dxb_runway.database import Database
 from dxb_runway.dialogs import OnboardingDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, latest_occurrence_for_month
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, latest_occurrence_for_month
 
 
 def app():
@@ -82,6 +82,14 @@ def test_vehicle_desk_month_names_roll_to_latest_occurrence_without_deleting_his
     assert latest_occurrence_for_month(8,date(2026,7,31))=="2025-08"
     assert latest_occurrence_for_month(8,date(2026,8,1))=="2026-08"
     assert latest_occurrence_for_month(7,date(2026,8,1))=="2026-07"
+
+
+def test_customer_contact_countdown_keeps_date_timing_clear():
+    today=date(2026,7,30)
+    assert contact_countdown("2026-08-02",today)=="3 days left"
+    assert contact_countdown("2026-07-31",today)=="1 day left"
+    assert contact_countdown("2026-07-30",today)=="Due today"
+    assert contact_countdown("2026-07-28",today)=="Overdue by 2 days"
 
 
 def test_calendar_wheel_moves_only_once_per_gesture():

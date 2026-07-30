@@ -61,6 +61,14 @@ def latest_occurrence_for_month(month_number: int, today: date | None = None) ->
     return f"{year:04d}-{month_number:02d}"
 
 
+def contact_countdown(next_contact_date: str, today: date | None = None) -> str:
+    current=today or date.today(); remaining=(date.fromisoformat(next_contact_date[:10])-current).days
+    if remaining>1: return f"{remaining} days left"
+    if remaining==1: return "1 day left"
+    if remaining==0: return "Due today"
+    overdue=abs(remaining); return f"Overdue by {overdue} day{'s' if overdue!=1 else ''}"
+
+
 class TransactionHighlightDelegate(QStyledItemDelegate):
     def paint(self,painter,option,index)->None:
         super().paint(painter,option,index)
@@ -328,8 +336,11 @@ class CustomerContactPage(Page):
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.tabs=QTabWidget(); self.tables={}
         for key,label in [("today","Contact today"),("tomorrow","Tomorrow"),("all","All customers")]:
-            table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE / AGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); self.tables[key]=table; self.tabs.addTab(table,label)
-        layout.addWidget(self.tabs,1); self.refresh()
+            table=QTableWidget(0,7); table.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","MILEAGE / AGE","PHONE","VALUATION","OFFERS","RAPPORT / NEXT CONTACT"]); table.setWordWrap(True); table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); table.verticalHeader().hide(); table.horizontalHeader().setStretchLastSection(True); table.doubleClicked.connect(self.edit_customer); table.itemSelectionChanged.connect(self.show_selected_notes); self.tables[key]=table; self.tabs.addTab(table,label)
+        self.tabs.currentChanged.connect(self.show_selected_notes); layout.addWidget(self.tabs,1)
+        self.notes_card=Card(); notes_layout=QVBoxLayout(self.notes_card); notes_layout.setContentsMargins(16,14,16,14); notes_top=QHBoxLayout(); self.notes_title=QLabel("CUSTOMER NOTES"); self.notes_title.setStyleSheet("font-weight:800"); notes_top.addWidget(self.notes_title); notes_top.addStretch(); delete_note=QPushButton("Delete selected note"); delete_note.clicked.connect(self.delete_note); notes_top.addWidget(delete_note); notes_layout.addLayout(notes_top)
+        self.notes_table=QTableWidget(0,2); self.notes_table.setHorizontalHeaderLabels(["ADDED","NOTE"]); self.notes_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.notes_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.notes_table.verticalHeader().hide(); self.notes_table.horizontalHeader().setStretchLastSection(True); self.notes_table.setMaximumHeight(150); notes_layout.addWidget(self.notes_table)
+        note_row=QHBoxLayout(); self.note_input=QLineEdit(); self.note_input.setPlaceholderText("Add a note about the conversation, timing or seller position…"); self.note_input.returnPressed.connect(self.add_note); note_row.addWidget(self.note_input,1); add_note=QPushButton("Add note"); add_note.setProperty("primary",True); add_note.clicked.connect(self.add_note); note_row.addWidget(add_note); notes_layout.addLayout(note_row); self.notes_card.hide(); layout.addWidget(self.notes_card); self.refresh()
 
     def selected_customer(self):
         key=("today","tomorrow","all")[self.tabs.currentIndex()]; table=self.tables[key]; row=table.currentRow()
@@ -346,9 +357,9 @@ class CustomerContactPage(Page):
     def populate_table(self,table:QTableWidget,rows)->None:
         rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); today=date.today().isoformat(); table.setRowCount(len(rows))
         for i,row in enumerate(rows):
-            table.setRowHeight(i,62); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or "Customer follow-up"); table.setItem(i,0,first)
+            table.setRowHeight(i,72); first=table_item(row["customer_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or "Select to open customer notes"); table.setItem(i,0,first)
             valuation=Decimal(str(row["vehicle_price_aed"])); cash=Decimal(str(row["cash_offer_aed"])); consignment=Decimal(str(row["consignment_offer_aed"]))
-            status="SOLD" if row["status"]=="sold" else f"Next · {row['next_contact_date']}"; rapport="Red · strong" if row["rapport"]=="red" else "Green"; final=f"{rapport}\n{status}"
+            status=f"SOLD · {row['sold_date']}" if row["status"]=="sold" else f"Next · {row['next_contact_date']}\n{contact_countdown(row['next_contact_date'])}"; rapport="Red · strong" if row["rapport"]=="red" else "Green"; final=f"{rapport}\n{status}"
             values=[row["vehicle_name"],f"{row['mileage']:,} km · {row['vehicle_age_years']} yrs",f"••••• {row['phone_last5']}",f"{valuation:,.0f} AED\n{gbp_equivalent(valuation,rate):,.0f} GBP",f"Cash {cash:,.0f}\nConsign {consignment:,.0f}",final]
             for j,value in enumerate(values,1):
                 color=COLORS["red"] if j==6 and row["rapport"]=="red" else COLORS["green"] if j==6 and row["rapport"]=="green" else None
@@ -356,6 +367,29 @@ class CustomerContactPage(Page):
                 if j==6 and row["status"]=="active" and row["next_contact_date"]<=today: item.setBackground(QColor("#5a1f2b"))
                 table.setItem(i,j,item)
         table.setColumnWidth(0,135); table.setColumnWidth(1,160); table.setColumnWidth(2,130); table.setColumnWidth(3,105); table.setColumnWidth(4,135); table.setColumnWidth(5,150)
+
+    def show_selected_notes(self)->None:
+        customer=self.selected_customer()
+        if not customer: self.notes_card.hide(); return
+        self.notes_card.show(); self.notes_title.setText(f"NOTES · {customer['customer_name']} · {customer['vehicle_name']}")
+        notes=self.db.customer_contact_notes(customer["id"]); self.notes_table.setRowCount(len(notes))
+        for i,note in enumerate(notes):
+            self.notes_table.setRowHeight(i,42); added=table_item(note["created_at"][:16].replace("T"," ")); added.setData(Qt.ItemDataRole.UserRole,note["id"]); self.notes_table.setItem(i,0,added); self.notes_table.setItem(i,1,table_item(note["note_text"]))
+        self.notes_table.setColumnWidth(0,145); self.notes_table.horizontalHeader().setStretchLastSection(True)
+
+    def add_note(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select a customer before adding a note."); return
+        note=self.note_input.text().strip()
+        if not note: return
+        self.db.add_customer_contact_note(customer["id"],note); self.note_input.clear(); self.show_selected_notes(); self.changed.emit()
+
+    def delete_note(self)->None:
+        customer=self.selected_customer(); row=self.notes_table.currentRow()
+        if not customer or row<0 or not self.notes_table.item(row,0): QMessageBox.information(self,"Select a note","Select the note you want to delete."); return
+        note_id=self.notes_table.item(row,0).data(Qt.ItemDataRole.UserRole)
+        if QMessageBox.question(self,"Delete note","Delete this customer note?")==QMessageBox.StandardButton.Yes:
+            self.db.delete_customer_contact_note(customer["id"],note_id); self.show_selected_notes(); self.changed.emit()
 
     def add_customer(self)->None:
         dialog=CustomerContactDialog(self.db,parent=self)

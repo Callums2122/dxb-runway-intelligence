@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 MIGRATIONS: dict[int, str] = {
@@ -142,6 +142,15 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_customer_contacts_due ON customer_contacts(status,next_contact_date);
     CREATE INDEX IF NOT EXISTS idx_customer_contacts_lookup ON customer_contacts(customer_name,vehicle_name,phone_last5);
+    """,
+    12: """
+    CREATE TABLE IF NOT EXISTS customer_contact_notes (
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER NOT NULL REFERENCES customer_contacts(id) ON DELETE CASCADE,
+      note_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_customer_contact_notes_customer ON customer_contact_notes(customer_id,created_at DESC,id DESC);
     """,
 }
 
@@ -508,6 +517,29 @@ class Database:
                 ((sold_on or date.today().isoformat())[:10],customer_id),
             )
             if cursor.rowcount!=1: raise ValueError("Customer is no longer active")
+
+    def customer_contact_notes(self, customer_id: int) -> list[sqlite3.Row]:
+        return self.query(
+            "SELECT * FROM customer_contact_notes WHERE customer_id=? ORDER BY created_at DESC,id DESC",
+            (customer_id,),
+        )
+
+    def add_customer_contact_note(self, customer_id: int, note_text: str) -> int:
+        note=note_text.strip()
+        if not note: raise ValueError("Note cannot be empty")
+        if not self.query("SELECT id FROM customer_contacts WHERE id=?",(customer_id,)): raise ValueError("Customer not found")
+        return self.execute(
+            "INSERT INTO customer_contact_notes(customer_id,note_text) VALUES (?,?)",
+            (customer_id,note),
+        )
+
+    def delete_customer_contact_note(self, customer_id: int, note_id: int) -> None:
+        with self.connect() as connection:
+            cursor=connection.execute(
+                "DELETE FROM customer_contact_notes WHERE id=? AND customer_id=?",
+                (note_id,customer_id),
+            )
+            if cursor.rowcount!=1: raise ValueError("Note not found")
 
     def sell_vehicle(self, vehicle_id: int, *, sold_price_aed: float, sold_date: str) -> None:
         if sold_price_aed < 0:
