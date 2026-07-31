@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.2
+## Current release — 1.8.3
+
+### Sold to another buyer
+
+- Added a Sold to another buyer action on Customer Contact.
+- A clear confirmation explains that the customer, vehicle details, offers, follow-up history and notes will be permanently removed.
+- Confirming deletes the customer throughout DXB RUNWAY, including customer search and WhatsApp personalisation.
+
+## 1.8.2
 
 ### Empty search and duplicate-customer results
 

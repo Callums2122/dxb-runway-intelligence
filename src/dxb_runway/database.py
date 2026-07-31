@@ -565,6 +565,10 @@ class Database:
             )
             if cursor.rowcount!=1: raise ValueError("Customer is no longer active")
 
+    def delete_customer_contact(self,customer_id:int)->None:
+        if self.execute("DELETE FROM customer_contacts WHERE id=?",(customer_id,))!=1:
+            raise ValueError("Customer not found")
+
     def customer_contact_notes(self, customer_id: int) -> list[sqlite3.Row]:
         return self.query(
             "SELECT * FROM customer_contact_notes WHERE customer_id=? ORDER BY created_at DESC,id DESC",

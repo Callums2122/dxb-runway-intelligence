@@ -185,6 +185,13 @@ def test_customer_contact_three_day_followup_rapport_and_sold_archive(tmp_path: 
     assert [row["note_text"] for row in db.customer_contact_notes(customer_id)]==["Seller wants to finish the paid advert first"]
 
 
+def test_customer_sold_to_another_buyer_is_permanently_deleted(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); customer_id=db.add_customer_contact({"customer_name":"Other buyer","vehicle_name":"Audi RS3","phone_last5":"32109"}); db.add_customer_contact_note(customer_id,"Still considering our offer")
+    db.delete_customer_contact(customer_id)
+    assert db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))==[]
+    assert db.customer_contact_notes(customer_id)==[]
+
+
 def test_soft_delete_and_undo(tmp_path: Path):
     db=Database(tmp_path/"runway.db"); category=db.query("SELECT id FROM categories WHERE name='Miscellaneous'")[0]["id"]
     tx=db.add_transaction({"amount":10,"currency":"AED","occurred_at":"2026-07-20T10:00:00","kind":"expense","category_id":category,"merchant":"Test","payment_method":"Cash","recurring":0,"notes":"","receipt_path":None,"refundable_deposit":0,"essential":0,"tags":""})

@@ -6,7 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog
@@ -67,6 +67,14 @@ def test_whatsapp_customer_picker_searches_large_lists_safely(tmp_path: Path):
     assert "Hi Customer 23" in page.preview.toPlainText() and "2021 Jeep Wrangler" in page.preview.toPlainText()
     page.customer_search.setText("Customer"); assert page.customer.count()==31 and page.customer.itemText(1).startswith("Customer 00")
     page.close()
+
+
+def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); customer_id=db.add_customer_contact({"customer_name":"Gone seller","vehicle_name":"Audi S3","vehicle_age_years":2022,"phone_last5":"54321"}); window=MainWindow(db); page=window.pages["contacts"]; page.tables["today"].selectRow(0)
+    monkeypatch.setattr("dxb_runway.screens.QMessageBox.question",lambda *args: QMessageBox.StandardButton.Yes)
+    page.sold_elsewhere()
+    assert db.query("SELECT id FROM customer_contacts WHERE id=?",(customer_id,))==[] and page.tables["today"].rowCount()==0
+    window.close()
 
 
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):

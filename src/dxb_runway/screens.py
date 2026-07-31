@@ -336,7 +336,7 @@ class CustomerContactPage(Page):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         layout.addLayout(metrics)
         tools=QHBoxLayout()
-        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold),("Add to inspection",self.move_to_inspection)]:
+        for label,callback in [("Contacted · reset 3 days",self.mark_contacted),("Toggle green / red",self.toggle_rapport),("Edit",self.edit_customer),("Sold",self.mark_sold),("Sold to another buyer",self.sold_elsewhere),("Add to inspection",self.move_to_inspection)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.tabs=QTabWidget(); self.tables={}
@@ -435,6 +435,14 @@ class CustomerContactPage(Page):
         if customer["status"]!="active": QMessageBox.information(self,"Already sold","This customer is already outside the contact queue."); return
         if QMessageBox.question(self,"Mark vehicle sold",f"Remove {customer['customer_name']} from the daily contact queue? Their record will remain searchable.")==QMessageBox.StandardButton.Yes:
             self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
+
+    def sold_elsewhere(self)->None:
+        customer=self.selected_customer()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the customer whose vehicle sold to another buyer."); return
+        if customer["status"]!="active": QMessageBox.information(self,"Already sold","This customer is already stored as sold."); return
+        message=f"{customer['customer_name']} sold their {customer_vehicle_year(customer['vehicle_age_years'])} {customer['vehicle_name']} to another buyer.\n\nPermanently delete this customer, their offers, follow-up history and all notes from DXB RUNWAY?"
+        if QMessageBox.question(self,"Sold to another buyer",message)==QMessageBox.StandardButton.Yes:
+            self.db.delete_customer_contact(customer["id"]); self.close_notes(); self.refresh(); self.changed.emit()
 
 
 class InspectionPage(Page):
