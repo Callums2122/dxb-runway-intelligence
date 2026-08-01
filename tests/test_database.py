@@ -192,6 +192,14 @@ def test_customer_sold_to_another_buyer_is_permanently_deleted(tmp_path: Path):
     assert db.customer_contact_notes(customer_id)==[]
 
 
+def test_inspected_vehicle_purchase_moves_customer_to_stock(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); customer_id=db.add_customer_contact({"customer_name":"Seller","vehicle_name":"Jeep Wrangler","phone_last5":"12345"}); db.move_customer_to_inspection(customer_id,"2026-08-03")
+    vehicle_id=db.acquire_inspected_vehicle(customer_id,{"vehicle_name":"2021 Jeep Wrangler","purchase_type":"cash","purchase_price_aed":125000,"expected_sale_price_aed":150000,"purchased_date":"2026-08-03","notes":"Verified at inspection"})
+    vehicle=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0]; customer=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
+    assert vehicle["status"]=="stock" and vehicle["purchase_price_aed"]==125000 and vehicle["expected_sale_price_aed"]==150000
+    assert customer["status"]=="sold" and db.customer_contacts(stage="inspection")==[]
+
+
 def test_soft_delete_and_undo(tmp_path: Path):
     db=Database(tmp_path/"runway.db"); category=db.query("SELECT id FROM categories WHERE name='Miscellaneous'")[0]["id"]
     tx=db.add_transaction({"amount":10,"currency":"AED","occurred_at":"2026-07-20T10:00:00","kind":"expense","category_id":category,"merchant":"Test","payment_method":"Cash","recurring":0,"notes":"","receipt_path":None,"refundable_deposit":0,"essential":0,"tags":""})

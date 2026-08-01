@@ -451,7 +451,7 @@ class InspectionPage(Page):
         top=QHBoxLayout(); top.addWidget(SectionHeader("Inspection","Customers whose vehicles have progressed from caller follow-up to inspection.")); top.addStretch()
         self.count=MetricCard("Awaiting inspection",accent=COLORS["purple"]); self.count.setMaximumWidth(230); top.addWidget(self.count); layout.addLayout(top)
         tools=QHBoxLayout()
-        for label,callback in [("Return to callers",self.return_to_callers),("Edit customer",self.edit_customer),("Mark sold",self.mark_sold)]:
+        for label,callback in [("Return to callers",self.return_to_callers),("Edit customer",self.edit_customer),("Bought · move to stock",self.mark_sold)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
         tools.addStretch(); self.search=QLineEdit(); self.search.setPlaceholderText("Find customer, car or phone digits…"); self.search.setMaximumWidth(320); self.search.textChanged.connect(self.refresh); tools.addWidget(self.search); layout.addLayout(tools)
         self.table=QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["INSPECTION DATE","CUSTOMER","VEHICLE","MILEAGE","PHONE","VALUATION","OFFERS","RAPPORT","LATEST NOTES"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.edit_customer); layout.addWidget(self.table,1); self.refresh()
@@ -485,9 +485,9 @@ class InspectionPage(Page):
 
     def mark_sold(self)->None:
         customer=self.selected_customer()
-        if not customer: QMessageBox.information(self,"Select a customer","Select the inspected vehicle that sold."); return
-        if QMessageBox.question(self,"Mark vehicle sold",f"Mark {customer['customer_name']}'s vehicle as sold and remove it from Inspection?")==QMessageBox.StandardButton.Yes:
-            self.db.mark_customer_sold(customer["id"]); self.refresh(); self.changed.emit()
+        if not customer: QMessageBox.information(self,"Select a customer","Select the inspected vehicle we bought."); return
+        dialog=VehicleDialog(self.db,self,source_customer=customer)
+        if dialog.exec(): self.db.acquire_inspected_vehicle(customer["id"],dialog.values()); self.refresh(); self.changed.emit(); QMessageBox.information(self,"Added to Stock Level","Purchase confirmed. The vehicle is now in Stock Level with its verified cost and expected selling price.")
 
 
 class WhatsAppTemplatesPage(Page):

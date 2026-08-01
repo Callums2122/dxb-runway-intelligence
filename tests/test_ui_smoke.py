@@ -9,7 +9,7 @@ from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from dxb_runway.database import Database
-from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog
+from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month
@@ -38,6 +38,13 @@ def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):
     assert dialog.values()["vehicle_age_years"]==2021
     assert customer_vehicle_year(2021)==2021
     assert customer_vehicle_year(5)==2021
+    dialog.close()
+
+
+def test_inspection_purchase_dialog_prefills_verified_prices(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); customer_id=db.add_customer_contact({"customer_name":"Seller","vehicle_name":"Jeep Wrangler","vehicle_age_years":2021,"phone_last5":"12345","cash_offer_aed":125000,"vehicle_price_aed":150000}); customer=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
+    dialog=VehicleDialog(db,source_customer=customer); values=dialog.values()
+    assert values["vehicle_name"]=="2021 Jeep Wrangler" and values["purchase_price_aed"]==125000 and values["expected_sale_price_aed"]==150000
     dialog.close()
 
 

@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.3
+## Current release — 1.8.4
+
+### Inspection purchase to Stock Level
+
+- Replaced Inspection's ambiguous Mark sold action with Bought · move to stock.
+- The purchase confirmation pre-fills the inspected vehicle, cash offer and valuation, then requires verification of stock type, cost/owner payout, expected selling price, date and notes.
+- Saving atomically adds the vehicle to Stock Level and closes the inspection customer record, preventing a partial move.
+
+## 1.8.3
 
 ### Sold to another buyer
 

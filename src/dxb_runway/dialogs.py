@@ -205,7 +205,7 @@ class PayCardDialog(QDialog):
 
 
 class VehicleDialog(QDialog):
-    def __init__(self, db: Database, parent=None):
+    def __init__(self, db: Database, parent=None, source_customer=None):
         super().__init__(parent); self.db=db; self.setWindowTitle("Add vehicle to stock"); self.setMinimumWidth(520)
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("ADD TO CURRENT STOCK"); title.setObjectName("pageTitle"); root.addWidget(title)
@@ -217,6 +217,9 @@ class VehicleDialog(QDialog):
         self.profit=QLabel("Expected profit · AED 0"); self.profit.setStyleSheet(f"color:{COLORS['green']};font-weight:700")
         self.purchase.valueChanged.connect(self.update_profit); self.expected.valueChanged.connect(self.update_profit)
         form.addRow("Vehicle",self.name); form.addRow("Stock type",self.purchase_type); form.addRow("Cost / owner payout · AED",self.purchase); form.addRow("Expected sale price · AED",self.expected); form.addRow("Stocked",self.purchased); form.addRow("Notes",self.notes); form.addRow("",self.profit); root.addLayout(form)
+        if source_customer:
+            self.setWindowTitle("Confirm inspected vehicle purchase"); title.setText("CONFIRM PURCHASE & MOVE TO STOCK"); copy.setText("Verify what we bought or agreed the vehicle for and what we expect to sell it for. Saving adds it to Stock Level.")
+            self.name.setText(f"{customer_model_year(source_customer['vehicle_age_years'])} {source_customer['vehicle_name']}"); self.purchase.setValue(float(source_customer["cash_offer_aed"])); self.expected.setValue(float(source_customer["vehicle_price_aed"])); self.notes.setText(f"Purchased after inspection · {source_customer['customer_name']}")
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def update_profit(self)->None:
@@ -229,6 +232,11 @@ class VehicleDialog(QDialog):
 
     def values(self)->dict:
         return {"vehicle_name":self.name.text().strip(),"purchase_type":self.purchase_type.currentData(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
+
+
+def customer_model_year(stored_value:int)->int:
+    value=int(stored_value)
+    return value if 2018<=value<=2026 else max(2018,min(2026,2026-value))
 
 
 class CustomerContactDialog(QDialog):

@@ -444,6 +444,20 @@ class Database:
             (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type),
         )
 
+    def acquire_inspected_vehicle(self,customer_id:int,values:dict[str,Any])->int:
+        name=str(values.get("vehicle_name","")).strip(); purchase_type=str(values.get("purchase_type","cash")); purchase=float(values.get("purchase_price_aed",0)); expected=float(values.get("expected_sale_price_aed",0)); purchased_date=str(values.get("purchased_date") or date.today().isoformat())[:10]; notes=str(values.get("notes","")).strip()
+        if not name: raise ValueError("Vehicle name is required")
+        if purchase<=0: raise ValueError("Purchase price or owner payout must be greater than zero")
+        if expected<0: raise ValueError("Expected sale price cannot be negative")
+        if purchase_type not in {"cash","consignment"}: raise ValueError("Purchase type must be cash or consignment")
+        date.fromisoformat(purchased_date)
+        with self.connect() as connection:
+            customer=connection.execute("SELECT id FROM customer_contacts WHERE id=? AND status='active' AND pipeline_stage='inspection'",(customer_id,)).fetchone()
+            if not customer: raise ValueError("Customer is no longer awaiting inspection")
+            cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type) VALUES (?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type))
+            connection.execute("UPDATE customer_contacts SET status='sold',sold_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(purchased_date,customer_id))
+            return int(cursor.lastrowid)
+
     def stock_vehicles(self, purchase_month: str | None = None) -> list[sqlite3.Row]:
         if purchase_month:
             return self.query(
