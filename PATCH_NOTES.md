@@ -2,7 +2,14 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.6
+## Current release — 1.8.7
+
+### Combined stock value
+
+- Stock Level now shows the combined expected selling value of every unsold vehicle.
+- The total includes cash purchases and consignments and is displayed in AED and GBP.
+
+## Previous release — 1.8.6
 
 ### Revolving live purchasing budget
 

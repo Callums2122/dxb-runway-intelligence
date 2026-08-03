@@ -577,7 +577,7 @@ class StockLevelPage(Page):
         remove=QPushButton("Remove / return to owner"); remove.clicked.connect(self.remove_selected); top.addWidget(remove); layout.addLayout(top)
         budget_card=Card(); budget_layout=QVBoxLayout(budget_card); budget_layout.setContentsMargins(18,15,18,15); budget_top=QHBoxLayout(); self.live_budget_title=QLabel("LIVE PURCHASING BUDGET"); self.live_budget_title.setStyleSheet("font-weight:800"); budget_top.addWidget(self.live_budget_title); budget_top.addStretch(); self.live_budget_value=QLabel(); self.live_budget_value.setStyleSheet("font-size:20px;font-weight:800"); budget_top.addWidget(self.live_budget_value); budget_layout.addLayout(budget_top); self.live_budget_detail=QLabel(); self.live_budget_detail.setObjectName("muted"); budget_layout.addWidget(self.live_budget_detail); self.live_budget_bar=QProgressBar(); budget_layout.addWidget(self.live_budget_bar); layout.addWidget(budget_card)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
-        for i,(key,label,color) in enumerate([("total","Cars in stock",COLORS["cyan"]),("cash","Cash purchases",COLORS["green"]),("consignment","Consignments",COLORS["purple"]),("profit","Expected stock profit",COLORS["amber"])]):
+        for i,(key,label,color) in enumerate([("total","Cars in stock",COLORS["cyan"]),("cash","Cash purchases",COLORS["green"]),("consignment","Consignments",COLORS["purple"]),("value","Total stock value",COLORS["cyan"]),("profit","Expected stock profit",COLORS["amber"])]):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         layout.addLayout(metrics)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
@@ -595,10 +595,12 @@ class StockLevelPage(Page):
         rows=self.db.stock_vehicles(); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313"))
         live_budget=self.db.performance_budget(date.today().strftime("%Y-%m")); cash_used=self.db.active_cash_stock_total(); remaining=money(live_budget-cash_used); remaining_aed,remaining_gbp=dual_amount(remaining,rate,signed=remaining<0); used_percent=int(cash_used/live_budget*100) if live_budget>0 else (100 if cash_used else 0); self.live_budget_bar.setRange(0,100); self.live_budget_bar.setValue(max(0,min(100,used_percent))); budget_color=COLORS["red"] if remaining<0 else COLORS["amber"] if live_budget>0 and remaining/live_budget<Decimal("0.15") else COLORS["green"]; self.live_budget_value.setText(f"{remaining_aed}  /  {remaining_gbp} remaining"); self.live_budget_value.setStyleSheet(f"font-size:20px;font-weight:800;color:{budget_color}"); self.live_budget_detail.setText(f"AED {cash_used:,.0f} tied up in unsold cash stock from a revolving AED {live_budget:,.0f} budget · consignments excluded · {used_percent}% used")
         cash=[row for row in rows if row["purchase_type"]=="cash"]; consignment=[row for row in rows if row["purchase_type"]=="consignment"]
+        stock_value=sum((Decimal(str(row["expected_sale_price_aed"])) for row in rows),Decimal("0"))
         expected=sum((Decimal(str(row["expected_profit_aed"])) for row in rows),Decimal("0"))
         self.metrics["total"].set_value(str(len(rows)),"All unsold vehicles")
         self.metrics["cash"].set_value(str(len(cash)),f"AED {sum((Decimal(str(row['purchase_price_aed'])) for row in cash),Decimal('0')):,.0f} invested")
         self.metrics["consignment"].set_value(str(len(consignment)),"Held without using cash budget")
+        stock_value_aed,stock_value_gbp=dual_amount(stock_value,rate); self.metrics["value"].set_value(stock_value_aed,f"{stock_value_gbp} · includes consignments")
         expected_aed,expected_gbp=dual_amount(expected,rate,signed=True); self.metrics["profit"].set_value(expected_aed,expected_gbp)
         self.table.setRowCount(len(rows))
         for i,row in enumerate(rows):
