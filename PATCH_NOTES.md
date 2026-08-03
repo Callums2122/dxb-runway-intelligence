@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.5
+## Current release — 1.8.6
+
+### Revolving live purchasing budget
+
+- Added a prominent Stock Level bar showing available AED and GBP budget, cash tied up in active stock and percentage used.
+- Only unsold cash-purchase vehicles consume the live budget; consignments remain excluded.
+- Selling or removing a cash vehicle immediately releases its purchase cost back into available budget.
+- Saved budget capacity carries forward when a new month begins instead of resetting to a default, while monthly performance snapshots remain stored.
+
+## 1.8.5
 
 ### Complete consignment lifecycle
 

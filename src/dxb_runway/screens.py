@@ -575,6 +575,7 @@ class StockLevelPage(Page):
         consignment=QPushButton("Mark as consignment"); consignment.clicked.connect(self.mark_consignment); top.addWidget(consignment)
         sold=QPushButton("Mark selected as sold"); sold.clicked.connect(self.sell_selected); top.addWidget(sold)
         remove=QPushButton("Remove / return to owner"); remove.clicked.connect(self.remove_selected); top.addWidget(remove); layout.addLayout(top)
+        budget_card=Card(); budget_layout=QVBoxLayout(budget_card); budget_layout.setContentsMargins(18,15,18,15); budget_top=QHBoxLayout(); self.live_budget_title=QLabel("LIVE PURCHASING BUDGET"); self.live_budget_title.setStyleSheet("font-weight:800"); budget_top.addWidget(self.live_budget_title); budget_top.addStretch(); self.live_budget_value=QLabel(); self.live_budget_value.setStyleSheet("font-size:20px;font-weight:800"); budget_top.addWidget(self.live_budget_value); budget_layout.addLayout(budget_top); self.live_budget_detail=QLabel(); self.live_budget_detail.setObjectName("muted"); budget_layout.addWidget(self.live_budget_detail); self.live_budget_bar=QProgressBar(); budget_layout.addWidget(self.live_budget_bar); layout.addWidget(budget_card)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
         for i,(key,label,color) in enumerate([("total","Cars in stock",COLORS["cyan"]),("cash","Cash purchases",COLORS["green"]),("consignment","Consignments",COLORS["purple"]),("profit","Expected stock profit",COLORS["amber"])]):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
@@ -592,6 +593,7 @@ class StockLevelPage(Page):
 
     def refresh(self)->None:
         rows=self.db.stock_vehicles(); rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313"))
+        live_budget=self.db.performance_budget(date.today().strftime("%Y-%m")); cash_used=self.db.active_cash_stock_total(); remaining=money(live_budget-cash_used); remaining_aed,remaining_gbp=dual_amount(remaining,rate,signed=remaining<0); used_percent=int(cash_used/live_budget*100) if live_budget>0 else (100 if cash_used else 0); self.live_budget_bar.setRange(0,100); self.live_budget_bar.setValue(max(0,min(100,used_percent))); budget_color=COLORS["red"] if remaining<0 else COLORS["amber"] if live_budget>0 and remaining/live_budget<Decimal("0.15") else COLORS["green"]; self.live_budget_value.setText(f"{remaining_aed}  /  {remaining_gbp} remaining"); self.live_budget_value.setStyleSheet(f"font-size:20px;font-weight:800;color:{budget_color}"); self.live_budget_detail.setText(f"AED {cash_used:,.0f} tied up in unsold cash stock from a revolving AED {live_budget:,.0f} budget · consignments excluded · {used_percent}% used")
         cash=[row for row in rows if row["purchase_type"]=="cash"]; consignment=[row for row in rows if row["purchase_type"]=="consignment"]
         expected=sum((Decimal(str(row["expected_profit_aed"])) for row in rows),Decimal("0"))
         self.metrics["total"].set_value(str(len(rows)),"All unsold vehicles")
@@ -688,7 +690,7 @@ class VehicleDeskPage(Page):
         value=table.item(row,0).data(Qt.ItemDataRole.UserRole); return int(value) if value is not None else None
 
     def refresh(self)->None:
-        month=self.selected_month(); year,month_number=(int(value) for value in month.split("-")); month_label=calendar.month_name[month_number]; rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); salary=Decimal(self.db.get_setting("salary_aed","6000")); budget=self.db.performance_budget(month); purchased_total=self.db.monthly_vehicle_purchase_total(month); remaining_budget=money(budget-purchased_total)
+        month=self.selected_month(); year,month_number=(int(value) for value in month.split("-")); month_label=calendar.month_name[month_number]; rate=Decimal(self.db.get_setting("gbp_aed_rate","4.928313")); salary=Decimal(self.db.get_setting("salary_aed","6000")); budget=self.db.performance_budget(month); purchased_total=self.db.active_cash_stock_total(); remaining_budget=money(budget-purchased_total)
         self.budget.blockSignals(True); self.budget.setValue(float(budget)); self.budget.blockSignals(False)
         self.salary.blockSignals(True); self.salary.setValue(float(salary)); self.salary.blockSignals(False)
         remaining_aed,remaining_gbp=dual_amount(remaining_budget,rate); remaining_color=COLORS["red"] if remaining_budget<0 else COLORS["amber"] if budget>0 and remaining_budget/budget<Decimal("0.15") else COLORS["green"]; self.budget_remaining.setText(f"BUDGET REMAINING  ·  {remaining_aed}  /  {remaining_gbp}"); self.budget_remaining.setStyleSheet(f"color:{remaining_color};font-weight:800")

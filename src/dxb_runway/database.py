@@ -497,6 +497,10 @@ class Database:
         )
         return Decimal(str(rows[0]["total"]))
 
+    def active_cash_stock_total(self) -> Decimal:
+        rows=self.query("SELECT COALESCE(SUM(purchase_price_aed),0) total FROM vehicles WHERE status='stock' AND purchase_type='cash'")
+        return Decimal(str(rows[0]["total"]))
+
     def remove_stock_vehicle(self, vehicle_id: int) -> None:
         with self.connect() as connection:
             cursor = connection.execute(
@@ -662,7 +666,9 @@ class Database:
 
     def performance_budget(self, month: str) -> Decimal:
         rows = self.query("SELECT purchasing_budget_aed FROM performance_months WHERE month=?", (month,))
-        return Decimal(str(rows[0]["purchasing_budget_aed"])) if rows else Decimal("3000000")
+        if rows: return Decimal(str(rows[0]["purchasing_budget_aed"]))
+        previous=self.query("SELECT purchasing_budget_aed FROM performance_months WHERE month<? ORDER BY month DESC LIMIT 1",(month,))
+        return Decimal(str(previous[0]["purchasing_budget_aed"])) if previous else Decimal("3000000")
 
     def set_performance_budget(self, month: str, budget_aed: float) -> None:
         if budget_aed < 0:

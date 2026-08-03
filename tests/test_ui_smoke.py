@@ -145,6 +145,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
     assert stock.table.columnCount()==6
+    assert "remaining" in stock.live_budget_value.text() and "revolving" in stock.live_budget_detail.text()
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
     assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()

@@ -156,7 +156,16 @@ def test_performance_budget_is_stored_per_month(tmp_path: Path):
     assert db.performance_budget("2026-07")==3000000
     db.set_performance_budget("2026-07",4500000)
     assert db.performance_budget("2026-07")==4500000
-    assert db.performance_budget("2026-08")==3000000
+    assert db.performance_budget("2026-08")==4500000
+
+
+def test_live_cash_budget_carries_forward_and_releases_on_sale_or_removal(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); db.set_performance_budget("2026-07",3000000); cash=db.add_vehicle(vehicle_name="BMW M4",purchase_type="cash",purchase_price_aed=200000,expected_sale_price_aed=230000,purchased_date="2026-07-20"); consignment=db.add_vehicle(vehicle_name="Porsche 911",purchase_type="consignment",purchase_price_aed=300000,expected_sale_price_aed=330000,purchased_date="2026-08-01")
+    assert db.performance_budget("2026-08")==3000000 and db.active_cash_stock_total()==200000
+    db.sell_vehicle(cash,sold_price_aed=230000,sold_date="2026-08-03"); assert db.active_cash_stock_total()==0
+    replacement=db.add_vehicle(vehicle_name="Audi RS3",purchase_type="cash",purchase_price_aed=180000,expected_sale_price_aed=210000,purchased_date="2026-08-03"); assert db.active_cash_stock_total()==180000
+    db.remove_stock_vehicle(replacement); assert db.active_cash_stock_total()==0
+    db.remove_stock_vehicle(consignment); assert db.active_cash_stock_total()==0
 
 
 def test_whatsapp_message_templates_can_be_added_edited_and_deleted(tmp_path: Path):
