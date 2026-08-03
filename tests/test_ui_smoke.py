@@ -9,7 +9,7 @@ from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from dxb_runway.database import Database
-from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, VehicleDialog
+from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month
@@ -45,6 +45,13 @@ def test_inspection_purchase_dialog_prefills_verified_prices(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); customer_id=db.add_customer_contact({"customer_name":"Seller","vehicle_name":"Jeep Wrangler","vehicle_age_years":2021,"phone_last5":"12345","cash_offer_aed":125000,"vehicle_price_aed":150000}); customer=db.query("SELECT * FROM customer_contacts WHERE id=?",(customer_id,))[0]
     dialog=VehicleDialog(db,source_customer=customer); values=dialog.values()
     assert values["vehicle_name"]=="2021 Jeep Wrangler" and values["purchase_price_aed"]==125000 and values["expected_sale_price_aed"]==150000
+    dialog.close()
+
+
+def test_consignment_sale_dialog_tracks_final_owner_payout(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); vehicle_id=db.add_vehicle(vehicle_name="Range Rover",purchase_type="consignment",purchase_price_aed=270000,expected_sale_price_aed=280000,purchased_date="2026-08-01"); vehicle=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0]
+    dialog=SellVehicleDialog(vehicle); dialog.owner_payout.setValue(265000); values=dialog.values()
+    assert values["sold_price_aed"]==280000 and values["final_owner_payout_aed"]==265000 and "15,000.00" in dialog.profit.text() and "+5,000.00" in dialog.profit.text()
     dialog.close()
 
 

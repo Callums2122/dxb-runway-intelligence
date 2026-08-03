@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.4
+## Current release — 1.8.5
+
+### Complete consignment lifecycle
+
+- Added Mark as consignment for existing stock, with an agreed owner payout; converted vehicles immediately stop using the cash purchasing budget.
+- Consignment sales now verify both actual sale price and final owner payout, preserving the original agreed payout and including any extra negotiation profit in realised profit.
+- Added explicit Return consignment to owner wording so a withdrawn vehicle can leave Stock Level without recording a sale.
+
+## 1.8.4
 
 ### Inspection purchase to Stock Level
 

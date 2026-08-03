@@ -142,6 +142,15 @@ def test_consignment_stock_tracks_profit_without_using_cash_budget_and_can_be_re
     assert len(sold)==1 and sold[0]["purchase_type"]=="cash"
 
 
+def test_consignment_can_be_converted_and_final_payout_increases_profit(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); vehicle_id=db.add_vehicle(vehicle_name="Range Rover",purchase_type="cash",purchase_price_aed=260000,expected_sale_price_aed=280000,purchased_date="2026-08-01")
+    assert db.monthly_vehicle_purchase_total("2026-08")==260000
+    db.mark_vehicle_consignment(vehicle_id,270000); assert db.monthly_vehicle_purchase_total("2026-08")==0
+    db.sell_vehicle(vehicle_id,sold_price_aed=280000,final_owner_payout_aed=265000,sold_date="2026-08-03")
+    sold=db.sold_vehicles("2026-08")[0]
+    assert sold["initial_owner_payout_aed"]==270000 and sold["purchase_price_aed"]==265000 and sold["realised_profit_aed"]==15000
+
+
 def test_performance_budget_is_stored_per_month(tmp_path: Path):
     db=Database(tmp_path/"runway.db")
     assert db.performance_budget("2026-07")==3000000

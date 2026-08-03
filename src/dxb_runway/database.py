@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 MIGRATIONS: dict[int, str] = {
@@ -171,6 +171,9 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_message_templates_title ON message_templates(title);
     """,
+    16: """
+    ALTER TABLE vehicles ADD COLUMN initial_owner_payout_aed REAL;
+    """,
 }
 
 
@@ -256,6 +259,10 @@ class Database:
                     if "inspection_date" not in columns:
                         connection.execute("ALTER TABLE customer_contacts ADD COLUMN inspection_date TEXT")
                     connection.execute("CREATE INDEX IF NOT EXISTS idx_customer_contacts_inspection_date ON customer_contacts(pipeline_stage,inspection_date)")
+                elif version == 16:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
+                    if "initial_owner_payout_aed" not in columns:
+                        connection.execute("ALTER TABLE vehicles ADD COLUMN initial_owner_payout_aed REAL")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -440,9 +447,14 @@ class Database:
         if purchase_type not in {"cash", "consignment"}:
             raise ValueError("Purchase type must be cash or consignment")
         return self.execute(
-            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type) VALUES (?,?,?,?,?,?)",
-            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type),
+            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed) VALUES (?,?,?,?,?,?,?)",
+            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type, purchase_price_aed if purchase_type=="consignment" else None),
         )
+
+    def mark_vehicle_consignment(self,vehicle_id:int,owner_payout_aed:float)->None:
+        if owner_payout_aed<=0: raise ValueError("Owner payout must be greater than zero")
+        changed=self.execute("UPDATE vehicles SET purchase_type='consignment',purchase_price_aed=?,initial_owner_payout_aed=COALESCE(initial_owner_payout_aed,?),updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='stock'",(owner_payout_aed,owner_payout_aed,vehicle_id))
+        if changed!=1: raise ValueError("Vehicle is no longer available in stock")
 
     def acquire_inspected_vehicle(self,customer_id:int,values:dict[str,Any])->int:
         name=str(values.get("vehicle_name","")).strip(); purchase_type=str(values.get("purchase_type","cash")); purchase=float(values.get("purchase_price_aed",0)); expected=float(values.get("expected_sale_price_aed",0)); purchased_date=str(values.get("purchased_date") or date.today().isoformat())[:10]; notes=str(values.get("notes","")).strip()
@@ -454,7 +466,7 @@ class Database:
         with self.connect() as connection:
             customer=connection.execute("SELECT id FROM customer_contacts WHERE id=? AND status='active' AND pipeline_stage='inspection'",(customer_id,)).fetchone()
             if not customer: raise ValueError("Customer is no longer awaiting inspection")
-            cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type) VALUES (?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type))
+            cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed) VALUES (?,?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type,purchase if purchase_type=="consignment" else None))
             connection.execute("UPDATE customer_contacts SET status='sold',sold_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(purchased_date,customer_id))
             return int(cursor.lastrowid)
 
@@ -621,14 +633,20 @@ class Database:
             )
             if cursor.rowcount!=1: raise ValueError("Note not found")
 
-    def sell_vehicle(self, vehicle_id: int, *, sold_price_aed: float, sold_date: str) -> None:
+    def sell_vehicle(self, vehicle_id: int, *, sold_price_aed: float, sold_date: str, final_owner_payout_aed:float|None=None) -> None:
         if sold_price_aed < 0:
             raise ValueError("Sale price cannot be negative")
         with self.connect() as connection:
+            vehicle=connection.execute("SELECT purchase_type,purchase_price_aed,initial_owner_payout_aed FROM vehicles WHERE id=? AND status='stock'",(vehicle_id,)).fetchone()
+            if not vehicle: raise ValueError("Vehicle is no longer available in stock")
+            payout=float(vehicle["purchase_price_aed"])
+            if vehicle["purchase_type"]=="consignment":
+                payout=float(final_owner_payout_aed if final_owner_payout_aed is not None else payout)
+                if payout<=0: raise ValueError("Final owner payout must be greater than zero")
             cursor = connection.execute(
-                "UPDATE vehicles SET status='sold',sold_price_aed=?,sold_date=?,updated_at=CURRENT_TIMESTAMP "
+                "UPDATE vehicles SET status='sold',sold_price_aed=?,sold_date=?,purchase_price_aed=?,initial_owner_payout_aed=CASE WHEN purchase_type='consignment' THEN COALESCE(initial_owner_payout_aed,purchase_price_aed) ELSE initial_owner_payout_aed END,updated_at=CURRENT_TIMESTAMP "
                 "WHERE id=? AND status='stock'",
-                (sold_price_aed, sold_date[:10], vehicle_id),
+                (sold_price_aed, sold_date[:10], payout, vehicle_id),
             )
             if cursor.rowcount != 1:
                 raise ValueError("Vehicle is no longer available in stock")

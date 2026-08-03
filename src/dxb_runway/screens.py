@@ -572,8 +572,9 @@ class StockLevelPage(Page):
         layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Stock level","Every vehicle currently held, including cash purchases and consignments.")); top.addStretch()
         add=QPushButton("＋ Add car"); add.setProperty("primary",True); add.clicked.connect(self.add_vehicle); top.addWidget(add)
+        consignment=QPushButton("Mark as consignment"); consignment.clicked.connect(self.mark_consignment); top.addWidget(consignment)
         sold=QPushButton("Mark selected as sold"); sold.clicked.connect(self.sell_selected); top.addWidget(sold)
-        remove=QPushButton("Remove selected"); remove.clicked.connect(self.remove_selected); top.addWidget(remove); layout.addLayout(top)
+        remove=QPushButton("Remove / return to owner"); remove.clicked.connect(self.remove_selected); top.addWidget(remove); layout.addLayout(top)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
         for i,(key,label,color) in enumerate([("total","Cars in stock",COLORS["cyan"]),("cash","Cash purchases",COLORS["green"]),("consignment","Consignments",COLORS["purple"]),("profit","Expected stock profit",COLORS["amber"])]):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
@@ -619,11 +620,19 @@ class StockLevelPage(Page):
         dialog=SellVehicleDialog(rows[0],self)
         if dialog.exec(): self.db.sell_vehicle(vehicle_id,**dialog.values()); self.refresh(); self.changed.emit()
 
+    def mark_consignment(self)->None:
+        vehicle_id=self.selected_id()
+        if vehicle_id is None: QMessageBox.information(self,"Select a car","Select the vehicle you want to mark as consignment."); return
+        vehicle=self.db.query("SELECT * FROM vehicles WHERE id=? AND status='stock'",(vehicle_id,))[0]
+        if vehicle["purchase_type"]=="consignment": QMessageBox.information(self,"Already consignment","This vehicle is already marked as consignment stock."); return
+        payout,ok=QInputDialog.getDouble(self,"Mark as consignment","Agreed owner payout · AED",vehicle["purchase_price_aed"],0.01,100_000_000,2)
+        if ok: self.db.mark_vehicle_consignment(vehicle_id,payout); self.refresh(); self.changed.emit(); QMessageBox.information(self,"Consignment saved","This vehicle no longer uses the cash purchasing budget.")
+
     def remove_selected(self)->None:
         vehicle_id=self.selected_id()
         if vehicle_id is None: QMessageBox.information(self,"Select a car","Select a vehicle from stock first."); return
-        name=self.table.item(self.table.currentRow(),0).text()
-        if QMessageBox.question(self,"Remove from stock",f"Remove {name} from Stock Level? This does not mark it as sold.")==QMessageBox.StandardButton.Yes:
+        name=self.table.item(self.table.currentRow(),0).text(); vehicle=self.db.query("SELECT purchase_type FROM vehicles WHERE id=?",(vehicle_id,))[0]; consignment=vehicle["purchase_type"]=="consignment"; title="Return consignment to owner" if consignment else "Remove from stock"; message=f"Return {name} to the owner and remove it from Stock Level? No sale or profit will be recorded." if consignment else f"Remove {name} from Stock Level? This does not mark it as sold."
+        if QMessageBox.question(self,title,message)==QMessageBox.StandardButton.Yes:
             self.db.remove_stock_vehicle(vehicle_id); self.refresh(); self.changed.emit()
 
 

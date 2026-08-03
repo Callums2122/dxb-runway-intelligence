@@ -317,16 +317,18 @@ class SellVehicleDialog(QDialog):
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("MARK AS SOLD"); title.setObjectName("pageTitle"); root.addWidget(title)
         name=QLabel(vehicle["vehicle_name"]); name.setStyleSheet("font-size:18px;font-weight:700"); root.addWidget(name)
-        form=QFormLayout(); self.price=MoneyBox(); self.price.setValue(vehicle["expected_sale_price_aed"]); self.sold_date=QDateEdit(QDate.currentDate()); self.sold_date.setCalendarPopup(True); self.sold_date.setDisplayFormat("dd MMM yyyy")
-        self.profit=QLabel(); self.price.valueChanged.connect(self.update_profit); form.addRow("Purchase price",QLabel(f"AED {vehicle['purchase_price_aed']:,.2f}")); form.addRow("Actual sale price · AED",self.price); form.addRow("Sold date",self.sold_date); form.addRow("",self.profit); root.addLayout(form); self.update_profit()
+        form=QFormLayout(); self.price=MoneyBox(); self.price.setValue(vehicle["expected_sale_price_aed"]); self.sold_date=QDateEdit(QDate.currentDate()); self.sold_date.setCalendarPopup(True); self.sold_date.setDisplayFormat("dd MMM yyyy"); self.owner_payout=MoneyBox(); self.owner_payout.setValue(vehicle["purchase_price_aed"])
+        self.profit=QLabel(); self.price.valueChanged.connect(self.update_profit); self.owner_payout.valueChanged.connect(self.update_profit); cost_label="Original purchase price" if vehicle["purchase_type"]=="cash" else "Original agreed owner payout"; form.addRow(cost_label,QLabel(f"AED {vehicle['purchase_price_aed']:,.2f}")); self.payout_label=QLabel("Final owner payout · AED"); form.addRow(self.payout_label,self.owner_payout); form.addRow("Actual sale price · AED",self.price); form.addRow("Sold date",self.sold_date); form.addRow("",self.profit); root.addLayout(form); is_consignment=vehicle["purchase_type"]=="consignment"; self.payout_label.setVisible(is_consignment); self.owner_payout.setVisible(is_consignment); self.update_profit()
         note=QLabel("Saving removes this vehicle from current stock and includes its realised profit in the selected sold month immediately."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def update_profit(self)->None:
-        profit=self.price.value()-self.vehicle["purchase_price_aed"]; self.profit.setText(f"Realised profit · AED {profit:+,.2f}"); self.profit.setStyleSheet(f"color:{COLORS['green'] if profit>=0 else COLORS['red']};font-weight:700")
+        cost=self.owner_payout.value() if self.vehicle["purchase_type"]=="consignment" else self.vehicle["purchase_price_aed"]; profit=self.price.value()-cost; extra=self.vehicle["purchase_price_aed"]-cost if self.vehicle["purchase_type"]=="consignment" else 0; suffix=f"  ·  Extra negotiation profit AED {extra:+,.2f}" if self.vehicle["purchase_type"]=="consignment" else ""; self.profit.setText(f"Realised profit · AED {profit:+,.2f}{suffix}"); self.profit.setStyleSheet(f"color:{COLORS['green'] if profit>=0 else COLORS['red']};font-weight:700")
 
     def values(self)->dict:
-        return {"sold_price_aed":self.price.value(),"sold_date":self.sold_date.date().toString("yyyy-MM-dd")}
+        values={"sold_price_aed":self.price.value(),"sold_date":self.sold_date.date().toString("yyyy-MM-dd")}
+        if self.vehicle["purchase_type"]=="consignment": values["final_owner_payout_aed"]=self.owner_payout.value()
+        return values
 
 
 class CommandPalette(QDialog):
