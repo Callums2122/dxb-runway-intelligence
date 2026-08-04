@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.9.0
+## Current release — 1.9.1
+
+### KPI-linked Vehicle Desk commission
+
+- Every KPI hit now adds 0.50 percentage points to the achieved Vehicle Desk commission rate for that month.
+- Vehicle Desk shows the KPI hit count and combined rate bonus beside profit achievement.
+- Baseline and Tier 1/2/3 projections, the monthly tier table, sold-vehicle commission and synced earnings all use the KPI-adjusted rate.
+
+## Previous release — 1.9.0
 
 ### Monthly KPI tracker
 

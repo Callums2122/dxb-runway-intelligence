@@ -38,6 +38,24 @@ def customer_vehicle_year(stored_value: int) -> int:
     return value if 2018<=value<=2026 else max(2018,min(2026,2026-value))
 
 
+def monthly_kpi_results(db:Database,month:str,call_target:int=240)->list[tuple[str,str,str,bool]]:
+    calls=sum(int(row["call_count"]) for row in db.kpi_calls(month)); work=db.kpi_work_days(month); avg_hours=sum(float(row["hours"]) for row in work)/len(work) if work else 0
+    budget=db.performance_budget(month); cash_used=db.active_cash_stock_total(); spend_pct=float(cash_used/budget*100) if budget else 0
+    sold=db.sold_vehicles(month); cash_profit=[float(row["realised_profit_aed"]) for row in sold if row["purchase_type"]=="cash"]; all_profit=[float(row["realised_profit_aed"]) for row in sold]; avg_cash=sum(cash_profit)/len(cash_profit) if cash_profit else 0; top=max(all_profit,default=0)
+    stock=db.stock_vehicles(); pipeline_cash=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="cash"]; pipeline_con=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="consignment"]; avg_pc=sum(pipeline_cash)/len(pipeline_cash) if pipeline_cash else 0; avg_pcon=sum(pipeline_con)/len(pipeline_con) if pipeline_con else 0
+    consignment_count=sum(1 for row in sold if row["purchase_type"]=="consignment" and float(row["realised_profit_aed"])>=20000); consignment_target=max(1,int((budget+Decimal("999999"))//Decimal("1000000")))
+    year,month_number=(int(value) for value in month.split("-")); month_end=date(year,month_number,calendar.monthrange(year,month_number)[1]); eligible=[]
+    for row in db.query("SELECT * FROM vehicles WHERE purchased_date<=? AND (sold_date IS NULL OR sold_date>=?)",(month_end.isoformat(),f"{month}-01")):
+        start=date.fromisoformat(row["purchased_date"]); finish=date.fromisoformat(row["sold_date"]) if row["sold_date"] and row["sold_date"]<=month_end.isoformat() else month_end; eligible.append(max(0,(finish-start).days+1))
+    avg_days=sum(eligible)/len(eligible) if eligible else 0
+    return [("Call Maestro",f"{call_target} calls",f"{calls} calls",calls>=call_target),("Profit Wizard","AED 27,500 avg",f"AED {avg_cash:,.0f}",avg_cash>=27500),("Pipeline Gold","Cash 30k + Con 20k",f"AED {avg_pc:,.0f} / {avg_pcon:,.0f}",avg_pc>=30000 and avg_pcon>=20000),("Bayzat Champion","10h avg + 20 days",f"{avg_hours:.1f}h · {len(work)} days",avg_hours>=10 and len(work)>=20),("Top Gun Deal","AED 65,000",f"AED {top:,.0f}",top>=65000),("Big Spender","95% of budget",f"{spend_pct:.1f}%",spend_pct>=95),("Consignmenite",f"{consignment_target} qualifying sold",str(consignment_count),consignment_count>=consignment_target),("Lightweight","35 days or less",f"{avg_days:.1f} days",bool(eligible) and avg_days<=35)]
+
+
+def monthly_kpi_bonus(db:Database,month:str)->tuple[int,Decimal]:
+    hit_count=sum(1 for *_,hit in monthly_kpi_results(db,month) if hit)
+    return hit_count,Decimal("0.005")*hit_count
+
+
 def table_item(text: str, alignment: Qt.AlignmentFlag | None = None, color: str | None = None) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     if alignment: item.setTextAlignment(alignment)
@@ -633,16 +651,7 @@ class KPITrackerPage(Page):
         return str(self.month.currentData() or date.today().strftime("%Y-%m"))
 
     def results(self)->list[tuple[str,str,str,bool]]:
-        month=self.selected_month(); calls=sum(int(row["call_count"]) for row in self.db.kpi_calls(month)); work=self.db.kpi_work_days(month); avg_hours=sum(float(row["hours"]) for row in work)/len(work) if work else 0
-        budget=self.db.performance_budget(month); cash_used=self.db.active_cash_stock_total(); spend_pct=float(cash_used/budget*100) if budget else 0
-        sold=self.db.sold_vehicles(month); cash_profit=[float(row["realised_profit_aed"]) for row in sold if row["purchase_type"]=="cash"]; all_profit=[float(row["realised_profit_aed"]) for row in sold]; avg_cash=sum(cash_profit)/len(cash_profit) if cash_profit else 0; top=max(all_profit,default=0)
-        stock=self.db.stock_vehicles(); pipeline_cash=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="cash"]; pipeline_con=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="consignment"]; avg_pc=sum(pipeline_cash)/len(pipeline_cash) if pipeline_cash else 0; avg_pcon=sum(pipeline_con)/len(pipeline_con) if pipeline_con else 0
-        consignment_count=sum(1 for row in sold if row["purchase_type"]=="consignment" and float(row["realised_profit_aed"])>=20000); consignment_target=max(1,int((budget+Decimal("999999"))//Decimal("1000000")))
-        year,month_number=(int(value) for value in month.split("-")); month_end=date(year,month_number,calendar.monthrange(year,month_number)[1]); eligible=[]
-        for row in self.db.query("SELECT * FROM vehicles WHERE purchased_date<=? AND (sold_date IS NULL OR sold_date>=?)",(month_end.isoformat(),f"{month}-01")):
-            start=date.fromisoformat(row["purchased_date"]); finish=date.fromisoformat(row["sold_date"]) if row["sold_date"] and row["sold_date"]<=month_end.isoformat() else month_end; eligible.append(max(0,(finish-start).days+1))
-        avg_days=sum(eligible)/len(eligible) if eligible else 0
-        return [("Call Maestro",f"{self.CALL_TARGET} calls",f"{calls} calls",calls>=self.CALL_TARGET),("Profit Wizard","AED 27,500 avg",f"AED {avg_cash:,.0f}",avg_cash>=27500),("Pipeline Gold","Cash 30k + Con 20k",f"AED {avg_pc:,.0f} / {avg_pcon:,.0f}",avg_pc>=30000 and avg_pcon>=20000),("Bayzat Champion","10h avg + 20 days",f"{avg_hours:.1f}h · {len(work)} days",avg_hours>=10 and len(work)>=20),("Top Gun Deal","AED 65,000",f"AED {top:,.0f}",top>=65000),("Big Spender","95% of budget",f"{spend_pct:.1f}%",spend_pct>=95),("Consignmenite",f"{consignment_target} qualifying sold",str(consignment_count),consignment_count>=consignment_target),("Lightweight","35 days or less",f"{avg_days:.1f} days",bool(eligible) and avg_days<=35)]
+        return monthly_kpi_results(self.db,self.selected_month(),self.CALL_TARGET)
 
     def refresh(self)->None:
         month=self.selected_month(); call_rows=self.db.kpi_calls(month); total=sum(int(row["call_count"]) for row in call_rows); percent=int(total/self.CALL_TARGET*100); remaining=max(0,self.CALL_TARGET-total); self.call_bar.setRange(0,100); self.call_bar.setValue(min(100,percent)); self.call_title.setText(f"Call Maestro · {total} / {self.CALL_TARGET}"); achieved=total>=self.CALL_TARGET; self.call_status.setText("✓ KPI HIT" if achieved else f"{remaining} remaining"); self.call_status.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['green'] if achieved else COLORS['amber']}"); self.call_detail.setText("Monthly total · log more or fewer calls on any day; only the full monthly result matters.")
@@ -801,13 +810,13 @@ class VehicleDeskPage(Page):
         self.budget.blockSignals(True); self.budget.setValue(float(budget)); self.budget.blockSignals(False)
         self.salary.blockSignals(True); self.salary.setValue(float(salary)); self.salary.blockSignals(False)
         remaining_aed,remaining_gbp=dual_amount(remaining_budget,rate); remaining_color=COLORS["red"] if remaining_budget<0 else COLORS["amber"] if budget>0 and remaining_budget/budget<Decimal("0.15") else COLORS["green"]; self.budget_remaining.setText(f"BUDGET REMAINING  ·  {remaining_aed}  /  {remaining_gbp}"); self.budget_remaining.setStyleSheet(f"color:{remaining_color};font-weight:800")
-        sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),average_margin_aed=24700,salary_aed=salary)
+        sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); kpi_hits,kpi_bonus=monthly_kpi_bonus(self.db,month); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),average_margin_aed=24700,salary_aed=salary,commission_rate_bonus=kpi_bonus)
         if month<=date.today().strftime("%Y-%m") and (sold or month==date.today().strftime("%Y-%m")): self.sync_earnings(result,year,month_number)
         rate_pct=f"{float(result.rate*100):g}%"; self.current_result=result; self.metrics["sold"].set_value(str(len(sold)),month_label); profit_aed,profit_gbp=dual_amount(realised,rate,signed=True); self.metrics["profit"].set_value(profit_aed,profit_gbp,COLORS["red"] if realised<0 else COLORS["green"]); commission_aed,commission_gbp=dual_amount(result.commission_aed,rate); self.metrics["commission"].set_value(commission_aed,f"{commission_gbp} · Commission only · {result.tier.value} at {rate_pct}"); total_aed,total_gbp=dual_amount(result.total_earned_aed,rate); self.metrics["total"].set_value(total_aed,f"{total_gbp} · Base AED {result.salary_aed:,.0f} + commission AED {result.commission_aed:,.0f}")
         tier_color=COLORS["green"] if result.tier!=CommissionTier.BASELINE else COLORS["cyan"]; self.tier.setText(f"{result.tier.value.upper()} · {rate_pct}"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{tier_color}")
-        t3,t2,t1=TARGET_PERCENTAGES[month_number]; achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget"); self.schedule.setText(f"{month_label} targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); self.tier_progress.setRange(0,max(1,int(t1*10000))); self.tier_progress.setValue(max(0,min(self.tier_progress.maximum(),int(achieved*100))))
+        t3,t2,t1=TARGET_PERCENTAGES[month_number]; achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget · {kpi_hits} KPI hit{'s' if kpi_hits!=1 else ''} = +{kpi_bonus*100:g}%"); self.schedule.setText(f"{month_label} targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); self.tier_progress.setRange(0,max(1,int(t1*10000))); self.tier_progress.setValue(max(0,min(self.tier_progress.maximum(),int(achieved*100))))
         for key,label,target,commission_rate in [("tier3","Tier 3",t3,Decimal("0.05")),("tier2","Tier 2",t2,Decimal("0.065")),("tier1","Tier 1",t1,Decimal("0.08"))]:
-            target_profit=money(budget*target); commission=money(target_profit*commission_rate); total=money(salary+commission); total_aed,total_gbp=dual_amount(total,rate); self.tier_earnings[key].set_value(total_aed,f"{total_gbp} · {label} commission AED {commission:,.0f} + salary AED {salary:,.0f}")
+            adjusted_rate=commission_rate+kpi_bonus; target_profit=money(budget*target); commission=money(target_profit*adjusted_rate); total=money(salary+commission); total_aed,total_gbp=dual_amount(total,rate); self.tier_earnings[key].set_value(total_aed,f"{total_gbp} · {label} at {adjusted_rate*100:g}% incl. KPI · commission AED {commission:,.0f} + salary AED {salary:,.0f}")
         self.sold_table.setRowCount(len(sold))
         for i,row in enumerate(sold):
             self.sold_table.setRowHeight(i,56); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(f"Sale price · AED {row['sold_price_aed']:,.0f}"); self.sold_table.setItem(i,0,first); profit=Decimal(str(row["realised_profit_aed"])); commission=money(profit*result.rate) if realised>0 else Decimal("0"); values=[row["sold_date"],f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP",f"{commission:+,.0f} AED\n{gbp_equivalent(commission,rate):+,.0f} GBP"]
@@ -819,8 +828,8 @@ class VehicleDeskPage(Page):
     def refresh_tier_table(self,salary:Decimal)->None:
         self.tier_table.setRowCount(12)
         for row_index in range(12):
-            month_number=row_index+1; month=str(self.month.itemData(row_index,Qt.ItemDataRole.UserRole)); year=int(month[:4]); budget=self.db.performance_budget(month); sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(vehicle["realised_profit_aed"])) for vehicle in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=salary); t3,t2,t1=TARGET_PERCENTAGES[month_number]
-            values=[self.month.itemText(row_index),f"{budget:,.0f}","4%",f"{t3*100:g}% / 5%",f"{t2*100:g}% / 6.5%",f"{t1*100:g}% / 8%",f"{result.tier.value} / {result.rate*100:g}%"]
+            month_number=row_index+1; month=str(self.month.itemData(row_index,Qt.ItemDataRole.UserRole)); year=int(month[:4]); budget=self.db.performance_budget(month); sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(vehicle["realised_profit_aed"])) for vehicle in sold),Decimal("0")); kpi_hits,kpi_bonus=monthly_kpi_bonus(self.db,month); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=salary,commission_rate_bonus=kpi_bonus); t3,t2,t1=TARGET_PERCENTAGES[month_number]
+            values=[self.month.itemText(row_index),f"{budget:,.0f}",f"{(Decimal('0.04')+kpi_bonus)*100:g}%",f"{t3*100:g}% / {(Decimal('0.05')+kpi_bonus)*100:g}%",f"{t2*100:g}% / {(Decimal('0.065')+kpi_bonus)*100:g}%",f"{t1*100:g}% / {(Decimal('0.08')+kpi_bonus)*100:g}%",f"{result.tier.value} / {result.rate*100:g}% · {kpi_hits} KPI"]
             for column,value in enumerate(values):
                 item=table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if column else Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if column==6 and result.tier!=CommissionTier.BASELINE else COLORS["cyan"] if column==6 else None); self.tier_table.setItem(row_index,column,item)
             self.tier_table.setRowHeight(row_index,40)
@@ -835,7 +844,7 @@ class VehicleDeskPage(Page):
 
     def save_salary(self)->None:
         self.db.set_setting("salary_aed",f"{self.salary.value():.2f}")
-        current=date.today().strftime("%Y-%m"); year,month_number=(int(value) for value in current.split("-")); budget=self.db.performance_budget(current); sold=self.db.sold_vehicles(current); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=self.salary.value()); self.sync_earnings(result,year,month_number)
+        current=date.today().strftime("%Y-%m"); year,month_number=(int(value) for value in current.split("-")); budget=self.db.performance_budget(current); sold=self.db.sold_vehicles(current); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); _,kpi_bonus=monthly_kpi_bonus(self.db,current); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=self.salary.value(),commission_rate_bonus=kpi_bonus); self.sync_earnings(result,year,month_number)
         self.refresh(); self.changed.emit()
 
     def return_selected(self)->None:

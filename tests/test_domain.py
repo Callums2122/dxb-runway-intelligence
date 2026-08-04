@@ -48,6 +48,11 @@ def test_earnings_can_use_app_wide_salary_override():
     assert result.salary_aed==Decimal("9250.00") and result.total_earned_aed==Decimal("9250.00")
 
 
+def test_kpi_bonus_increases_commission_rate_and_value():
+    result=calculate_earnings(year=2026,month=8,budget_aed=3_000_000,eligible_profit_aed=100_000,salary_aed=7000,commission_rate_bonus=Decimal("0.01"))
+    assert result.rate==Decimal("0.05") and result.commission_aed==Decimal("5000.00")
+
+
 def test_live_vehicle_profit_uses_the_selected_month_target_schedule():
     april=calculate_earnings(year=2026,month=4,budget_aed=3_000_000,eligible_profit_aed=260_000)
     may=calculate_earnings(year=2026,month=5,budget_aed=3_000_000,eligible_profit_aed=260_000)
