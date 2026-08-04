@@ -609,6 +609,68 @@ class TodayTodoPage(Page):
         self.db.delete_daily_task(int(self.table.item(row,0).data(Qt.ItemDataRole.UserRole))); self.refresh(); self.changed.emit()
 
 
+class KPITrackerPage(Page):
+    CALL_TARGET=240
+    def __init__(self, db: Database):
+        super().__init__(db)
+        layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("KPI tracker","Monthly targets from your KPI schedule. Each achieved KPI contributes 0.50%.")); top.addStretch(); self.month=QComboBox(); self.configure_months(); self.month.currentIndexChanged.connect(self.refresh); top.addWidget(self.month); layout.addLayout(top)
+        inputs=QGridLayout(); inputs.setSpacing(12)
+        call_card=Card(); call_l=QVBoxLayout(call_card); call_l.setContentsMargins(16,14,16,14); call_l.addWidget(QLabel("LOG CALLS",objectName="eyebrow")); call_row=QHBoxLayout(); self.phone=QLineEdit(); self.phone.setPlaceholderText("Phone number called"); call_row.addWidget(self.phone,1); self.call_count=QSpinBox(); self.call_count.setRange(1,100); self.call_count.setValue(1); self.call_count.setSuffix(" call" ); call_row.addWidget(self.call_count); self.call_date=QDateEdit(QDate.currentDate()); self.call_date.setCalendarPopup(True); self.call_date.setDisplayFormat("dd MMM"); call_row.addWidget(self.call_date); add_call=QPushButton("＋ Log"); add_call.setProperty("primary",True); add_call.clicked.connect(self.log_call); call_row.addWidget(add_call); call_l.addLayout(call_row); inputs.addWidget(call_card,0,0)
+        hours_card=Card(); hours_l=QVBoxLayout(hours_card); hours_l.setContentsMargins(16,14,16,14); hours_l.addWidget(QLabel("LOG HOURS WORKED",objectName="eyebrow")); hours_row=QHBoxLayout(); self.work_date=QDateEdit(QDate.currentDate()); self.work_date.setCalendarPopup(True); self.work_date.setDisplayFormat("dddd, dd MMM"); hours_row.addWidget(self.work_date,1); self.hours=QDoubleSpinBox(); self.hours.setRange(0,24); self.hours.setDecimals(1); self.hours.setValue(10); self.hours.setSuffix(" hours"); hours_row.addWidget(self.hours); save_hours=QPushButton("Save day"); save_hours.clicked.connect(self.save_hours); hours_row.addWidget(save_hours); hours_l.addLayout(hours_row); inputs.addWidget(hours_card,0,1); layout.addLayout(inputs)
+        call_progress=Card(); progress_l=QVBoxLayout(call_progress); progress_l.setContentsMargins(16,14,16,14); progress_top=QHBoxLayout(); self.call_title=QLabel(); self.call_title.setStyleSheet("font-size:18px;font-weight:800"); progress_top.addWidget(self.call_title); progress_top.addStretch(); self.call_status=QLabel(); self.call_status.setStyleSheet("font-size:16px;font-weight:800"); progress_top.addWidget(self.call_status); progress_l.addLayout(progress_top); self.call_detail=QLabel(); self.call_detail.setObjectName("muted"); progress_l.addWidget(self.call_detail); self.call_bar=QProgressBar(); progress_l.addWidget(self.call_bar); layout.addWidget(call_progress)
+        body=QHBoxLayout(); body.setSpacing(12); summary_card=Card(); summary_l=QVBoxLayout(summary_card); summary_l.setContentsMargins(16,15,16,15); summary_l.addWidget(SectionHeader("Monthly KPI scorecard","Green means the full monthly target has been achieved.")); self.summary=QTableWidget(0,5); self.summary.setHorizontalHeaderLabels(["KPI","TARGET","CURRENT","STATUS","IMPACT"]); self.summary.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.summary.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection); self.summary.verticalHeader().hide(); self.summary.horizontalHeader().setStretchLastSection(True); summary_l.addWidget(self.summary); body.addWidget(summary_card,3)
+        log_card=Card(); log_l=QVBoxLayout(log_card); log_l.setContentsMargins(16,15,16,15); log_head=QHBoxLayout(); log_head.addWidget(SectionHeader("Call log","Every number logged for the selected month.")); log_head.addStretch(); remove=QPushButton("Delete selected"); remove.clicked.connect(self.delete_call); log_head.addWidget(remove); log_l.addLayout(log_head); self.calls=QTableWidget(0,3); self.calls.setHorizontalHeaderLabels(["DATE","PHONE","CALLS"]); self.calls.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.calls.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.calls.verticalHeader().hide(); self.calls.horizontalHeader().setStretchLastSection(True); log_l.addWidget(self.calls); body.addWidget(log_card,2); layout.addLayout(body,1); self.refresh()
+
+    def configure_months(self)->None:
+        today=date.today(); options=[]
+        for offset in range(-12,13):
+            total=today.year*12+today.month-1+offset; year,month=divmod(total,12); key=f"{year:04d}-{month+1:02d}"; options.append((key,f"{calendar.month_name[month+1]} {year}"))
+        for key,label in options: self.month.addItem(label,key)
+        self.month.setCurrentIndex(12)
+
+    def selected_month(self)->str:
+        return str(self.month.currentData() or date.today().strftime("%Y-%m"))
+
+    def results(self)->list[tuple[str,str,str,bool]]:
+        month=self.selected_month(); calls=sum(int(row["call_count"]) for row in self.db.kpi_calls(month)); work=self.db.kpi_work_days(month); avg_hours=sum(float(row["hours"]) for row in work)/len(work) if work else 0
+        budget=self.db.performance_budget(month); cash_used=self.db.active_cash_stock_total(); spend_pct=float(cash_used/budget*100) if budget else 0
+        sold=self.db.sold_vehicles(month); cash_profit=[float(row["realised_profit_aed"]) for row in sold if row["purchase_type"]=="cash"]; all_profit=[float(row["realised_profit_aed"]) for row in sold]; avg_cash=sum(cash_profit)/len(cash_profit) if cash_profit else 0; top=max(all_profit,default=0)
+        stock=self.db.stock_vehicles(); pipeline_cash=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="cash"]; pipeline_con=[float(row["expected_profit_aed"]) for row in stock if row["purchase_type"]=="consignment"]; avg_pc=sum(pipeline_cash)/len(pipeline_cash) if pipeline_cash else 0; avg_pcon=sum(pipeline_con)/len(pipeline_con) if pipeline_con else 0
+        consignment_count=sum(1 for row in sold if row["purchase_type"]=="consignment" and float(row["realised_profit_aed"])>=20000); consignment_target=max(1,int((budget+Decimal("999999"))//Decimal("1000000")))
+        year,month_number=(int(value) for value in month.split("-")); month_end=date(year,month_number,calendar.monthrange(year,month_number)[1]); eligible=[]
+        for row in self.db.query("SELECT * FROM vehicles WHERE purchased_date<=? AND (sold_date IS NULL OR sold_date>=?)",(month_end.isoformat(),f"{month}-01")):
+            start=date.fromisoformat(row["purchased_date"]); finish=date.fromisoformat(row["sold_date"]) if row["sold_date"] and row["sold_date"]<=month_end.isoformat() else month_end; eligible.append(max(0,(finish-start).days+1))
+        avg_days=sum(eligible)/len(eligible) if eligible else 0
+        return [("Call Maestro",f"{self.CALL_TARGET} calls",f"{calls} calls",calls>=self.CALL_TARGET),("Profit Wizard","AED 27,500 avg",f"AED {avg_cash:,.0f}",avg_cash>=27500),("Pipeline Gold","Cash 30k + Con 20k",f"AED {avg_pc:,.0f} / {avg_pcon:,.0f}",avg_pc>=30000 and avg_pcon>=20000),("Bayzat Champion","10h avg + 20 days",f"{avg_hours:.1f}h · {len(work)} days",avg_hours>=10 and len(work)>=20),("Top Gun Deal","AED 65,000",f"AED {top:,.0f}",top>=65000),("Big Spender","95% of budget",f"{spend_pct:.1f}%",spend_pct>=95),("Consignmenite",f"{consignment_target} qualifying sold",str(consignment_count),consignment_count>=consignment_target),("Lightweight","35 days or less",f"{avg_days:.1f} days",bool(eligible) and avg_days<=35)]
+
+    def refresh(self)->None:
+        month=self.selected_month(); call_rows=self.db.kpi_calls(month); total=sum(int(row["call_count"]) for row in call_rows); percent=int(total/self.CALL_TARGET*100); remaining=max(0,self.CALL_TARGET-total); self.call_bar.setRange(0,100); self.call_bar.setValue(min(100,percent)); self.call_title.setText(f"Call Maestro · {total} / {self.CALL_TARGET}"); achieved=total>=self.CALL_TARGET; self.call_status.setText("✓ KPI HIT" if achieved else f"{remaining} remaining"); self.call_status.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['green'] if achieved else COLORS['amber']}"); self.call_detail.setText("Monthly total · log more or fewer calls on any day; only the full monthly result matters.")
+        results=self.results(); self.summary.setRowCount(len(results))
+        for i,(name,target,current,hit) in enumerate(results):
+            values=[name,target,current,"✓ HIT" if hit else "IN PROGRESS","+0.50%" if hit else "—"]
+            for j,value in enumerate(values): self.summary.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if hit and j>=3 else None))
+            self.summary.setRowHeight(i,44)
+        self.summary.setColumnWidth(0,145); self.summary.setColumnWidth(1,150); self.summary.setColumnWidth(2,170); self.summary.setColumnWidth(3,110)
+        self.calls.setRowCount(len(call_rows))
+        for i,row in enumerate(call_rows):
+            first=table_item(row["called_at"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.calls.setItem(i,0,first); self.calls.setItem(i,1,table_item(row["phone_number"])); self.calls.setItem(i,2,table_item(str(row["call_count"]),Qt.AlignmentFlag.AlignCenter)); self.calls.setRowHeight(i,42)
+        self.calls.setColumnWidth(0,95); self.calls.setColumnWidth(1,155)
+
+    def log_call(self)->None:
+        try: self.db.add_kpi_calls(self.phone.text(),self.call_count.value(),self.call_date.date().toPython())
+        except ValueError as error: QMessageBox.warning(self,"Cannot log call",str(error)); return
+        self.phone.clear(); self.call_count.setValue(1); self.refresh(); self.changed.emit(); self.phone.setFocus()
+
+    def save_hours(self)->None:
+        self.db.save_kpi_work_day(self.work_date.date().toString("yyyy-MM-dd"),self.hours.value()); self.refresh(); self.changed.emit()
+
+    def delete_call(self)->None:
+        row=self.calls.currentRow()
+        if row<0: QMessageBox.information(self,"Select a call","Select a call log first."); return
+        self.db.delete_kpi_call(int(self.calls.item(row,0).data(Qt.ItemDataRole.UserRole))); self.refresh(); self.changed.emit()
+
+
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)

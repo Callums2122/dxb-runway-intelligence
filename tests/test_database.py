@@ -17,6 +17,8 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contact_notes'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='message_templates'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_tasks'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_calls'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_work_days'")
     assert "pipeline_stage" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
     assert "inspection_date" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
 
@@ -176,6 +178,13 @@ def test_daily_tasks_are_separated_by_day_and_can_be_completed_or_deleted(tmp_pa
     db.set_daily_task_completed(first,True); assert db.daily_tasks("2026-08-04")[0]["completed"]==1
     db.set_daily_task_completed(first,False); assert db.daily_tasks("2026-08-04")[0]["completed"]==0
     db.delete_daily_task(first); assert db.daily_tasks("2026-08-04")==[]
+
+
+def test_kpi_call_and_work_logs_are_monthly(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); call=db.add_kpi_calls("050 123 4567",6,"2026-08-04"); db.add_kpi_calls("050 987 6543",10,"2026-08-05"); db.add_kpi_calls("050 000 0000",2,"2026-09-01")
+    assert sum(row["call_count"] for row in db.kpi_calls("2026-08"))==16
+    db.save_kpi_work_day("2026-08-04",9.5); db.save_kpi_work_day("2026-08-04",10); assert db.kpi_work_days("2026-08")[0]["hours"]==10
+    db.delete_kpi_call(call); assert sum(row["call_count"] for row in db.kpi_calls("2026-08"))==10
 
 
 def test_whatsapp_message_templates_can_be_added_edited_and_deleted(tmp_path: Path):

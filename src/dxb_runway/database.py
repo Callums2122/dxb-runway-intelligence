@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 
 MIGRATIONS: dict[int, str] = {
@@ -185,6 +185,21 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_daily_tasks_date ON daily_tasks(task_date,completed,created_at);
     """,
+    18: """
+    CREATE TABLE IF NOT EXISTS kpi_calls (
+      id INTEGER PRIMARY KEY,
+      called_at TEXT NOT NULL,
+      phone_number TEXT NOT NULL,
+      call_count INTEGER NOT NULL DEFAULT 1 CHECK(call_count > 0),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_kpi_calls_date ON kpi_calls(called_at);
+    CREATE TABLE IF NOT EXISTS kpi_work_days (
+      work_date TEXT PRIMARY KEY,
+      hours REAL NOT NULL CHECK(hours >= 0 AND hours <= 24),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
 }
 
 
@@ -322,6 +337,27 @@ class Database:
 
     def delete_daily_task(self, task_id: int) -> None:
         if self.execute("DELETE FROM daily_tasks WHERE id=?",(task_id,))!=1: raise ValueError("Task does not exist")
+
+    def add_kpi_calls(self, phone_number: str, call_count: int = 1, called_at: str | None = None) -> int:
+        phone=str(phone_number).strip(); count=int(call_count); chosen_date=str(called_at or date.today().isoformat())[:10]
+        if not phone: raise ValueError("Phone number is required")
+        if count<1: raise ValueError("Call count must be at least one")
+        date.fromisoformat(chosen_date)
+        return self.execute("INSERT INTO kpi_calls(called_at,phone_number,call_count) VALUES (?,?,?)",(chosen_date,phone,count))
+
+    def kpi_calls(self, month: str) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM kpi_calls WHERE substr(called_at,1,7)=? ORDER BY called_at DESC,id DESC",(month,))
+
+    def delete_kpi_call(self, call_id: int) -> None:
+        if self.execute("DELETE FROM kpi_calls WHERE id=?",(call_id,))!=1: raise ValueError("Call log does not exist")
+
+    def save_kpi_work_day(self, work_date: str, hours: float) -> None:
+        chosen_date=str(work_date)[:10]; date.fromisoformat(chosen_date); value=float(hours)
+        if value<0 or value>24: raise ValueError("Hours must be between 0 and 24")
+        self.execute("INSERT INTO kpi_work_days(work_date,hours) VALUES (?,?) ON CONFLICT(work_date) DO UPDATE SET hours=excluded.hours,updated_at=CURRENT_TIMESTAMP",(chosen_date,value))
+
+    def kpi_work_days(self, month: str) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM kpi_work_days WHERE substr(work_date,1,7)=? ORDER BY work_date DESC",(month,))
 
     def save_credit_card(self, values: dict[str, Any], card_id: int | None = None) -> int:
         credit_limit = Decimal(str(values["credit_limit"]))

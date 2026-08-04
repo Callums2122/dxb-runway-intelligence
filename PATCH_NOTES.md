@@ -2,7 +2,16 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.8
+## Current release — 1.9.0
+
+### Monthly KPI tracker
+
+- Added a KPI tracker for all eight targets in the supplied schedule, with a clear hit/in-progress state and 0.50% impact for each achieved KPI.
+- Call Maestro uses a flexible 240-call monthly target (8 × 30), with phone-number, date and call-count logging rather than a rigid daily requirement.
+- Added working-day hour logging for Bayzat Champion and automatic calculations from vehicle, stock, consignment, profit and budget data for the remaining KPIs.
+- Added month selection, a detailed call history and automatic progress updates.
+
+## Previous release — 1.8.8
 
 ### Today's to-do list
 
