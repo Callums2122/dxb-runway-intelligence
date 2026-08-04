@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.8.7
+## Current release — 1.8.8
+
+### Today's to-do list
+
+- Added a dedicated daily to-do tab with quick task entry, completion ticks and deletion.
+- Only the current day's tasks appear, so each new day begins with a clean list while earlier days remain stored locally.
+- Added at-a-glance totals for today's outstanding and completed tasks.
+
+## Previous release — 1.8.7
 
 ### Combined stock value
 

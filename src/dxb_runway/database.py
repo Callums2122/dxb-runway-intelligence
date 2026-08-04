@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 
 MIGRATIONS: dict[int, str] = {
@@ -174,6 +174,17 @@ MIGRATIONS: dict[int, str] = {
     16: """
     ALTER TABLE vehicles ADD COLUMN initial_owner_payout_aed REAL;
     """,
+    17: """
+    CREATE TABLE IF NOT EXISTS daily_tasks (
+      id INTEGER PRIMARY KEY,
+      task_date TEXT NOT NULL,
+      title TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_daily_tasks_date ON daily_tasks(task_date,completed,created_at);
+    """,
 }
 
 
@@ -292,6 +303,25 @@ class Database:
 
     def all_settings(self) -> dict[str, str]:
         return {str(row["key"]): str(row["value"]) for row in self.query("SELECT key,value FROM settings")}
+
+    def daily_tasks(self, task_date: str | None = None) -> list[sqlite3.Row]:
+        chosen_date=str(task_date or date.today().isoformat())[:10]
+        date.fromisoformat(chosen_date)
+        return self.query("SELECT * FROM daily_tasks WHERE task_date=? ORDER BY completed ASC,created_at ASC,id ASC",(chosen_date,))
+
+    def add_daily_task(self, title: str, task_date: str | None = None) -> int:
+        clean_title=str(title).strip()
+        if not clean_title: raise ValueError("Task cannot be empty")
+        chosen_date=str(task_date or date.today().isoformat())[:10]
+        date.fromisoformat(chosen_date)
+        return self.execute("INSERT INTO daily_tasks(task_date,title) VALUES (?,?)",(chosen_date,clean_title))
+
+    def set_daily_task_completed(self, task_id: int, completed: bool) -> None:
+        if not self.query("SELECT id FROM daily_tasks WHERE id=?",(task_id,)): raise ValueError("Task does not exist")
+        self.execute("UPDATE daily_tasks SET completed=?,completed_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?",(int(completed),int(completed),task_id))
+
+    def delete_daily_task(self, task_id: int) -> None:
+        if self.execute("DELETE FROM daily_tasks WHERE id=?",(task_id,))!=1: raise ValueError("Task does not exist")
 
     def save_credit_card(self, values: dict[str, Any], card_id: int | None = None) -> int:
         credit_limit = Decimal(str(values["credit_limit"]))

@@ -94,8 +94,8 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","contacts","inspection","templates","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert set(window.pages)=={"dashboard","todo","contacts","inspection","templates","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
@@ -133,6 +133,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles.refresh()
     assert history.table.columnCount()==6
     assert set(contacts.tables)=={"today","tomorrow","all"} and contacts.tables["today"].columnCount()==7
+    todo=window.pages["todo"]; todo.entry.setText("Follow up with seller"); todo.add_task(); assert todo.table.rowCount()==1 and todo.table.item(0,1).text()=="Follow up with seller"; todo.table.item(0,0).setCheckState(Qt.CheckState.Checked); application.processEvents(); assert todo.metrics["completed"].value.text()=="1"
     db.add_customer_contact({"customer_name":"Notes test","vehicle_name":"Audi RS6","phone_last5":"54321","vehicle_age_years":2021})
     contacts.refresh(); contacts.tables["today"].selectRow(0); application.processEvents()
     assert contacts.tables["today"].item(0,1).text()=="2021 Audi RS6"

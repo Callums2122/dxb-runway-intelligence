@@ -566,6 +566,49 @@ class WhatsAppTemplatesPage(Page):
         QApplication.clipboard().setText(message); QMessageBox.information(self,"Copied","Message copied to your clipboard.\n\nIt is ready to paste into WhatsApp.")
 
 
+class TodayTodoPage(Page):
+    def __init__(self, db: Database):
+        super().__init__(db)
+        layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        self.header=SectionHeader("Today's to-do list","A fresh list appears automatically every day; previous days stay safely stored."); layout.addWidget(self.header)
+        entry_card=Card(); entry_layout=QHBoxLayout(entry_card); entry_layout.setContentsMargins(16,14,16,14)
+        self.entry=QLineEdit(); self.entry.setPlaceholderText("Add something to do today…"); self.entry.returnPressed.connect(self.add_task); entry_layout.addWidget(self.entry,1)
+        add=QPushButton("＋ Add task"); add.setProperty("primary",True); add.clicked.connect(self.add_task); entry_layout.addWidget(add); layout.addWidget(entry_card)
+        metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
+        for i,(key,label,color) in enumerate([("total","Today's tasks",COLORS["cyan"]),("remaining","Still to do",COLORS["amber"]),("completed","Completed",COLORS["green"])]):
+            card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
+        layout.addLayout(metrics)
+        card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
+        actions=QHBoxLayout(); self.day_label=QLabel(); self.day_label.setStyleSheet("font-size:16px;font-weight:800"); actions.addWidget(self.day_label); actions.addStretch(); delete=QPushButton("Delete selected"); delete.clicked.connect(self.delete_selected); actions.addWidget(delete); card_layout.addLayout(actions)
+        self.table=QTableWidget(0,2); self.table.setHorizontalHeaderLabels(["DONE","TASK"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.itemChanged.connect(self.task_changed); card_layout.addWidget(self.table); layout.addWidget(card,1)
+        self.refresh()
+
+    def refresh(self)->None:
+        today=date.today(); rows=self.db.daily_tasks(today.isoformat()); completed=sum(int(row["completed"]) for row in rows); remaining=len(rows)-completed
+        self.day_label.setText(today.strftime("%A, %d %B %Y")); self.metrics["total"].set_value(str(len(rows)),"Only today's list"); self.metrics["remaining"].set_value(str(remaining),"Waiting for you"); self.metrics["completed"].set_value(str(completed),"Finished today")
+        self.table.blockSignals(True); self.table.setRowCount(len(rows))
+        for i,row in enumerate(rows):
+            self.table.setRowHeight(i,48); done=QTableWidgetItem(); done.setData(Qt.ItemDataRole.UserRole,row["id"]); done.setFlags(Qt.ItemFlag.ItemIsEnabled|Qt.ItemFlag.ItemIsSelectable|Qt.ItemFlag.ItemIsUserCheckable); done.setCheckState(Qt.CheckState.Checked if row["completed"] else Qt.CheckState.Unchecked); self.table.setItem(i,0,done)
+            task=table_item(row["title"],Qt.AlignmentFlag.AlignVCenter,COLORS["muted"] if row["completed"] else None); font=task.font(); font.setStrikeOut(bool(row["completed"])); task.setFont(font); self.table.setItem(i,1,task)
+        self.table.setColumnWidth(0,72); self.table.blockSignals(False)
+
+    def add_task(self)->None:
+        title=self.entry.text().strip()
+        if not title: return
+        self.db.add_daily_task(title); self.entry.clear(); self.refresh(); self.changed.emit(); self.entry.setFocus()
+
+    def task_changed(self,item:QTableWidgetItem)->None:
+        if item.column()!=0: return
+        task_id=item.data(Qt.ItemDataRole.UserRole)
+        if task_id is None: return
+        self.db.set_daily_task_completed(int(task_id),item.checkState()==Qt.CheckState.Checked); self.refresh(); self.changed.emit()
+
+    def delete_selected(self)->None:
+        row=self.table.currentRow()
+        if row<0 or not self.table.item(row,0): QMessageBox.information(self,"Select a task","Select the task you want to delete first."); return
+        self.db.delete_daily_task(int(self.table.item(row,0).data(Qt.ItemDataRole.UserRole))); self.refresh(); self.changed.emit()
+
+
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)

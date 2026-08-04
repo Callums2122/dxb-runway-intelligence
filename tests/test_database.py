@@ -16,6 +16,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contacts'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_contact_notes'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='message_templates'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_tasks'")
     assert "pipeline_stage" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
     assert "inspection_date" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
 
@@ -166,6 +167,15 @@ def test_live_cash_budget_carries_forward_and_releases_on_sale_or_removal(tmp_pa
     replacement=db.add_vehicle(vehicle_name="Audi RS3",purchase_type="cash",purchase_price_aed=180000,expected_sale_price_aed=210000,purchased_date="2026-08-03"); assert db.active_cash_stock_total()==180000
     db.remove_stock_vehicle(replacement); assert db.active_cash_stock_total()==0
     db.remove_stock_vehicle(consignment); assert db.active_cash_stock_total()==0
+
+
+def test_daily_tasks_are_separated_by_day_and_can_be_completed_or_deleted(tmp_path: Path):
+    db=Database(tmp_path/"runway.db"); first=db.add_daily_task("Call customer","2026-08-04"); db.add_daily_task("Inspect vehicle","2026-08-05")
+    assert [row["title"] for row in db.daily_tasks("2026-08-04")]==["Call customer"]
+    assert [row["title"] for row in db.daily_tasks("2026-08-05")]==["Inspect vehicle"]
+    db.set_daily_task_completed(first,True); assert db.daily_tasks("2026-08-04")[0]["completed"]==1
+    db.set_daily_task_completed(first,False); assert db.daily_tasks("2026-08-04")[0]["completed"]==0
+    db.delete_daily_task(first); assert db.daily_tasks("2026-08-04")==[]
 
 
 def test_whatsapp_message_templates_can_be_added_edited_and_deleted(tmp_path: Path):
