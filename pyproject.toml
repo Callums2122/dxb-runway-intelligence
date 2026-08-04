@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dxb-runway"
-version = "1.9.1"
+version = "1.9.2"
 description = "Private, local-first UK to Dubai financial runway planner"
 requires-python = ">=3.12,<3.13"
 dependencies = [

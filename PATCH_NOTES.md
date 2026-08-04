@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.9.1
+## Current release — 1.9.2
+
+### KPI tier-goal reduction correction
+
+- Corrected KPI rewards so each hit removes 0.50 percentage points from the profit percentage required for every tier.
+- Four KPI hits therefore reduce an August Tier 3 goal from 9.5% to 7.5%, while commission rates remain fixed at 4%, 5%, 6.5% and 8%.
+- Vehicle Desk projections, tier status, monthly table and synced earnings now use the reduced tier goals.
+
+## Previous release — 1.9.1
 
 ### KPI-linked Vehicle Desk commission
 

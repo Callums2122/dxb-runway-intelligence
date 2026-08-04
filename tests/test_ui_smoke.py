@@ -12,7 +12,7 @@ from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.domain import TARGET_PERCENTAGES, money
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month, monthly_kpi_bonus
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, latest_occurrence_for_month, monthly_kpi_adjustment
 from dxb_runway.screens import WhatsAppTemplatesPage
 
 
@@ -29,9 +29,9 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
     dialog.close()
 
 
-def test_hit_kpi_updates_vehicle_desk_commission_rate(tmp_path: Path):
-    application=app(); db=Database(tmp_path/"data.db"); month=date.today().strftime("%Y-%m"); db.add_kpi_calls("0501234567",240,date.today().isoformat()); hits,bonus=monthly_kpi_bonus(db,month); assert hits==1 and bonus==Decimal("0.005")
-    window=MainWindow(db); desk=window.pages["vehicles"]; desk.month.setCurrentIndex(date.today().month-1); desk.refresh(); assert desk.current_result.rate==Decimal("0.045") and "1 KPI hit" in desk.achievement.text(); window.close()
+def test_hit_kpi_reduces_vehicle_desk_tier_goal(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); month=date.today().strftime("%Y-%m"); db.add_kpi_calls("0501234567",240,date.today().isoformat()); hits,reduction=monthly_kpi_adjustment(db,month); assert hits==1 and reduction==Decimal("0.005")
+    window=MainWindow(db); desk=window.pages["vehicles"]; desk.month.setCurrentIndex(date.today().month-1); desk.refresh(); assert desk.current_result.rate==Decimal("0.04") and "-0.5% from tier goals" in desk.achievement.text() and "Tier 3 9%" in desk.schedule.text(); window.close()
 
 
 def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):
@@ -124,7 +124,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     history=window.pages["vehicle_history"]
     assert vehicles.month.count()==12
     assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
-    july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; _,july_bonus=monthly_kpi_bonus(db,vehicles.selected_month()); expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*july_t3)*(Decimal("0.05")+july_bonus))
+    july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; _,july_reduction=monthly_kpi_adjustment(db,vehicles.selected_month()); expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*max(Decimal("0"),july_t3-july_reduction))*Decimal("0.05"))
     assert vehicles.tier_earnings["tier3"].value.text()==f"AED {expected_t3:,.0f}"
     vehicles.configure_month_options(date(2026,7,30))
     assert vehicles.month.itemText(6)=="July 2026"
