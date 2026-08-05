@@ -23,10 +23,11 @@ DXB RUNWAY is a polished, completely local Windows and macOS financial command c
 - AED remains the primary planning currency, with consistent `≈ GBP` translations across balances, transactions, earnings, scenarios, debt, budgets, reports and PDF exports
 - Removable credit cards with limit-only editing, transaction-driven balances and available credit, utilisation warnings at 30%, 50%, 75% and 90%, interest estimates and repayment forecast
 - Alba Motors salary and 2026 commission tiers, full-profit rate application, two-month payment scheduling, KPI deductions and cars-to-next-tier estimates
+- Project 5% conversion hub with source targets, WhatsApp ZIP imports, profile linking, duplicate-safe conversation history and next-best-action guidance
 - Interactive scenarios through 24 months, emergency-fund breach detection and scenario comparison
 - Monthly category budgets, survival budget, rollover flags and 70/85/100% warnings
 - Financial calendar, goals, local PDF reports, portable backups and password-encrypted backups
-- Versioned SQLite migrations and 41 automated tests
+- Versioned SQLite migrations and 67 automated tests
 - No accounts, telemetry, analytics, external database or required internet connection
 
 ## Run the finished application on Windows
@@ -42,6 +43,8 @@ The database is `dxb_runway.db`; local receipt copies are under `receipts\`. Por
 ## Run on macOS
 
 Each GitHub release includes native ZIP builds for Apple Silicon and Intel Macs. Unzip the correct download, drag `DXB RUNWAY.app` into Applications, then Control-click it and choose **Open** on the first launch. The Mac builds are ad-hoc signed but not Apple-notarised, so a managed company Mac may require IT approval.
+
+While the Mac app is running it safely scans Downloads for files named `WhatsApp Chat - *.zip`. Matching exports are copied into Runway's local import inbox; originals are never moved or deleted. Exact unique customer-name matches update automatically, while ambiguous matches remain in Project 5% for confirmation.
 
 Move existing Windows data with **Settings → Create portable backup**, then use **Settings → Restore backup** on the Mac. See [MACOS.md](MACOS.md) for the exact installation, processor-choice and transfer steps.
 

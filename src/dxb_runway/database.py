@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 
 MIGRATIONS: dict[int, str] = {
@@ -200,6 +200,59 @@ MIGRATIONS: dict[int, str] = {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    19: """
+    CREATE TABLE IF NOT EXISTS project5_leads (
+      id INTEGER PRIMARY KEY,
+      customer_id INTEGER NOT NULL UNIQUE REFERENCES customer_contacts(id) ON DELETE CASCADE,
+      source TEXT NOT NULL DEFAULT 'Unknown' CHECK(source IN ('Dubizzle','Instagram','Website','Facebook','Unknown')),
+      stage TEXT NOT NULL DEFAULT 'contacted' CHECK(stage IN ('new','contacted','replied','qualified','inspection','purchased','lost')),
+      first_contact_at TEXT,
+      last_activity_at TEXT,
+      converted_at TEXT,
+      lost_reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_project5_source_stage ON project5_leads(source,stage);
+    CREATE TABLE IF NOT EXISTS whatsapp_chat_links (
+      chat_name TEXT PRIMARY KEY COLLATE NOCASE,
+      customer_id INTEGER NOT NULL REFERENCES customer_contacts(id) ON DELETE CASCADE,
+      source TEXT NOT NULL DEFAULT 'Unknown' CHECK(source IN ('Dubizzle','Instagram','Website','Facebook','Unknown')),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS whatsapp_imports (
+      id INTEGER PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      file_hash TEXT NOT NULL UNIQUE,
+      chat_name TEXT NOT NULL,
+      customer_id INTEGER REFERENCES customer_contacts(id) ON DELETE SET NULL,
+      source TEXT NOT NULL DEFAULT 'Unknown' CHECK(source IN ('Dubizzle','Instagram','Website','Facebook','Unknown')),
+      status TEXT NOT NULL DEFAULT 'needs_review' CHECK(status IN ('imported','needs_review','failed')),
+      message_count INTEGER NOT NULL DEFAULT 0,
+      new_message_count INTEGER NOT NULL DEFAULT 0,
+      first_message_at TEXT,
+      last_message_at TEXT,
+      last_sender TEXT NOT NULL DEFAULT '',
+      action_type TEXT NOT NULL DEFAULT '',
+      next_best_action TEXT NOT NULL DEFAULT '',
+      error_text TEXT NOT NULL DEFAULT '',
+      imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_whatsapp_imports_chat ON whatsapp_imports(chat_name,imported_at DESC);
+    CREATE TABLE IF NOT EXISTS whatsapp_messages (
+      id INTEGER PRIMARY KEY,
+      import_id INTEGER NOT NULL REFERENCES whatsapp_imports(id) ON DELETE CASCADE,
+      customer_id INTEGER REFERENCES customer_contacts(id) ON DELETE SET NULL,
+      chat_name TEXT NOT NULL,
+      sent_at TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+      body TEXT NOT NULL,
+      message_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_customer ON whatsapp_messages(customer_id,sent_at DESC);
+    """,
 }
 
 
@@ -222,6 +275,7 @@ DEFAULT_SETTINGS = {
     "start_date": "2026-07-27", "arrival_date": "2026-07-23", "onboarding_complete": "0",
     "why_i_moved": "Build a stronger future with patience, focus and options.", "quote": "Protect the runway. Earn the upside.",
     "theme": "dark", "start_of_month": "1", "currency_preference": "AED",
+    "whatsapp_own_names": "Callum Steen - ALBA CARS",
 }
 
 
@@ -534,6 +588,7 @@ class Database:
             if not customer: raise ValueError("Customer is no longer awaiting inspection")
             cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed) VALUES (?,?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type,purchase if purchase_type=="consignment" else None))
             connection.execute("UPDATE customer_contacts SET status='sold',sold_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(purchased_date,customer_id))
+            connection.execute("UPDATE project5_leads SET stage='purchased',converted_at=?,last_activity_at=?,updated_at=CURRENT_TIMESTAMP WHERE customer_id=?",(purchased_date,purchased_date,customer_id))
             return int(cursor.lastrowid)
 
     def stock_vehicles(self, purchase_month: str | None = None) -> list[sqlite3.Row]:
@@ -629,6 +684,7 @@ class Database:
             (inspection_date,customer_id),
         )
         if changed!=1: raise ValueError("Customer is no longer in the caller list")
+        self.execute("UPDATE project5_leads SET stage='inspection',last_activity_at=?,updated_at=CURRENT_TIMESTAMP WHERE customer_id=?",(inspection_date,customer_id))
 
     def return_customer_to_callers(self, customer_id: int) -> None:
         changed=self.execute(
@@ -694,6 +750,131 @@ class Database:
 
     def delete_message_template(self,template_id:int)->None:
         if self.execute("DELETE FROM message_templates WHERE id=?",(template_id,))!=1: raise ValueError("Template not found")
+
+    def whatsapp_import_known(self,file_hash:str)->bool:
+        return bool(self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(file_hash,)))
+
+    def _whatsapp_own_names(self)->set[str]:
+        return {item.strip() for item in self.get_setting("whatsapp_own_names","Callum Steen - ALBA CARS").split("|") if item.strip()}
+
+    def _match_whatsapp_customer(self,chat_name:str)->sqlite3.Row|None:
+        linked=self.query(
+            "SELECT c.*,l.source linked_source FROM whatsapp_chat_links l JOIN customer_contacts c ON c.id=l.customer_id WHERE l.chat_name=? COLLATE NOCASE",
+            (chat_name,),
+        )
+        if linked:return linked[0]
+        matches=self.query("SELECT * FROM customer_contacts WHERE customer_name=? COLLATE NOCASE AND status='active'",(chat_name,))
+        return matches[0] if len(matches)==1 else None
+
+    def import_whatsapp_chat(self,chat:Any)->int:
+        from .whatsapp_import import next_best_action
+        if self.whatsapp_import_known(chat.file_hash):
+            return int(self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(chat.file_hash,))[0]["id"])
+        customer=self._match_whatsapp_customer(chat.chat_name); customer_id=int(customer["id"]) if customer else None
+        source=str(customer["linked_source"]) if customer and "linked_source" in customer.keys() else "Unknown"
+        own_names=self._whatsapp_own_names(); own_folded={name.casefold() for name in own_names}
+        action_type,action=next_best_action(chat.messages,own_names)
+        first,last=chat.messages[0],chat.messages[-1]
+        with self.connect() as connection:
+            cursor=connection.execute(
+                "INSERT INTO whatsapp_imports(file_name,file_hash,chat_name,customer_id,source,status,message_count,first_message_at,last_message_at,last_sender,action_type,next_best_action) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (chat.file_name,chat.file_hash,chat.chat_name,customer_id,source,"imported" if customer_id else "needs_review",len(chat.messages),first.sent_at.isoformat(timespec="seconds"),last.sent_at.isoformat(timespec="seconds"),last.sender,action_type,action),
+            )
+            import_id=int(cursor.lastrowid); new_count=0
+            for message in chat.messages:
+                direction="outbound" if message.sender.casefold() in own_folded else "inbound"
+                inserted=connection.execute(
+                    "INSERT OR IGNORE INTO whatsapp_messages(import_id,customer_id,chat_name,sent_at,sender,direction,body,message_hash) VALUES (?,?,?,?,?,?,?,?)",
+                    (import_id,customer_id,chat.chat_name,message.sent_at.isoformat(timespec="seconds"),message.sender,direction,message.body,message.fingerprint),
+                )
+                new_count+=max(0,inserted.rowcount)
+            connection.execute("UPDATE whatsapp_imports SET new_message_count=? WHERE id=?",(new_count,import_id))
+            if customer_id:
+                connection.execute(
+                    "INSERT INTO whatsapp_chat_links(chat_name,customer_id,source) VALUES (?,?,?) ON CONFLICT(chat_name) DO UPDATE SET customer_id=excluded.customer_id,source=excluded.source,updated_at=CURRENT_TIMESTAMP",
+                    (chat.chat_name,customer_id,source),
+                )
+                self._sync_whatsapp_customer(connection,customer_id,source)
+        return import_id
+
+    def record_failed_whatsapp_import(self,file_name:str,file_hash:str,error_text:str)->int:
+        rows=self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(file_hash,))
+        if rows:return int(rows[0]["id"])
+        return self.execute(
+            "INSERT INTO whatsapp_imports(file_name,file_hash,chat_name,status,error_text) VALUES (?,?,?,'failed',?)",
+            (file_name,file_hash,file_name,error_text[:500]),
+        )
+
+    def _sync_whatsapp_customer(self,connection:sqlite3.Connection,customer_id:int,source:str)->None:
+        messages=connection.execute("SELECT * FROM whatsapp_messages WHERE customer_id=? ORDER BY sent_at",(customer_id,)).fetchall()
+        if not messages:return
+        outbound=[row for row in messages if row["direction"]=="outbound"]
+        inbound=[row for row in messages if row["direction"]=="inbound"]
+        first=messages[0]["sent_at"]; last=messages[-1]["sent_at"]
+        stage="replied" if inbound else "contacted"
+        if outbound:
+            contacted=date.fromisoformat(outbound[-1]["sent_at"][:10]); next_contact=(contacted+timedelta(days=3)).isoformat()
+            connection.execute(
+                "UPDATE customer_contacts SET last_contacted_date=?,next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (last_contacted_date IS NULL OR last_contacted_date<=?)",
+                (contacted.isoformat(),next_contact,customer_id,contacted.isoformat()),
+            )
+        connection.execute(
+            "INSERT INTO project5_leads(customer_id,source,stage,first_contact_at,last_activity_at) VALUES (?,?,?,?,?) ON CONFLICT(customer_id) DO UPDATE SET source=CASE WHEN excluded.source='Unknown' THEN project5_leads.source ELSE excluded.source END,stage=CASE WHEN project5_leads.stage IN ('purchased','lost','inspection','qualified') THEN project5_leads.stage ELSE excluded.stage END,last_activity_at=excluded.last_activity_at,updated_at=CURRENT_TIMESTAMP",
+            (customer_id,source,stage,first,last),
+        )
+
+    def whatsapp_imports(self,limit:int=200)->list[sqlite3.Row]:
+        return self.query(
+            "SELECT i.*,c.customer_name,c.vehicle_name,c.phone_last5 FROM whatsapp_imports i LEFT JOIN customer_contacts c ON c.id=i.customer_id ORDER BY i.imported_at DESC,i.id DESC LIMIT ?",
+            (limit,),
+        )
+
+    def whatsapp_messages(self,customer_id:int|None=None,chat_name:str|None=None)->list[sqlite3.Row]:
+        if customer_id is not None:
+            return self.query("SELECT * FROM whatsapp_messages WHERE customer_id=? ORDER BY sent_at,id",(customer_id,))
+        return self.query("SELECT * FROM whatsapp_messages WHERE chat_name=? COLLATE NOCASE ORDER BY sent_at,id",(chat_name or "",))
+
+    def link_whatsapp_import(self,import_id:int,customer_id:int,source:str)->None:
+        allowed={"Dubizzle","Instagram","Website","Facebook","Unknown"}
+        if source not in allowed:raise ValueError("Choose a valid lead source")
+        with self.connect() as connection:
+            imported=connection.execute("SELECT * FROM whatsapp_imports WHERE id=?",(import_id,)).fetchone()
+            customer=connection.execute("SELECT id FROM customer_contacts WHERE id=? AND status='active'",(customer_id,)).fetchone()
+            if not imported or not customer:raise ValueError("The import or customer is no longer available")
+            connection.execute("UPDATE whatsapp_imports SET customer_id=?,source=?,status='imported' WHERE chat_name=? COLLATE NOCASE",(customer_id,source,imported["chat_name"]))
+            connection.execute("UPDATE whatsapp_messages SET customer_id=? WHERE chat_name=? COLLATE NOCASE",(customer_id,imported["chat_name"]))
+            connection.execute(
+                "INSERT INTO whatsapp_chat_links(chat_name,customer_id,source) VALUES (?,?,?) ON CONFLICT(chat_name) DO UPDATE SET customer_id=excluded.customer_id,source=excluded.source,updated_at=CURRENT_TIMESTAMP",
+                (imported["chat_name"],customer_id,source),
+            )
+            self._sync_whatsapp_customer(connection,customer_id,source)
+
+    def project5_leads(self)->list[sqlite3.Row]:
+        return self.query(
+            "SELECT p.*,c.customer_name,c.vehicle_name,c.vehicle_age_years,c.phone_last5,c.pipeline_stage,c.status customer_status FROM project5_leads p JOIN customer_contacts c ON c.id=p.customer_id ORDER BY CASE p.stage WHEN 'replied' THEN 0 WHEN 'qualified' THEN 1 WHEN 'contacted' THEN 2 ELSE 3 END,p.last_activity_at DESC",
+        )
+
+    def set_project5_stage(self,lead_id:int,stage:str)->None:
+        allowed={"new","contacted","replied","qualified","inspection","purchased","lost"}
+        if stage not in allowed:raise ValueError("Choose a valid Project 5% stage")
+        changed=self.execute(
+            "UPDATE project5_leads SET stage=?,converted_at=CASE WHEN ?='purchased' THEN COALESCE(converted_at,CURRENT_TIMESTAMP) ELSE converted_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (stage,stage,lead_id),
+        )
+        if changed!=1:raise ValueError("Project 5% lead not found")
+
+    def set_project5_source(self,lead_id:int,source:str)->None:
+        allowed={"Dubizzle","Instagram","Website","Facebook","Unknown"}
+        if source not in allowed:raise ValueError("Choose a valid lead source")
+        if self.execute("UPDATE project5_leads SET source=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source,lead_id))!=1:raise ValueError("Project 5% lead not found")
+
+    def project5_source_stats(self)->list[dict[str,Any]]:
+        results=[]
+        for source,target in (("Dubizzle",1.5),("Instagram",3.0),("Website",3.0),("Facebook",3.0)):
+            row=self.query("SELECT COUNT(*) total,SUM(CASE WHEN stage='purchased' THEN 1 ELSE 0 END) purchased FROM project5_leads WHERE source=?",(source,))[0]
+            total=int(row["total"] or 0); purchased=int(row["purchased"] or 0); rate=(purchased/total*100) if total else 0.0
+            results.append({"source":source,"target":target,"total":total,"purchased":purchased,"rate":rate,"hit":total>0 and rate>=target})
+        return results
 
     def delete_customer_contact_note(self, customer_id: int, note_id: int) -> None:
         with self.connect() as connection:

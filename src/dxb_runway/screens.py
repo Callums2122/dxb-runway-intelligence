@@ -29,7 +29,7 @@ from .widgets import Card, MetricCard, RingWidget, SectionHeader, bar_chart, cle
 
 
 def page_scroll(content: QWidget) -> QScrollArea:
-    area = QScrollArea(); area.setWidgetResizable(True); area.setWidget(content); area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area = QScrollArea(); area.setWidgetResizable(True); area.setWidget(content); area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); area.setFrameShape(QFrame.Shape.NoFrame); area.viewport().setAutoFillBackground(False); area.setStyleSheet("QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {background:transparent;border:none;}")
     return area
 
 
@@ -582,6 +582,128 @@ class WhatsAppTemplatesPage(Page):
         message=self.preview.toPlainText().strip()
         if not message: return
         QApplication.clipboard().setText(message); QMessageBox.information(self,"Copied","Message copied to your clipboard.\n\nIt is ready to paste into WhatsApp.")
+
+
+class ProjectFivePage(Page):
+    SOURCES=("Dubizzle","Instagram","Website","Facebook","Unknown")
+    STAGES=("new","contacted","replied","qualified","inspection","purchased","lost")
+
+    def __init__(self,db:Database):
+        super().__init__(db)
+        layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(12)
+        top=QHBoxLayout(); top.addWidget(SectionHeader("Project 5%","Turn WhatsApp conversations into measurable purchases: 1.5% Dubizzle and 3% across Instagram, Website and Facebook.")); top.addStretch()
+        self.import_now=QPushButton("Import WhatsApp ZIP"); self.import_now.clicked.connect(self.manual_import); top.addWidget(self.import_now); layout.addLayout(top)
+        self.tabs=QTabWidget(); layout.addWidget(self.tabs,1)
+        hub=QWidget(); hub_layout=QVBoxLayout(hub); hub_layout.setContentsMargins(0,12,0,0); hub_layout.setSpacing(12)
+        metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
+        for i,(key,label,color) in enumerate((("leads","Tracked leads",COLORS["cyan"]),("purchased","Purchases",COLORS["green"]),("review","Needs review",COLORS["amber"]),("messages","Imported messages",COLORS["purple"]))):
+            card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
+        hub_layout.addLayout(metrics)
+        source_card=Card(); source_l=QVBoxLayout(source_card); source_l.setContentsMargins(16,14,16,14); source_l.addWidget(SectionHeader("Conversion targets","A target turns green only after at least one lead is tracked and the required purchase rate is reached."))
+        self.source_table=QTableWidget(0,6); self.source_table.setHorizontalHeaderLabels(["SOURCE","LEADS","PURCHASES","CONVERSION","TARGET","STATUS"]); self.source_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.source_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection); self.source_table.verticalHeader().hide(); self.source_table.horizontalHeader().setStretchLastSection(True); self.source_table.setMinimumHeight(210); self.source_table.setMaximumHeight(220); source_l.addWidget(self.source_table); hub_layout.addWidget(source_card)
+        body=QHBoxLayout(); body.setSpacing(12)
+        inbox_card=Card(); inbox_l=QVBoxLayout(inbox_card); inbox_l.setContentsMargins(16,14,16,14); inbox_l.addWidget(SectionHeader("WhatsApp import inbox","Exports from Downloads appear here automatically; Runway never removes the originals."))
+        self.inbox=QTableWidget(0,6); self.inbox.setHorizontalHeaderLabels(["CHAT","PROFILE","SOURCE","LAST MESSAGE","NEW","STATUS"]); self.inbox.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.inbox.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.inbox.verticalHeader().hide(); self.inbox.horizontalHeader().setStretchLastSection(True); self.inbox.setMinimumHeight(330); self.inbox.itemSelectionChanged.connect(self.show_import); inbox_l.addWidget(self.inbox,1); body.addWidget(inbox_card,3)
+        action_card=Card(); action_card.setMinimumHeight(430); action_l=QVBoxLayout(action_card); action_l.setContentsMargins(16,14,16,14); self.action_title=QLabel("SELECT AN IMPORT"); self.action_title.setObjectName("eyebrow"); action_l.addWidget(self.action_title); self.action=QLabel("Select a WhatsApp chat to see the next best course of action."); self.action.setWordWrap(True); self.action.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['cyan']}"); action_l.addWidget(self.action)
+        self.conversation=QTextEdit(); self.conversation.setReadOnly(True); self.conversation.setMinimumHeight(160); self.conversation.setPlaceholderText("Recent imported messages will appear here."); action_l.addWidget(self.conversation,1)
+        self.reply=QTextEdit(); self.reply.setReadOnly(True); self.reply.setMaximumHeight(92); self.reply.setPlaceholderText("A suggested reply will appear here."); action_l.addWidget(self.reply); copy_reply=QPushButton("Copy suggested reply"); copy_reply.setProperty("primary",True); copy_reply.clicked.connect(self.copy_reply); action_l.addWidget(copy_reply)
+        action_l.addWidget(QLabel("LINK / CORRECT PROFILE")); self.customer=QComboBox(); self.customer.setMaxVisibleItems(12); action_l.addWidget(self.customer); self.source=QComboBox(); self.source.addItems(self.SOURCES); action_l.addWidget(self.source); link=QPushButton("Link profile and update Runway"); link.clicked.connect(self.link_profile); action_l.addWidget(link); body.addWidget(action_card,2)
+        hub_layout.addLayout(body,1)
+        leads_card=Card(); leads_l=QVBoxLayout(leads_card); leads_l.setContentsMargins(16,14,16,14); leads_l.addWidget(SectionHeader("Purchase pipeline","Move each lead forward manually so conversion reporting reflects the real outcome.")); controls=QHBoxLayout(); self.lead_source=QComboBox(); self.lead_source.addItems(self.SOURCES); self.lead_stage=QComboBox(); self.lead_stage.addItems(self.STAGES); save=QPushButton("Update selected lead"); save.clicked.connect(self.update_lead); controls.addWidget(QLabel("Source")); controls.addWidget(self.lead_source); controls.addWidget(QLabel("Stage")); controls.addWidget(self.lead_stage); controls.addWidget(save); controls.addStretch(); leads_l.addLayout(controls)
+        self.leads=QTableWidget(0,6); self.leads.setHorizontalHeaderLabels(["CUSTOMER","VEHICLE","SOURCE","STAGE","LAST ACTIVITY","PHONE"]); self.leads.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.leads.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.leads.verticalHeader().hide(); self.leads.horizontalHeader().setStretchLastSection(True); self.leads.setMinimumHeight(260); self.leads.itemSelectionChanged.connect(self.load_lead_controls); leads_l.addWidget(self.leads); hub_layout.addWidget(leads_card)
+        self.tabs.addTab(page_scroll(hub),"Conversion hub")
+        self.template_page=WhatsAppTemplatesPage(db); self.template_page.changed.connect(self.changed.emit); self.tabs.addTab(self.template_page,"Message templates")
+        # Keep the established template surface available to existing integrations and tests.
+        self.table=self.template_page.table; self.preview=self.template_page.preview; self.copy_button=self.template_page.copy_button
+        self.refresh()
+
+    @staticmethod
+    def suggested_reply(action_type:str)->str:
+        return {
+            "Objection":"No problem at all. Just so I know for the future, what sort of figure were you hoping to achieve?",
+            "Verify outcome":"No problem, thank you for letting me know. Did you manage to sell it to another buyer?",
+            "Qualify":"Perfect, thank you. Is the price negotiable at all, or are you fairly firm on it? Also, is there any paintwork or accident history I should know about before arranging an inspection?",
+            "Reply now":"Thanks for coming back to me. Before I work out the best route for you, may I ask what figure you are hoping to achieve?",
+            "Awaiting reply":"Hi, hope you are well. Just checking whether the vehicle is still available—no pressure at all.",
+        }.get(action_type,"")
+
+    def refresh(self)->None:
+        imports=self.db.whatsapp_imports(); leads=self.db.project5_leads(); stats=self.db.project5_source_stats(); message_count=int(self.db.query("SELECT COUNT(*) total FROM whatsapp_messages")[0]["total"])
+        purchased=sum(1 for row in leads if row["stage"]=="purchased"); review=sum(1 for row in imports if row["status"]!="imported")
+        self.metrics["leads"].set_value(str(len(leads)),"Across all Project 5% sources"); self.metrics["purchased"].set_value(str(purchased),"Marked purchased"); self.metrics["review"].set_value(str(review),"Link these to the correct customer"); self.metrics["messages"].set_value(str(message_count),"Unique messages · duplicates ignored")
+        self.source_table.setRowCount(len(stats))
+        for i,row in enumerate(stats):
+            values=(row["source"],str(row["total"]),str(row["purchased"]),f"{row['rate']:.2f}%",f"{row['target']:.1f}%","✓ TARGET HIT" if row["hit"] else "Building")
+            for column,value in enumerate(values):self.source_table.setItem(i,column,table_item(value,color=COLORS["green"] if row["hit"] and column in (3,5) else None))
+            self.source_table.setRowHeight(i,42)
+        self.inbox.blockSignals(True); self.inbox.setRowCount(len(imports))
+        for i,row in enumerate(imports):
+            profile=row["customer_name"] or "Needs linking"; status="Imported" if row["status"]=="imported" else ("Failed" if row["status"]=="failed" else "Review")
+            values=(row["chat_name"],profile,row["source"],str(row["last_message_at"] or "")[:16].replace("T"," · "),str(row["new_message_count"]),status)
+            for column,value in enumerate(values):
+                item=table_item(value,color=COLORS["amber"] if row["status"]!="imported" and column in (1,5) else None)
+                if column==0:item.setData(Qt.ItemDataRole.UserRole,row["id"])
+                self.inbox.setItem(i,column,item)
+            self.inbox.setRowHeight(i,46)
+        self.inbox.blockSignals(False)
+        self.customer.clear(); self.customer.addItem("Choose the correct customer…",None)
+        for customer in self.db.customer_contacts(stage=None):
+            year=customer_vehicle_year(customer["vehicle_age_years"]); self.customer.addItem(f"{customer['customer_name']} · {year} {customer['vehicle_name']} · •{customer['phone_last5']}",customer["id"])
+        self.leads.blockSignals(True); self.leads.setRowCount(len(leads))
+        for i,row in enumerate(leads):
+            values=(row["customer_name"],f"{customer_vehicle_year(row['vehicle_age_years'])} {row['vehicle_name']}",row["source"],row["stage"].title(),str(row["last_activity_at"] or "")[:16].replace("T"," · "),f"••••• {row['phone_last5']}")
+            for column,value in enumerate(values):
+                item=table_item(value,color=COLORS["green"] if row["stage"]=="purchased" and column==3 else None)
+                if column==0:item.setData(Qt.ItemDataRole.UserRole,row["id"])
+                self.leads.setItem(i,column,item)
+            self.leads.setRowHeight(i,46)
+        self.leads.blockSignals(False)
+        self.template_page.refresh()
+        if imports and self.inbox.currentRow()<0:self.inbox.selectRow(0)
+
+    def selected_import(self):
+        row=self.inbox.currentRow()
+        if row<0 or not self.inbox.item(row,0):return None
+        matches=self.db.query("SELECT * FROM whatsapp_imports WHERE id=?",(self.inbox.item(row,0).data(Qt.ItemDataRole.UserRole),))
+        return matches[0] if matches else None
+
+    def show_import(self)->None:
+        imported=self.selected_import()
+        if not imported:return
+        self.action_title.setText(f"{imported['action_type'].upper()} · {imported['chat_name']}"); self.action.setText(imported["next_best_action"] or imported["error_text"] or "No recommendation available.")
+        messages=self.db.whatsapp_messages(imported["customer_id"],imported["chat_name"]); recent=messages[-10:]
+        self.conversation.setPlainText("\n\n".join(f"{row['sent_at'][:16].replace('T',' ')} · {row['sender']}\n{row['body']}" for row in recent)); self.reply.setPlainText(self.suggested_reply(imported["action_type"]))
+        source_index=self.source.findText(imported["source"]); self.source.setCurrentIndex(max(0,source_index))
+        if imported["customer_id"] is not None:
+            index=self.customer.findData(imported["customer_id"]); self.customer.setCurrentIndex(max(0,index))
+
+    def copy_reply(self)->None:
+        message=self.reply.toPlainText().strip()
+        if not message:return
+        QApplication.clipboard().setText(message); QMessageBox.information(self,"Copied","Suggested reply copied. It is ready to paste into WhatsApp.")
+
+    def link_profile(self)->None:
+        imported=self.selected_import(); customer_id=self.customer.currentData()
+        if not imported or customer_id is None:QMessageBox.information(self,"Choose a profile","Select an import and the correct Runway customer profile first."); return
+        self.db.link_whatsapp_import(imported["id"],int(customer_id),self.source.currentText()); self.refresh(); self.changed.emit()
+
+    def manual_import(self)->None:
+        from .whatsapp_import import parse_whatsapp_zip
+        path,_=QFileDialog.getOpenFileName(self,"Import WhatsApp chat",str(Path.home()/"Downloads"),"WhatsApp ZIP (*.zip)")
+        if not path:return
+        try:self.db.import_whatsapp_chat(parse_whatsapp_zip(Path(path)))
+        except Exception as error:QMessageBox.warning(self,"Import failed",str(error)); return
+        self.refresh(); self.changed.emit()
+
+    def load_lead_controls(self)->None:
+        row=self.leads.currentRow()
+        if row<0:return
+        self.lead_source.setCurrentText(self.leads.item(row,2).text()); self.lead_stage.setCurrentText(self.leads.item(row,3).text().lower())
+
+    def update_lead(self)->None:
+        row=self.leads.currentRow()
+        if row<0 or not self.leads.item(row,0):QMessageBox.information(self,"Select a lead","Select the Project 5% lead you want to update."); return
+        lead_id=int(self.leads.item(row,0).data(Qt.ItemDataRole.UserRole)); self.db.set_project5_source(lead_id,self.lead_source.currentText()); self.db.set_project5_stage(lead_id,self.lead_stage.currentText()); self.refresh(); self.changed.emit()
 
 
 class TodayTodoPage(Page):
