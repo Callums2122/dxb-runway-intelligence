@@ -14,7 +14,6 @@ from .database import Database
 from .dialogs import OnboardingDialog
 from .main_window import MainWindow
 from .style import APP_QSS
-from .whatsapp_monitor import WhatsAppImportMonitor
 
 
 def resource_path(relative: str) -> Path:
@@ -37,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--page",default="dashboard",help="Page to open for screenshot or testing")
     parser.add_argument("--exit-after-ms",type=int,default=0)
     args=parser.parse_args(argv)
-    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY"); QApplication.setApplicationVersion("2.0.0")
+    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY"); QApplication.setApplicationVersion("1.9.2")
     app=QApplication(sys.argv[:1]); app.setStyle("Fusion"); app.setStyleSheet(APP_QSS)
     icon=resource_path("assets/dxb_runway.icns" if sys.platform=="darwin" else "assets/dxb_runway.ico")
     if not icon.exists():icon=resource_path("assets/dxb_runway_icon.png")
@@ -49,7 +48,6 @@ def main(argv: list[str] | None = None) -> int:
             onboarding=OnboardingDialog(db)
             if onboarding.exec()!=OnboardingDialog.DialogCode.Accepted:return 0
         window=MainWindow(db,icon);window.navigate(args.page);window.show()
-        whatsapp_monitor=WhatsAppImportMonitor(db,parent=window); whatsapp_monitor.imported.connect(window.whatsapp_imported); window.whatsapp_monitor=whatsapp_monitor; whatsapp_monitor.start()
         if args.screenshot:
             destination=Path(args.screenshot);destination.parent.mkdir(parents=True,exist_ok=True)
             def capture():

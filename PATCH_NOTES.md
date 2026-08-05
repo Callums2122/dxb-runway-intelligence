@@ -2,17 +2,7 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.0.0
-
-### Project 5%
-
-- Replaced the WhatsApp Templates navigation entry with Project 5%, while retaining the complete template editor in its own sub-tab.
-- Added conversion tracking against 1.5% Dubizzle and 3% Instagram, Website and Facebook purchase targets.
-- Added automatic, non-destructive routing of WhatsApp chat ZIP exports from Downloads into Runway's private inbox.
-- Added duplicate-safe message parsing, exact profile matching, an ambiguous-match review queue and automatic three-day follow-up updates.
-- Added a purchase pipeline, source/stage editing, conversation previews, next-best-action guidance and copyable suggested replies.
-
-## Previous release — 1.9.2
+## Current release — 1.9.2
 
 ### KPI tier-goal reduction correction
 
