@@ -603,6 +603,36 @@ class Database:
             (name,vehicle,phone,int(values.get("mileage",0)),int(values.get("vehicle_age_years",0)),float(values.get("vehicle_price_aed",0)),float(values.get("cash_offer_aed",0)),float(values.get("consignment_offer_aed",0)),rapport,str(values.get("notes","")).strip(),customer_id),
         )
 
+    def upsert_imported_customer_contact(self, values: dict[str, Any]) -> str:
+        """Create or carefully enrich one caller using a WhatsApp export."""
+        phone=str(values["phone_last5"]); matches=self.query("SELECT * FROM customer_contacts WHERE phone_last5=? AND status='active'",(phone,))
+        if len(matches)>1: raise ValueError(f"more than one active customer has phone suffix {phone}")
+        if not matches:
+            customer_id=self.add_customer_contact({
+                "customer_name":values["customer_name"],"vehicle_name":values["vehicle_name"],"phone_last5":phone,
+                "mileage":values.get("mileage",0),"vehicle_age_years":values.get("model_year",0),
+                "vehicle_price_aed":values.get("vehicle_price_aed",0),"cash_offer_aed":values.get("cash_offer_aed",0),
+                "consignment_offer_aed":values.get("consignment_offer_aed",0),"rapport":values.get("rapport","green"),
+                "next_contact_date":values.get("next_contact_date"),"notes":"Imported from WhatsApp",
+            }); outcome="added"
+        else:
+            current=matches[0]; customer_id=int(current["id"])
+            name=values["customer_name"] if current["customer_name"].startswith("WhatsApp seller") else current["customer_name"]
+            vehicle=values["vehicle_name"] if values["vehicle_name"]!="Vehicle not identified" else current["vehicle_name"]
+            with self.connect() as connection:
+                connection.execute(
+                    "UPDATE customer_contacts SET customer_name=?,vehicle_name=?,mileage=CASE WHEN ?>0 THEN ? ELSE mileage END,"
+                    "vehicle_age_years=CASE WHEN ?>0 THEN ? ELSE vehicle_age_years END,vehicle_price_aed=CASE WHEN ?>0 THEN ? ELSE vehicle_price_aed END,"
+                    "cash_offer_aed=CASE WHEN ?>0 THEN ? ELSE cash_offer_aed END,consignment_offer_aed=CASE WHEN ?>0 THEN ? ELSE consignment_offer_aed END,"
+                    "rapport=CASE WHEN rapport='red' OR ?='red' THEN 'red' ELSE 'green' END,next_contact_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (name,vehicle,values.get("mileage",0),values.get("mileage",0),values.get("model_year",0),values.get("model_year",0),
+                     values.get("vehicle_price_aed",0),values.get("vehicle_price_aed",0),values.get("cash_offer_aed",0),values.get("cash_offer_aed",0),
+                     values.get("consignment_offer_aed",0),values.get("consignment_offer_aed",0),values.get("rapport","green"),values["next_contact_date"],customer_id),
+                )
+            outcome="updated"
+        self.add_customer_contact_note(customer_id,str(values["note"]))
+        return outcome
+
     def customer_contacts(self, *, due: str | None = None, search: str = "", include_sold: bool = False, stage: str | None = "caller") -> list[sqlite3.Row]:
         clauses=[]; params:list[Any]=[]
         if stage is not None:

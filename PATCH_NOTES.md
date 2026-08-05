@@ -2,7 +2,17 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 1.9.2
+## Current release — 2.0.0
+
+### Focused WhatsApp contact import
+
+- Customer Contact can now import hand-picked WhatsApp HTML chat exports directly from Downloads.
+- The importer extracts the customer or phone suffix, vehicle and model year, mileage, asking price, cash/consignment offers and next follow-up date when those details are present.
+- Unsaved phone-number contacts use the detected make and model as their name; existing contacts are safely enriched instead of duplicated.
+- Rapport is set to red only for a strong two-way conversation and green for a normal follow-up. Every decision and the latest message are recorded in customer notes.
+- Successfully processed exports are moved to the Mac Trash, keeping Downloads as a simple inbox. Work contacts, groups and unrelated ZIP files are ignored.
+
+## Previous release — 1.9.2
 
 ### KPI tier-goal reduction correction
 

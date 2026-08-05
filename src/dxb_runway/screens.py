@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QEvent, QTimer, Qt, Signal, QUrl
+from PySide6.QtCore import QDate, QEvent, QFile, QStandardPaths, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
+from .contact_import import import_downloaded_contacts
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
@@ -33,8 +34,9 @@ def page_scroll(content: QWidget) -> QScrollArea:
     return area
 
 
-def customer_vehicle_year(stored_value: int) -> int:
+def customer_vehicle_year(stored_value: int) -> int | str:
     value=int(stored_value)
+    if value==0: return "Year unknown"
     return value if 2018<=value<=2026 else max(2018,min(2026,2026-value))
 
 
@@ -348,6 +350,7 @@ class CustomerContactPage(Page):
     def __init__(self,db:Database):
         super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Customer contact","Friendly three-day follow-ups for owners who may need time before selling.")); top.addStretch()
+        import_button=QPushButton("Import downloaded chats"); import_button.clicked.connect(self.import_chats); top.addWidget(import_button)
         add=QPushButton("＋ Add customer"); add.setProperty("primary",True); add.clicked.connect(self.add_customer); top.addWidget(add); layout.addLayout(top)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
         for i,(key,label,color) in enumerate([("today","Contact today",COLORS["red"]),("tomorrow","Tomorrow",COLORS["amber"]),("active","Active customers",COLORS["cyan"]),("rapport","Strong rapport",COLORS["red"])]):
@@ -421,6 +424,19 @@ class CustomerContactPage(Page):
     def add_customer(self)->None:
         dialog=CustomerContactDialog(self.db,parent=self)
         if dialog.exec(): self.db.add_customer_contact(dialog.values()); self.refresh(); self.changed.emit()
+
+    def import_chats(self)->None:
+        downloads=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation))
+        result=import_downloaded_contacts(self.db,downloads); trashed=0
+        for path in result.processed_files:
+            if QFile.moveToTrash(str(path)): trashed+=1
+        self.refresh(); self.changed.emit()
+        summary=f"Added {result.added} · Updated {result.updated} · Moved {trashed} export(s) to Trash"
+        if result.failed:
+            summary += "\n\nNeeds attention:\n"+"\n".join(result.failed[:8])
+        elif not result.processed_files:
+            summary += "\n\nNo usable HTML chat exports were found in Downloads."
+        QMessageBox.information(self,"Downloaded chats",summary)
 
     def edit_customer(self)->None:
         customer=self.selected_customer()

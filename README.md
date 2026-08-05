@@ -1,5 +1,7 @@
 # DXB RUNWAY
 
+Customer Contact includes a focused **Import downloaded chats** action for hand-picked WhatsApp HTML exports. It extracts seller and vehicle details, updates matching contacts by their phone suffix, grades strong two-way rapport red, and moves successfully processed exports to the Mac Trash.
+
 DXB RUNWAY is a polished, completely local Windows and macOS financial command centre for a UK-to-Dubai relocation. It separates real cash, protected reserves, refundable deposits, debt and delayed commission so future upside never masquerades as money available today.
 
 ![Dashboard with AED and GBP equivalents](screenshots/v11-final-dashboard.png)
