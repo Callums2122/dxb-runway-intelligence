@@ -40,6 +40,11 @@ def customer_vehicle_year(stored_value: int) -> int | str:
     return value if 2018<=value<=2026 else max(2018,min(2026,2026-value))
 
 
+def display_call_date(stored_value: str) -> str:
+    try: return date.fromisoformat(str(stored_value)[:10]).strftime("%d %b %Y")
+    except ValueError: return str(stored_value)
+
+
 def monthly_kpi_results(db:Database,month:str,call_target:int=240)->list[tuple[str,str,str,bool]]:
     calls=sum(int(row["call_count"]) for row in db.kpi_calls(month)); work=db.kpi_work_days(month); avg_hours=sum(float(row["hours"]) for row in work)/len(work) if work else 0
     budget=db.performance_budget(month); cash_used=db.active_cash_stock_total(); spend_pct=float(cash_used/budget*100) if budget else 0
@@ -679,8 +684,8 @@ class KPITrackerPage(Page):
         self.summary.setColumnWidth(0,145); self.summary.setColumnWidth(1,150); self.summary.setColumnWidth(2,170); self.summary.setColumnWidth(3,110)
         self.calls.setRowCount(len(call_rows))
         for i,row in enumerate(call_rows):
-            first=table_item(row["called_at"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.calls.setItem(i,0,first); self.calls.setItem(i,1,table_item(row["phone_number"])); self.calls.setItem(i,2,table_item(str(row["call_count"]),Qt.AlignmentFlag.AlignCenter)); self.calls.setRowHeight(i,42)
-        self.calls.setColumnWidth(0,95); self.calls.setColumnWidth(1,155)
+            first=table_item(display_call_date(row["called_at"])); first.setData(Qt.ItemDataRole.UserRole,row["id"]); self.calls.setItem(i,0,first); self.calls.setItem(i,1,table_item(row["phone_number"])); self.calls.setItem(i,2,table_item(str(row["call_count"]),Qt.AlignmentFlag.AlignCenter)); self.calls.setRowHeight(i,42)
+        self.calls.setColumnWidth(0,125); self.calls.setColumnWidth(1,155)
 
     def log_call(self)->None:
         try: self.db.add_kpi_calls(self.phone.text(),self.call_count.value(),self.call_date.date().toPython())

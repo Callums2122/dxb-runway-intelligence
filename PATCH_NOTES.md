@@ -2,7 +2,14 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.0.0
+## Current release — 2.0.1
+
+### Readable call-log dates
+
+- Call log dates now display in full as `05 Aug 2026` instead of being truncated.
+- Widened the date column so the complete date remains visible in the KPI tracker.
+
+## Previous release — 2.0.0
 
 ### Focused WhatsApp contact import
 
