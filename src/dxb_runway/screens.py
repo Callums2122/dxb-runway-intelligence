@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QEvent, QTimer, Qt, Signal, QUrl
+from PySide6.QtCore import QDate, QEvent, QStandardPaths, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
@@ -592,7 +592,8 @@ class ProjectFivePage(Page):
         super().__init__(db)
         layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(12)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Project 5%","Turn WhatsApp conversations into measurable purchases: 1.5% Dubizzle and 3% across Instagram, Website and Facebook.")); top.addStretch()
-        self.import_now=QPushButton("Import WhatsApp ZIP"); self.import_now.clicked.connect(self.manual_import); top.addWidget(self.import_now); layout.addLayout(top)
+        self.cleanup_downloads=QPushButton("Delete copied exports from Downloads"); self.cleanup_downloads.clicked.connect(self.delete_copied_exports); top.addWidget(self.cleanup_downloads)
+        self.import_now=QPushButton("Import chat ZIP"); self.import_now.clicked.connect(self.manual_import); top.addWidget(self.import_now); layout.addLayout(top)
         self.tabs=QTabWidget(); layout.addWidget(self.tabs,1)
         hub=QWidget(); hub_layout=QVBoxLayout(hub); hub_layout.setContentsMargins(0,12,0,0); hub_layout.setSpacing(12)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
@@ -602,7 +603,7 @@ class ProjectFivePage(Page):
         source_card=Card(); source_l=QVBoxLayout(source_card); source_l.setContentsMargins(16,14,16,14); source_l.addWidget(SectionHeader("Conversion targets","A target turns green only after at least one lead is tracked and the required purchase rate is reached."))
         self.source_table=QTableWidget(0,6); self.source_table.setHorizontalHeaderLabels(["SOURCE","LEADS","PURCHASES","CONVERSION","TARGET","STATUS"]); self.source_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.source_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection); self.source_table.verticalHeader().hide(); self.source_table.horizontalHeader().setStretchLastSection(True); self.source_table.setMinimumHeight(210); self.source_table.setMaximumHeight(220); source_l.addWidget(self.source_table); hub_layout.addWidget(source_card)
         body=QHBoxLayout(); body.setSpacing(12)
-        inbox_card=Card(); inbox_l=QVBoxLayout(inbox_card); inbox_l.setContentsMargins(16,14,16,14); inbox_l.addWidget(SectionHeader("WhatsApp import inbox","Exports from Downloads appear here automatically; Runway never removes the originals."))
+        inbox_card=Card(); inbox_l=QVBoxLayout(inbox_card); inbox_l.setContentsMargins(16,14,16,14); inbox_l.addWidget(SectionHeader("WhatsApp import inbox","HTML and text chat ZIPs from Downloads appear automatically. Groups and contacts containing ‘work’ are ignored."))
         self.inbox=QTableWidget(0,6); self.inbox.setHorizontalHeaderLabels(["CHAT","PROFILE","SOURCE","LAST MESSAGE","NEW","STATUS"]); self.inbox.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.inbox.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.inbox.verticalHeader().hide(); self.inbox.horizontalHeader().setStretchLastSection(True); self.inbox.setMinimumHeight(330); self.inbox.itemSelectionChanged.connect(self.show_import); inbox_l.addWidget(self.inbox,1); body.addWidget(inbox_card,3)
         action_card=Card(); action_card.setMinimumHeight(430); action_l=QVBoxLayout(action_card); action_l.setContentsMargins(16,14,16,14); self.action_title=QLabel("SELECT AN IMPORT"); self.action_title.setObjectName("eyebrow"); action_l.addWidget(self.action_title); self.action=QLabel("Select a WhatsApp chat to see the next best course of action."); self.action.setWordWrap(True); self.action.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['cyan']}"); action_l.addWidget(self.action)
         self.conversation=QTextEdit(); self.conversation.setReadOnly(True); self.conversation.setMinimumHeight(160); self.conversation.setPlaceholderText("Recent imported messages will appear here."); action_l.addWidget(self.conversation,1)
@@ -694,6 +695,20 @@ class ProjectFivePage(Page):
         try:self.db.import_whatsapp_chat(parse_whatsapp_zip(Path(path)))
         except Exception as error:QMessageBox.warning(self,"Import failed",str(error)); return
         self.refresh(); self.changed.emit()
+
+    def delete_copied_exports(self)->None:
+        from .whatsapp_import import copied_download_exports, delete_copied_download_exports, route_download_exports
+        downloads=Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DownloadLocation))
+        inbox=self.db.path.parent/"whatsapp_imports"/"inbox"
+        route_download_exports(downloads,inbox)
+        copied=copied_download_exports(downloads,inbox)
+        if not copied:
+            QMessageBox.information(self,"Downloads already clear","There are no copied WhatsApp chat ZIPs waiting to be removed from Downloads.")
+            return
+        prompt=f"Permanently delete {len(copied)} copied chat ZIP{'s' if len(copied)!=1 else ''} from Downloads?\n\nRunway has verified that an exact copy of every listed file is safely stored in its import folder. Unrelated ZIP files will not be touched."
+        if QMessageBox.question(self,"Clear copied exports",prompt)!=QMessageBox.StandardButton.Yes:return
+        deleted=delete_copied_download_exports(downloads,inbox)
+        QMessageBox.information(self,"Downloads cleared",f"Removed {len(deleted)} copied chat ZIP{'s' if len(deleted)!=1 else ''} from Downloads. Their Runway copies remain safely stored.")
 
     def load_lead_controls(self)->None:
         row=self.leads.currentRow()

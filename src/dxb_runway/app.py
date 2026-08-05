@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--page",default="dashboard",help="Page to open for screenshot or testing")
     parser.add_argument("--exit-after-ms",type=int,default=0)
     args=parser.parse_args(argv)
-    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY"); QApplication.setApplicationVersion("2.0.0")
+    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY"); QApplication.setApplicationVersion("2.1.0")
     app=QApplication(sys.argv[:1]); app.setStyle("Fusion"); app.setStyleSheet(APP_QSS)
     icon=resource_path("assets/dxb_runway.icns" if sys.platform=="darwin" else "assets/dxb_runway.ico")
     if not icon.exists():icon=resource_path("assets/dxb_runway_icon.png")
