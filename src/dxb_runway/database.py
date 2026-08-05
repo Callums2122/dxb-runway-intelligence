@@ -752,7 +752,7 @@ class Database:
         if self.execute("DELETE FROM message_templates WHERE id=?",(template_id,))!=1: raise ValueError("Template not found")
 
     def whatsapp_import_known(self,file_hash:str)->bool:
-        return bool(self.query("SELECT id FROM whatsapp_imports WHERE file_hash=? AND status!='failed'",(file_hash,)))
+        return bool(self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(file_hash,)))
 
     def _whatsapp_own_names(self)->set[str]:
         return {item.strip() for item in self.get_setting("whatsapp_own_names","Callum Steen - ALBA CARS").split("|") if item.strip()}
@@ -764,18 +764,12 @@ class Database:
         )
         if linked:return linked[0]
         matches=self.query("SELECT * FROM customer_contacts WHERE customer_name=? COLLATE NOCASE AND status='active'",(chat_name,))
-        if len(matches)==1:return matches[0]
-        digits="".join(character for character in chat_name if character.isdigit())
-        if len(digits)>=5:
-            phone_matches=self.query("SELECT * FROM customer_contacts WHERE phone_last5=? AND status='active'",(digits[-5:],))
-            if len(phone_matches)==1:return phone_matches[0]
-        return None
+        return matches[0] if len(matches)==1 else None
 
     def import_whatsapp_chat(self,chat:Any)->int:
         from .whatsapp_import import next_best_action
-        existing=self.query("SELECT id,status FROM whatsapp_imports WHERE file_hash=?",(chat.file_hash,))
-        if existing and existing[0]["status"]!="failed":return int(existing[0]["id"])
-        if existing:self.execute("DELETE FROM whatsapp_imports WHERE id=?",(existing[0]["id"],))
+        if self.whatsapp_import_known(chat.file_hash):
+            return int(self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(chat.file_hash,))[0]["id"])
         customer=self._match_whatsapp_customer(chat.chat_name); customer_id=int(customer["id"]) if customer else None
         source=str(customer["linked_source"]) if customer and "linked_source" in customer.keys() else "Unknown"
         own_names=self._whatsapp_own_names(); own_folded={name.casefold() for name in own_names}
@@ -805,9 +799,7 @@ class Database:
 
     def record_failed_whatsapp_import(self,file_name:str,file_hash:str,error_text:str)->int:
         rows=self.query("SELECT id FROM whatsapp_imports WHERE file_hash=?",(file_hash,))
-        if rows:
-            self.execute("UPDATE whatsapp_imports SET error_text=?,imported_at=CURRENT_TIMESTAMP WHERE id=?",(error_text[:500],rows[0]["id"]))
-            return int(rows[0]["id"])
+        if rows:return int(rows[0]["id"])
         return self.execute(
             "INSERT INTO whatsapp_imports(file_name,file_hash,chat_name,status,error_text) VALUES (?,?,?,'failed',?)",
             (file_name,file_hash,file_name,error_text[:500]),

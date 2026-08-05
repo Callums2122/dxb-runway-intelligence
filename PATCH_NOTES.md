@@ -2,17 +2,7 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.1.0
-
-### Bulk HTML WhatsApp exports
-
-- Added automatic recognition and parsing for the new HTML chat ZIP format even when filenames do not contain “WhatsApp”.
-- Added exact phone-suffix matching so number-named exports can update the correct existing Runway customer profile.
-- Added automatic filtering for group chats and any contact name containing “work”.
-- Added **Delete copied exports from Downloads**, guarded by exact-copy verification and a confirmation prompt; unrelated ZIP files are never touched.
-- Preserved duplicate-safe importing and next-best-action guidance across repeated exports of the same conversation.
-
-## Previous release — 2.0.0
+## Current release — 2.0.0
 
 ### Project 5%
 
