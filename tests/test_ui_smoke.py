@@ -12,7 +12,7 @@ from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.domain import TARGET_PERCENTAGES, money
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment
 from dxb_runway.screens import WhatsAppTemplatesPage
 
 
@@ -36,6 +36,14 @@ def test_hit_kpi_reduces_vehicle_desk_tier_goal(tmp_path: Path):
 
 def test_call_log_date_is_readable():
     assert display_call_date("2026-08-05")=="05 Aug 2026"
+
+
+def test_call_tracker_pace_and_required_average():
+    pace=call_month_pace(40,"2026-08",240,date(2026,8,7))
+    assert pace["state"]=="behind" and pace["pace_delta"]==-7
+    assert pace["remaining"]==200 and pace["days_left"]==25 and pace["average_needed"]==8
+    ahead=call_month_pace(55,"2026-08",240,date(2026,8,7))
+    assert ahead["state"]=="ahead" and ahead["pace_delta"]==8
 
 
 def test_customer_contact_uses_model_year_dropdown(tmp_path: Path):

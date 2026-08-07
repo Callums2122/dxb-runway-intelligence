@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import math
 import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -43,6 +44,19 @@ def customer_vehicle_year(stored_value: int) -> int | str:
 def display_call_date(stored_value: str) -> str:
     try: return date.fromisoformat(str(stored_value)[:10]).strftime("%d %b %Y")
     except ValueError: return str(stored_value)
+
+
+def call_month_pace(total_calls:int,month:str,target:int=240,today:date|None=None)->dict[str,object]:
+    today=today or date.today(); year,month_number=(int(value) for value in month.split("-")); days=calendar.monthrange(year,month_number)[1]
+    selected=(year,month_number); current=(today.year,today.month); remaining=max(0,target-int(total_calls))
+    if selected<current:
+        return {"state":"hit" if total_calls>=target else "missed","pace_delta":int(total_calls)-target,"remaining":remaining,"days_left":0,"average_needed":0.0,"current_average":float(total_calls)/days}
+    completed_days=0 if selected>current else max(0,today.day-1); days_left=days-completed_days
+    required_by_now=math.ceil(target*completed_days/days); delta=int(total_calls)-required_by_now
+    state="not_started" if selected>current else "ahead" if delta>=0 else "behind"
+    elapsed_days=1 if selected>current else today.day
+    current_average=float(total_calls)/elapsed_days
+    return {"state":state,"pace_delta":delta,"remaining":remaining,"days_left":days_left,"average_needed":remaining/days_left if days_left else 0.0,"current_average":current_average}
 
 
 def monthly_kpi_results(db:Database,month:str,call_target:int=240)->list[tuple[str,str,str,bool]]:
@@ -657,7 +671,11 @@ class KPITrackerPage(Page):
         inputs=QGridLayout(); inputs.setSpacing(12)
         call_card=Card(); call_l=QVBoxLayout(call_card); call_l.setContentsMargins(16,14,16,14); call_l.addWidget(QLabel("LOG CALLS",objectName="eyebrow")); call_row=QHBoxLayout(); self.phone=QLineEdit(); self.phone.setPlaceholderText("Phone number called"); call_row.addWidget(self.phone,1); self.call_count=QSpinBox(); self.call_count.setRange(1,100); self.call_count.setValue(1); self.call_count.setSuffix(" call" ); call_row.addWidget(self.call_count); self.call_date=QDateEdit(QDate.currentDate()); self.call_date.setCalendarPopup(True); self.call_date.setDisplayFormat("dd MMM"); call_row.addWidget(self.call_date); add_call=QPushButton("＋ Log"); add_call.setProperty("primary",True); add_call.clicked.connect(self.log_call); call_row.addWidget(add_call); call_l.addLayout(call_row); inputs.addWidget(call_card,0,0)
         hours_card=Card(); hours_l=QVBoxLayout(hours_card); hours_l.setContentsMargins(16,14,16,14); hours_l.addWidget(QLabel("LOG HOURS WORKED",objectName="eyebrow")); hours_row=QHBoxLayout(); self.work_date=QDateEdit(QDate.currentDate()); self.work_date.setCalendarPopup(True); self.work_date.setDisplayFormat("dddd, dd MMM"); hours_row.addWidget(self.work_date,1); self.hours=QDoubleSpinBox(); self.hours.setRange(0,24); self.hours.setDecimals(1); self.hours.setValue(10); self.hours.setSuffix(" hours"); hours_row.addWidget(self.hours); save_hours=QPushButton("Save day"); save_hours.clicked.connect(self.save_hours); hours_row.addWidget(save_hours); hours_l.addLayout(hours_row); inputs.addWidget(hours_card,0,1); layout.addLayout(inputs)
-        call_progress=Card(); progress_l=QVBoxLayout(call_progress); progress_l.setContentsMargins(16,14,16,14); progress_top=QHBoxLayout(); self.call_title=QLabel(); self.call_title.setStyleSheet("font-size:18px;font-weight:800"); progress_top.addWidget(self.call_title); progress_top.addStretch(); self.call_status=QLabel(); self.call_status.setStyleSheet("font-size:16px;font-weight:800"); progress_top.addWidget(self.call_status); progress_l.addLayout(progress_top); self.call_detail=QLabel(); self.call_detail.setObjectName("muted"); progress_l.addWidget(self.call_detail); self.call_bar=QProgressBar(); progress_l.addWidget(self.call_bar); layout.addWidget(call_progress)
+        call_progress=Card(); progress_l=QVBoxLayout(call_progress); progress_l.setContentsMargins(16,14,16,14); progress_top=QHBoxLayout(); self.call_title=QLabel(); self.call_title.setStyleSheet("font-size:18px;font-weight:800"); progress_top.addWidget(self.call_title); progress_top.addStretch(); self.call_status=QLabel(); self.call_status.setStyleSheet("font-size:16px;font-weight:800"); progress_top.addWidget(self.call_status); progress_l.addLayout(progress_top); self.call_detail=QLabel(); self.call_detail.setObjectName("muted"); progress_l.addWidget(self.call_detail); self.call_bar=QProgressBar(); progress_l.addWidget(self.call_bar)
+        pace_grid=QGridLayout(); pace_grid.setSpacing(10); self.pace_cards={}
+        for index,(key,label,color) in enumerate([("pace","Pace today",COLORS["cyan"]),("remaining","Calls remaining",COLORS["purple"]),("average","Average needed",COLORS["amber"]),("current","Current daily average",COLORS["green"])]):
+            card=MetricCard(label,accent=color); self.pace_cards[key]=card; pace_grid.addWidget(card,0,index)
+        progress_l.addLayout(pace_grid); layout.addWidget(call_progress)
         body=QHBoxLayout(); body.setSpacing(12); summary_card=Card(); summary_l=QVBoxLayout(summary_card); summary_l.setContentsMargins(16,15,16,15); summary_l.addWidget(SectionHeader("Monthly KPI scorecard","Green means the full monthly target has been achieved.")); self.summary=QTableWidget(0,5); self.summary.setHorizontalHeaderLabels(["KPI","TARGET","CURRENT","STATUS","IMPACT"]); self.summary.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.summary.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection); self.summary.verticalHeader().hide(); self.summary.horizontalHeader().setStretchLastSection(True); summary_l.addWidget(self.summary); body.addWidget(summary_card,3)
         log_card=Card(); log_l=QVBoxLayout(log_card); log_l.setContentsMargins(16,15,16,15); log_head=QHBoxLayout(); log_head.addWidget(SectionHeader("Call log","Every number logged for the selected month.")); log_head.addStretch(); remove=QPushButton("Delete selected"); remove.clicked.connect(self.delete_call); log_head.addWidget(remove); log_l.addLayout(log_head); self.calls=QTableWidget(0,3); self.calls.setHorizontalHeaderLabels(["DATE","PHONE","CALLS"]); self.calls.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.calls.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.calls.verticalHeader().hide(); self.calls.horizontalHeader().setStretchLastSection(True); log_l.addWidget(self.calls); body.addWidget(log_card,2); layout.addLayout(body,1); self.refresh()
 
@@ -675,7 +693,15 @@ class KPITrackerPage(Page):
         return monthly_kpi_results(self.db,self.selected_month(),self.CALL_TARGET)
 
     def refresh(self)->None:
-        month=self.selected_month(); call_rows=self.db.kpi_calls(month); total=sum(int(row["call_count"]) for row in call_rows); percent=int(total/self.CALL_TARGET*100); remaining=max(0,self.CALL_TARGET-total); self.call_bar.setRange(0,100); self.call_bar.setValue(min(100,percent)); self.call_title.setText(f"Call Maestro · {total} / {self.CALL_TARGET}"); achieved=total>=self.CALL_TARGET; self.call_status.setText("✓ KPI HIT" if achieved else f"{remaining} remaining"); self.call_status.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['green'] if achieved else COLORS['amber']}"); self.call_detail.setText("Monthly total · log more or fewer calls on any day; only the full monthly result matters.")
+        month=self.selected_month(); call_rows=self.db.kpi_calls(month); total=sum(int(row["call_count"]) for row in call_rows); percent=int(total/self.CALL_TARGET*100); remaining=max(0,self.CALL_TARGET-total); self.call_bar.setRange(0,100); self.call_bar.setValue(min(100,percent)); self.call_title.setText(f"Call Maestro · {total} / {self.CALL_TARGET}"); achieved=total>=self.CALL_TARGET; self.call_status.setText("✓ KPI HIT" if achieved else f"{remaining} remaining"); self.call_status.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['green'] if achieved else COLORS['amber']}"); self.call_detail.setText("Monthly total · uneven days are fine; this tracker recalculates the pace you need from today.")
+        pace=call_month_pace(total,month,self.CALL_TARGET); state=str(pace["state"]); delta=int(pace["pace_delta"]); days_left=int(pace["days_left"])
+        pace_value={"hit":"✓ KPI HIT","missed":"KPI MISSED","not_started":"NOT STARTED","ahead":f"AHEAD BY {delta}","behind":f"BEHIND BY {abs(delta)}"}[state]
+        pace_detail={"hit":"Completed month","missed":"Completed month","not_started":"Future month","ahead":"On track today","behind":"Extra calls needed to recover"}[state]
+        self.pace_cards["pace"].set_value(pace_value,pace_detail,accent=COLORS["green"] if state in {"hit","ahead"} else COLORS["red"] if state in {"missed","behind"} else COLORS["muted"])
+        self.pace_cards["remaining"].set_value(str(pace["remaining"]),"To reach 240 calls")
+        average_text="0" if achieved else f"{float(pace['average_needed']):.1f} / day" if days_left else "No days left"
+        self.pace_cards["average"].set_value(average_text,f"Across {days_left} day{'s' if days_left!=1 else ''} remaining")
+        self.pace_cards["current"].set_value(f"{float(pace['current_average']):.1f} / day","Calls logged ÷ elapsed month days")
         results=self.results(); self.summary.setRowCount(len(results))
         for i,(name,target,current,hit) in enumerate(results):
             values=[name,target,current,"✓ HIT" if hit else "IN PROGRESS","+0.50%" if hit else "—"]

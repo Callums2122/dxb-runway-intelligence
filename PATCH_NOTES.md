@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.0.1
+## Current release — 2.0.2
+
+### Call KPI pace tracker
+
+- Added an on-track indicator showing how far ahead or behind the required monthly call pace you are today.
+- Added calls remaining, the daily average required from today through month-end and your current daily average.
+- Past and future months now show an appropriate completed or not-started state instead of a misleading live pace.
+
+## Previous release — 2.0.1
 
 ### Readable call-log dates
 
