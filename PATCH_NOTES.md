@@ -2,7 +2,15 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.0.2
+## Current release — 2.0.3
+
+### Clean first-time setup
+
+- New installations now start with the representative demo-data option switched off.
+- This makes shared builds open as a genuinely blank workspace unless the new user deliberately opts into examples.
+- Application bundles remain data-free; each Mac creates its own private local database on first launch.
+
+## Previous release — 2.0.2
 
 ### Call KPI pace tracker
 

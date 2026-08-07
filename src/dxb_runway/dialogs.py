@@ -76,7 +76,7 @@ class OnboardingDialog(QDialog):
         _, layout = self._page("Protect the way home", "The emergency-return fund is excluded from daily allowance and normal spendable cash.")
         form = QFormLayout(); box = MoneyBox(); box.setValue(3000); self.fields["emergency_fund_aed"] = box; form.addRow("Protected emergency fund (AED)", box)
         why = QTextEdit(); why.setMaximumHeight(90); why.setText("Build a stronger future with patience, focus and options."); self.fields["why_i_moved"] = why; form.addRow("Why I moved", why)
-        demo = QCheckBox("Load representative demo transactions"); demo.setChecked(True); self.fields["demo"] = demo; form.addRow("", demo)
+        demo = QCheckBox("Load representative demo transactions"); demo.setChecked(False); self.fields["demo"] = demo; form.addRow("", demo)
         layout.addLayout(form); layout.addStretch()
         note = QLabel("You can back up, restore, export or reset all local data from Settings."); note.setObjectName("muted"); layout.addWidget(note)
 

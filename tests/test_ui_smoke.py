@@ -26,6 +26,7 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
     dialog=OnboardingDialog(db)
     assert dialog.pages.count()==4
     assert dialog.fields["uk_cash_gbp"].value()==2000
+    assert not dialog.fields["demo"].isChecked()
     dialog.close()
 
 
