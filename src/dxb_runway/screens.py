@@ -59,6 +59,33 @@ def call_month_pace(total_calls:int,month:str,target:int=240,today:date|None=Non
     return {"state":state,"pace_delta":delta,"remaining":remaining,"days_left":days_left,"average_needed":remaining/days_left if days_left else 0.0,"current_average":current_average}
 
 
+def offer_route(listing_price:Decimal|float|int,offer:Decimal|float|int)->dict[str,object]:
+    """Choose a conversation route from the offer-to-asking percentage."""
+    asking=Decimal(str(listing_price)); cash_offer=Decimal(str(offer))
+    percentage=float(cash_offer/asking*100) if asking>0 else 0.0
+    if percentage>=90:
+        return {"key":"strong","percentage":percentage,"title":"Lead with the offer","color":COLORS["green"],"detail":"This is a strong offer. Confirm availability, then use the number as your hook."}
+    if percentage>=80:
+        return {"key":"flexibility","percentage":percentage,"title":"Ask flexibility first","color":COLORS["amber"],"detail":"Learn how firm the seller is before revealing your offer."}
+    return {"key":"qualify","percentage":percentage,"title":"Qualify motivation first","color":COLORS["pink"],"detail":"Your offer is well below asking. Learn their timing and realistic expectation before sharing it."}
+
+
+def offer_message_steps(route_key:str,vehicle:str,listing_price:Decimal|float|int,offer:Decimal|float|int)->list[tuple[str,str]]:
+    vehicle_text=vehicle.strip() or "vehicle"; asking=Decimal(str(listing_price)); cash_offer=Decimal(str(offer))
+    opening=f"Hi, it’s Callum from Alba Cars regarding your {vehicle_text}. Is it still available?"
+    offer_message=(f"No problem. I’ve had a look at the market and I’d be around AED {cash_offer:,.0f} cash, subject to inspection. "
+                   "If we can make the numbers work, we can get you booked in and complete payment the same day. 🤝")
+    if route_key=="strong":
+        return [("1 · Confirm availability",opening),("2 · Lead with your offer",offer_message)]
+    if route_key=="flexibility":
+        flexibility=(f"Perfect, thank you. Are you fairly firm on your AED {asking:,.0f} asking price, or is there some room "
+                     "if we can make it a quick, straightforward sale?")
+        return [("1 · Confirm availability",opening),("2 · Ask about flexibility",flexibility),("3 · If they ask for your number",offer_message)]
+    motivation="Perfect, thank you. Before I put a figure forward, may I ask whether you’re looking for a quick sale or mainly trying to achieve the full asking price?"
+    expectation="And what is the best figure you would realistically consider for a quick, straightforward sale?"
+    return [("1 · Confirm availability",opening),("2 · Qualify their motivation",motivation),("3 · Learn their expectation",expectation),("4 · If they ask for your number",offer_message)]
+
+
 def monthly_kpi_results(db:Database,month:str,call_target:int=240)->list[tuple[str,str,str,bool]]:
     calls=sum(int(row["call_count"]) for row in db.kpi_calls(month)); work=db.kpi_work_days(month); avg_hours=sum(float(row["hours"]) for row in work)/len(work) if work else 0
     budget=db.performance_budget(month); cash_used=db.active_cash_stock_total(); spend_pct=float(cash_used/budget*100) if budget else 0
@@ -547,15 +574,51 @@ class WhatsAppTemplatesPage(Page):
     def __init__(self,db:Database):
         super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("WhatsApp templates","Save polished messages once, then copy them whenever you need to contact a customer.")); top.addStretch(); add=QPushButton("＋ Add template"); add.setProperty("primary",True); add.clicked.connect(self.add_template); top.addWidget(add); layout.addLayout(top)
+        tabs=QTabWidget(); layout.addWidget(tabs,1)
+
+        route_page=QWidget(); route_layout=QVBoxLayout(route_page); route_layout.setContentsMargins(12,14,12,12); route_layout.setSpacing(14)
+        calculator=Card(); calculator_layout=QVBoxLayout(calculator); calculator_layout.setContentsMargins(18,16,18,16); calculator_layout.setSpacing(12)
+        calculator_layout.addWidget(QLabel("OFFER ROUTE CALCULATOR"))
+        inputs=QHBoxLayout(); inputs.setSpacing(12)
+        for label,widget in [("LISTING PRICE · AED",MoneyBox(decimals=0)),("YOUR CASH OFFER · AED",MoneyBox(decimals=0))]:
+            field=QVBoxLayout(); caption=QLabel(label); caption.setObjectName("eyebrow"); field.addWidget(caption); widget.setSingleStep(1000); field.addWidget(widget); inputs.addLayout(field,1)
+            if "LISTING" in label: self.route_listing=widget
+            else: self.route_offer=widget
+        vehicle_field=QVBoxLayout(); vehicle_caption=QLabel("VEHICLE · OPTIONAL"); vehicle_caption.setObjectName("eyebrow"); vehicle_field.addWidget(vehicle_caption); self.route_vehicle=QLineEdit(); self.route_vehicle.setPlaceholderText("Example: 2021 Volkswagen Tiguan"); vehicle_field.addWidget(self.route_vehicle); inputs.addLayout(vehicle_field,1); calculator_layout.addLayout(inputs)
+        result=QHBoxLayout(); self.route_percent=QLabel("Enter both prices"); self.route_percent.setStyleSheet("font-size:22px;font-weight:900"); result.addWidget(self.route_percent); result.addSpacing(14); self.route_title=QLabel("Your recommended approach will appear here."); self.route_title.setStyleSheet("font-size:17px;font-weight:800"); result.addWidget(self.route_title); result.addStretch(); calculator_layout.addLayout(result)
+        self.route_detail=QLabel("Offer ≥ 90%: lead with offer  ·  80–89.9%: ask flexibility first  ·  Below 80%: qualify motivation first"); self.route_detail.setObjectName("muted"); self.route_detail.setWordWrap(True); calculator_layout.addWidget(self.route_detail); route_layout.addWidget(calculator)
+        message_card=Card(); message_layout=QVBoxLayout(message_card); message_layout.setContentsMargins(18,16,18,16); message_layout.setSpacing(10); message_layout.addWidget(QLabel("RECOMMENDED MESSAGE SEQUENCE")); self.route_step=QComboBox(); self.route_step.currentIndexChanged.connect(self.show_route_message); message_layout.addWidget(self.route_step); self.route_preview=QTextEdit(); self.route_preview.setReadOnly(True); self.route_preview.setMinimumHeight(155); self.route_preview.setPlaceholderText("Enter the listing price and your offer above to generate the best route."); message_layout.addWidget(self.route_preview,1); self.route_copy=QPushButton("Copy this message"); self.route_copy.setProperty("primary",True); self.route_copy.setEnabled(False); self.route_copy.clicked.connect(self.copy_route_message); message_layout.addWidget(self.route_copy); route_layout.addWidget(message_card,1)
+        note=QLabel("Use this as a starting framework, not a rigid rule. High-end and consignment prospects may still benefit from more credibility and service context before discussing numbers."); note.setObjectName("muted"); note.setWordWrap(True); route_layout.addWidget(note); tabs.addTab(route_page,"Offer route")
+
+        saved_page=QWidget(); saved_layout=QVBoxLayout(saved_page); saved_layout.setContentsMargins(12,14,12,12); saved_layout.setSpacing(12)
         tools=QHBoxLayout()
         for label,callback in [("Edit selected",self.edit_template),("Delete selected",self.delete_template)]:
             button=QPushButton(label); button.clicked.connect(callback); tools.addWidget(button)
-        tools.addStretch(); layout.addLayout(tools)
+        tools.addStretch(); saved_layout.addLayout(tools)
         body=QHBoxLayout(); body.setSpacing(14); list_card=Card(); list_layout=QVBoxLayout(list_card); list_layout.setContentsMargins(16,15,16,15); list_layout.addWidget(QLabel("SAVED TEMPLATES")); self.table=QTableWidget(0,1); self.table.setHorizontalHeaderLabels(["TEMPLATE"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.itemSelectionChanged.connect(self.show_selected); list_layout.addWidget(self.table); body.addWidget(list_card,1)
         preview_card=Card(); preview_layout=QVBoxLayout(preview_card); preview_layout.setContentsMargins(18,16,18,16); self.preview_title=QLabel("SELECT A TEMPLATE"); self.preview_title.setStyleSheet("font-size:18px;font-weight:800"); preview_layout.addWidget(self.preview_title)
         search_row=QHBoxLayout(); search_row.addWidget(QLabel("SEARCH CUSTOMER")); self.customer_search=QLineEdit(); self.customer_search.setPlaceholderText("Type a name, vehicle or last 5 phone digits…"); self.customer_search.setClearButtonEnabled(True); self.customer_search.textChanged.connect(self.filter_customers); search_row.addWidget(self.customer_search,1); preview_layout.addLayout(search_row)
         result_row=QHBoxLayout(); result_row.addWidget(QLabel("MATCHING CUSTOMERS")); self.customer=QComboBox(); self.customer.setMaxVisibleItems(12); self.customer.setMinimumWidth(420); self.customer.currentIndexChanged.connect(self.show_selected); result_row.addWidget(self.customer,1); preview_layout.addLayout(result_row)
-        self.customer_hint=QLabel("Search across active callers and inspections, then choose the correct customer by vehicle and phone suffix."); self.customer_hint.setObjectName("muted"); preview_layout.addWidget(self.customer_hint); self.preview=QTextEdit(); self.preview.setReadOnly(True); self.preview.setPlaceholderText("Your selected WhatsApp message will appear here."); preview_layout.addWidget(self.preview,1); self.copy_button=QPushButton("Copy personalised message"); self.copy_button.setProperty("primary",True); self.copy_button.clicked.connect(self.copy_message); self.copy_button.setEnabled(False); preview_layout.addWidget(self.copy_button); body.addWidget(preview_card,2); layout.addLayout(body,1); self.customer_rows=[]; self.refresh()
+        self.customer_hint=QLabel("Search across active callers and inspections, then choose the correct customer by vehicle and phone suffix."); self.customer_hint.setObjectName("muted"); preview_layout.addWidget(self.customer_hint); self.preview=QTextEdit(); self.preview.setReadOnly(True); self.preview.setPlaceholderText("Your selected WhatsApp message will appear here."); preview_layout.addWidget(self.preview,1); self.copy_button=QPushButton("Copy personalised message"); self.copy_button.setProperty("primary",True); self.copy_button.clicked.connect(self.copy_message); self.copy_button.setEnabled(False); preview_layout.addWidget(self.copy_button); body.addWidget(preview_card,2); saved_layout.addLayout(body,1); tabs.addTab(saved_page,"Saved templates")
+        self.route_listing.valueChanged.connect(self.update_offer_route); self.route_offer.valueChanged.connect(self.update_offer_route); self.route_vehicle.textChanged.connect(self.update_offer_route); self.route_steps=[]; self.customer_rows=[]; self.refresh(); self.update_offer_route()
+
+    def update_offer_route(self)->None:
+        asking=self.route_listing.value(); cash_offer=self.route_offer.value(); self.route_step.blockSignals(True); self.route_step.clear(); self.route_steps=[]
+        if asking<=0 or cash_offer<=0:
+            self.route_percent.setText("Enter both prices"); self.route_percent.setStyleSheet("font-size:22px;font-weight:900;color:#8894a7"); self.route_title.setText("Your recommended approach will appear here."); self.route_detail.setText("Offer ≥ 90%: lead with offer  ·  80–89.9%: ask flexibility first  ·  Below 80%: qualify motivation first"); self.route_preview.clear(); self.route_copy.setEnabled(False); self.route_step.setEnabled(False); self.route_step.blockSignals(False); return
+        route=offer_route(asking,cash_offer); self.route_percent.setText(f"{route['percentage']:.1f}% of asking"); self.route_percent.setStyleSheet(f"font-size:22px;font-weight:900;color:{route['color']}"); self.route_title.setText(str(route["title"])); self.route_detail.setText(str(route["detail"])); self.route_steps=offer_message_steps(str(route["key"]),self.route_vehicle.text(),asking,cash_offer)
+        for title,_ in self.route_steps: self.route_step.addItem(title)
+        self.route_step.setEnabled(True); self.route_step.blockSignals(False); self.route_step.setCurrentIndex(0); self.show_route_message()
+
+    def show_route_message(self)->None:
+        index=self.route_step.currentIndex()
+        if 0<=index<len(self.route_steps): self.route_preview.setPlainText(self.route_steps[index][1]); self.route_copy.setEnabled(True)
+        else: self.route_preview.clear(); self.route_copy.setEnabled(False)
+
+    def copy_route_message(self)->None:
+        message=self.route_preview.toPlainText().strip()
+        if not message:return
+        QApplication.clipboard().setText(message); QMessageBox.information(self,"Copied","Recommended message copied.\n\nIt is ready to paste into WhatsApp.")
 
     def selected_template(self):
         row=self.table.currentRow()
@@ -1334,7 +1397,7 @@ class SettingsPage(Page):
         self.quote=QLineEdit(settings.get("quote","")); self.why=QTextEdit(settings.get("why_i_moved","")); self.why.setMaximumHeight(90); form.addRow("Motivational quote",self.quote); form.addRow("Why I moved",self.why); save=QPushButton("Save settings"); save.setProperty("primary",True); save.clicked.connect(self.save); form.addRow(save); tabs.addTab(finance,"Financial assumptions")
         data=QWidget(); dl=QVBoxLayout(data); dl.setContentsMargins(18,18,18,18); dl.addWidget(QLabel(f"Database\n{db.path}")); dl.addWidget(QLabel(f"Receipts\n{db.receipts_dir}"));
         for label,callback in [("Create portable backup",self.backup),("Create encrypted backup",lambda:self.backup(True)),("Restore backup",self.restore),("Database health check",self.health),("Open local data folder",self.open_folder),("Reset demo data",self.reset_demo)]: btn=QPushButton(label); btn.clicked.connect(callback); dl.addWidget(btn)
-        privacy=QLabel("PRIVACY GUARANTEE\n\nDXB RUNWAY contains no analytics, telemetry, account system or network code. Manual exchange rates prevent hidden external requests. Receipt files never leave this machine unless you explicitly include them in a portable backup."); privacy.setWordWrap(True); privacy.setObjectName("muted"); dl.addWidget(privacy); dl.addStretch(); tabs.addTab(data,"Local data & privacy"); outer.addWidget(page_scroll(content))
+        privacy=QLabel("PRIVACY GUARANTEE\n\nYour Mac database remains the source of truth. Stock and Vehicle Desk data are mirrored over an encrypted connection to your private, owner-only phone app. DXB RUNWAY contains no analytics or telemetry. Transactions, receipts and other private records stay on this Mac unless you explicitly include them in a portable backup."); privacy.setWordWrap(True); privacy.setObjectName("muted"); dl.addWidget(privacy); dl.addStretch(); tabs.addTab(data,"Local data & privacy"); outer.addWidget(page_scroll(content))
     def save(self)->None:
         for key,box in self.fields.items(): self.db.set_setting(key,box.value())
         if abs(self.fields["gbp_aed_rate"].value()-self.original_rate)>0.0000005:

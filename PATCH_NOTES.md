@@ -2,7 +2,43 @@
 
 This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing work is deliberately kept separate in [ALBA_TRAINING_PROJECTION.md](ALBA_TRAINING_PROJECTION.md).
 
-## Current release — 2.0.3
+## Current release — 2.2.0
+
+- Mobile Stock Level now mirrors live Mac cash and consignment vehicles.
+- Mobile navigation replaces Leads with a compact Vehicle Desk and month view.
+- The Mac remains the source of truth and privately refreshes the phone mirror after edits and every two minutes.
+- Nutrition can now switch between today, yesterday or a chosen earlier date, with backfilled meals and water saved to the selected day.
+
+### Motivating nutrition and bottle logging
+
+- Rebuilt Nutrition around a daily score, logging streak and one clear next-best action that changes as meals, protein, fibre and water are recorded.
+- Added one-tap 330 ml, 500 ml, 750 ml and 1.5 L bottle buttons, custom bottle amounts, a time-stamped daily water list and safe removal of accidental entries.
+- Added a fast researched-meal picker alongside a cleaner manual macro form, with immediate updates to all targets and recommendations.
+- Kept bowel and Bristol-score logging as a small gut check while moving rarely changed daily targets out of the primary workflow.
+
+## Previous release — 2.1.0
+
+### Gym command centre
+
+- Added a dedicated Gym section directly beneath Leads with focused Today, Training, Nutrition, Progress and Meals & Bowls pages.
+- Added editable starting targets for calories, protein, carbohydrates, fat, fibre, water and training frequency, with daily progress and gut-health habits kept local in Runway.
+- Added a three-day full-body resistance programme, exercise load/reps/RIR logging, workout history and training-volume tracking.
+- Added weight, waist, chest, arm and thigh check-ins so progress is judged by trends rather than scale weight alone.
+- Added a researched Dubai delivery-meal library with calories and macros, source links and price-check dates, plus a high-protein/high-fibre custom bowl builder that sends meals directly to today’s tracker.
+- Added constipation-safe guidance, gradual fibre reminders and clear medical warning signs; the feature does not diagnose or prescribe treatment.
+- Made the sidebar scroll cleanly so the expanded workspace remains usable on smaller Mac displays.
+- Rebuilt Training around readable exercise names, target rep ranges, previous performance and properly sized inputs; RIR now uses plain-English effort choices instead of an unexplained stretched number column.
+
+## Previous release — 2.0.4
+
+### WhatsApp offer route calculator
+
+- Added a focused offer calculator to WhatsApp Templates using listing price and cash offer.
+- The app calculates the offer as a percentage of asking and recommends one of three routes: lead with the offer at 90% or above, ask flexibility first from 80% to 89.9%, or qualify motivation and expectations below 80%.
+- Each route generates a short, ordered WhatsApp conversation with individually copyable messages and optional vehicle personalisation.
+- Kept saved templates in their own uncluttered sub-tab so the existing customer search and smart fields remain unchanged.
+
+## Previous release — 2.0.3
 
 ### Clean first-time setup
 

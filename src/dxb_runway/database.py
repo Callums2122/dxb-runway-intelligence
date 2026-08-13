@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 20
 
 
 MIGRATIONS: dict[int, str] = {
@@ -200,6 +200,103 @@ MIGRATIONS: dict[int, str] = {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    19: """
+    CREATE TABLE IF NOT EXISTS gym_profile (
+      id INTEGER PRIMARY KEY CHECK(id=1),
+      weight_kg REAL NOT NULL DEFAULT 70,
+      height_cm REAL NOT NULL DEFAULT 175,
+      calorie_target INTEGER NOT NULL DEFAULT 2200,
+      protein_target_g INTEGER NOT NULL DEFAULT 140,
+      carb_target_g INTEGER NOT NULL DEFAULT 230,
+      fat_target_g INTEGER NOT NULL DEFAULT 70,
+      fibre_target_g INTEGER NOT NULL DEFAULT 30,
+      water_target_ml INTEGER NOT NULL DEFAULT 2500,
+      training_days INTEGER NOT NULL DEFAULT 3,
+      goal TEXT NOT NULL DEFAULT 'Body recomposition',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT OR IGNORE INTO gym_profile(id) VALUES (1);
+    CREATE TABLE IF NOT EXISTS gym_food_entries (
+      id INTEGER PRIMARY KEY,
+      entry_date TEXT NOT NULL,
+      meal_name TEXT NOT NULL,
+      calories REAL NOT NULL DEFAULT 0 CHECK(calories >= 0),
+      protein_g REAL NOT NULL DEFAULT 0 CHECK(protein_g >= 0),
+      carbs_g REAL NOT NULL DEFAULT 0 CHECK(carbs_g >= 0),
+      fat_g REAL NOT NULL DEFAULT 0 CHECK(fat_g >= 0),
+      fibre_g REAL NOT NULL DEFAULT 0 CHECK(fibre_g >= 0),
+      source TEXT NOT NULL DEFAULT 'Manual',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_gym_food_date ON gym_food_entries(entry_date,id);
+    CREATE TABLE IF NOT EXISTS gym_workouts (
+      id INTEGER PRIMARY KEY,
+      workout_date TEXT NOT NULL,
+      session_name TEXT NOT NULL,
+      duration_min INTEGER NOT NULL DEFAULT 0 CHECK(duration_min >= 0),
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_gym_workouts_date ON gym_workouts(workout_date,id);
+    CREATE TABLE IF NOT EXISTS gym_exercise_logs (
+      id INTEGER PRIMARY KEY,
+      workout_id INTEGER NOT NULL REFERENCES gym_workouts(id) ON DELETE CASCADE,
+      exercise_name TEXT NOT NULL,
+      set_count INTEGER NOT NULL DEFAULT 3 CHECK(set_count > 0),
+      reps INTEGER NOT NULL DEFAULT 8 CHECK(reps > 0),
+      weight_kg REAL NOT NULL DEFAULT 0 CHECK(weight_kg >= 0),
+      rir INTEGER NOT NULL DEFAULT 2 CHECK(rir >= 0 AND rir <= 5)
+    );
+    CREATE TABLE IF NOT EXISTS gym_measurements (
+      id INTEGER PRIMARY KEY,
+      measured_date TEXT NOT NULL,
+      weight_kg REAL NOT NULL CHECK(weight_kg > 0),
+      waist_cm REAL NOT NULL DEFAULT 0 CHECK(waist_cm >= 0),
+      chest_cm REAL NOT NULL DEFAULT 0 CHECK(chest_cm >= 0),
+      arm_cm REAL NOT NULL DEFAULT 0 CHECK(arm_cm >= 0),
+      thigh_cm REAL NOT NULL DEFAULT 0 CHECK(thigh_cm >= 0),
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_gym_measurements_date ON gym_measurements(measured_date,id);
+    CREATE TABLE IF NOT EXISTS gym_habits (
+      log_date TEXT PRIMARY KEY,
+      water_ml INTEGER NOT NULL DEFAULT 0 CHECK(water_ml >= 0),
+      bowel_movement INTEGER NOT NULL DEFAULT 0,
+      stool_score INTEGER NOT NULL DEFAULT 0 CHECK(stool_score >= 0 AND stool_score <= 7),
+      sleep_hours REAL NOT NULL DEFAULT 0 CHECK(sleep_hours >= 0 AND sleep_hours <= 24),
+      notes TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS gym_meals (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      restaurant TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      calories REAL NOT NULL,
+      protein_g REAL NOT NULL,
+      carbs_g REAL NOT NULL,
+      fat_g REAL NOT NULL,
+      fibre_g REAL NOT NULL,
+      price_aed REAL NOT NULL DEFAULT 0,
+      route TEXT NOT NULL DEFAULT 'Balanced',
+      notes TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      checked_on TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1
+    );
+    """,
+    20: """
+    CREATE TABLE IF NOT EXISTS gym_water_entries (
+      id INTEGER PRIMARY KEY,
+      entry_date TEXT NOT NULL,
+      amount_ml INTEGER NOT NULL CHECK(amount_ml > 0),
+      label TEXT NOT NULL DEFAULT 'Water',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_gym_water_date ON gym_water_entries(entry_date,id DESC);
+    """,
 }
 
 
@@ -223,6 +320,20 @@ DEFAULT_SETTINGS = {
     "why_i_moved": "Build a stronger future with patience, focus and options.", "quote": "Protect the runway. Earn the upside.",
     "theme": "dark", "start_of_month": "1", "currency_preference": "AED",
 }
+
+
+DEFAULT_GYM_MEALS = [
+    ("Healthy Chicken Bowl", "Healthy Bowl", "Talabat", 499, 38, 48, 16, 8, 33, "Best all-rounder", "Brown rice, roast chicken, vegetables and avocado; fibre is estimated.", "https://www.talabat.com/uae/restaurant/795479/healthy-bowl-al-hudaiba?aid=4577", "2026-08-12"),
+    ("Oven Baked Chicken With Rice Bowl", "Healthy Bowl", "Talabat", 428, 36, 51, 10, 6, 30, "Lean meal", "Chicken breast, rice and broccoli; fibre is estimated.", "https://www.talabat.com/uae/restaurant/795479/healthy-bowl-al-hudaiba?aid=4577", "2026-08-12"),
+    ("Chicken Burrito Bowl", "Healthy Bowl", "Talabat", 428, 36, 51, 10, 9, 35, "High fibre", "Brown rice, beans, vegetables and chicken; fibre is estimated.", "https://www.talabat.com/uae/restaurant/795479/healthy-bowl-al-hudaiba?aid=4577", "2026-08-12"),
+    ("Healthy Chicken Tikka Bowl", "Healthy Bowl", "Talabat", 408, 32, 48, 9, 5, 33, "Lean meal", "Tikka chicken and rice; add a vegetable side when possible.", "https://www.talabat.com/uae/restaurant/795479/healthy-bowl-al-hudaiba?aid=4577", "2026-08-12"),
+    ("Tokyo Chicken Bowl", "Kcal", "Deliveroo / search other apps", 442, 49.9, 31, 14.4, 6, 54, "High protein", "Chicken, vegetables and carrot noodles; fibre is estimated.", "https://deliveroo.ae/en/menu/Dubai/lower-satwa/kcal-the-original-healthy-restaurant-satwa", "2026-08-12"),
+    ("Chipotle Chicken Bowl", "Kcal", "Deliveroo / search other apps", 400, 40, 27.5, 16, 8, 54, "High protein", "Includes listed guacamole and salsa; fibre is estimated.", "https://deliveroo.ae/en/menu/Dubai/lower-satwa/kcal-the-original-healthy-restaurant-satwa", "2026-08-12"),
+    ("Sweet Chilli Chicken Bowl", "Kcal", "Deliveroo / search other apps", 422, 41.5, 36.1, 14.8, 7, 56, "High protein", "Vegetables and cauliflower rice; fibre and price are estimates.", "https://deliveroo.ae/en/menu/Dubai/lower-satwa/kcal-the-original-healthy-restaurant-satwa", "2026-08-12"),
+    ("Manila-Style Chicken Sisig", "Under500", "Deliveroo / search other apps", 487, 34, 47, 17, 5, 35, "Balanced", "Chicken with brown rice; fibre is estimated.", "https://deliveroo.ae/en/menu/Dubai/marina/under-500-dubai-marina", "2026-08-12"),
+    ("Summer Chicken", "Better", "Deliveroo / search other apps", 264.5, 22, 25, 8.5, 5, 75, "Light meal", "Small meal; pair with fruit or yogurt if it leaves you hungry.", "https://deliveroo.ae/en/menu/dubai/dubai-business-bay/better", "2026-08-12"),
+    ("High Protein Chicken Quinoa Bowl", "Healthy Bowl JVC", "Deliveroo / search other apps", 610, 48, 55, 22, 11, 81, "High fibre", "Menu does not publish macros; values are a conservative ingredient estimate. Dressing on the side.", "https://deliveroo.ae/en/menu/dubai/jumeirah-village-circle/healthy-bowl-jvc", "2026-08-12"),
+]
 
 
 class Database:
@@ -294,10 +405,23 @@ class Database:
                 connection.execute(f"PRAGMA user_version={version}")
                 if version >= 2:
                     connection.execute("INSERT INTO schema_audit(version) VALUES (?)", (version,))
+            # Recover safely if an interrupted app replacement stamped v19 before its
+            # new Gym tables reached disk. All statements are CREATE IF NOT EXISTS.
+            gym_tables={row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'gym_%'").fetchall()}
+            if "gym_meals" not in gym_tables:
+                connection.executescript(MIGRATIONS[19])
+            gym_tables={row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'gym_%'").fetchall()}
+            if "gym_water_entries" not in gym_tables:
+                connection.executescript(MIGRATIONS[20])
+            connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.executemany(
                 "INSERT OR IGNORE INTO categories(name, essential_default, color) VALUES (?,?,?)", DEFAULT_CATEGORIES
             )
             connection.executemany("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", DEFAULT_SETTINGS.items())
+            connection.executemany(
+                "INSERT OR IGNORE INTO gym_meals(name,restaurant,provider,calories,protein_g,carbs_g,fat_g,fibre_g,price_aed,route,notes,source_url,checked_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                DEFAULT_GYM_MEALS,
+            )
 
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self.connect() as connection:
@@ -318,6 +442,22 @@ class Database:
 
     def all_settings(self) -> dict[str, str]:
         return {str(row["key"]): str(row["value"]) for row in self.query("SELECT key,value FROM settings")}
+
+    def mobile_sync_snapshot(self) -> dict[str, list[dict[str, Any]]]:
+        """Return the small, read-only dataset mirrored to the private phone app."""
+        vehicles = [dict(row) for row in self.query(
+            "SELECT id,vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,status,"
+            "sold_price_aed,sold_date,notes,purchase_type,initial_owner_payout_aed,updated_at "
+            "FROM vehicles ORDER BY id"
+        )]
+        months = [dict(row) for row in self.query(
+            "SELECT month,purchasing_budget_aed,updated_at FROM performance_months ORDER BY month"
+        )]
+        earnings = [dict(row) for row in self.query(
+            "SELECT year,month,purchasing_budget_aed,eligible_profit_aed,tier,salary_aed,commission_aed,"
+            "payment_date,received FROM earnings ORDER BY year,month"
+        )]
+        return {"vehicles": vehicles, "months": months, "earnings": earnings}
 
     def daily_tasks(self, task_date: str | None = None) -> list[sqlite3.Row]:
         chosen_date=str(task_date or date.today().isoformat())[:10]
@@ -358,6 +498,121 @@ class Database:
 
     def kpi_work_days(self, month: str) -> list[sqlite3.Row]:
         return self.query("SELECT * FROM kpi_work_days WHERE substr(work_date,1,7)=? ORDER BY work_date DESC",(month,))
+
+    def gym_profile(self) -> sqlite3.Row:
+        return self.query("SELECT * FROM gym_profile WHERE id=1")[0]
+
+    def save_gym_profile(self, values: dict[str, Any]) -> None:
+        allowed=("weight_kg","height_cm","calorie_target","protein_target_g","carb_target_g","fat_target_g","fibre_target_g","water_target_ml","training_days","goal")
+        pairs=[(key,values[key]) for key in allowed if key in values]
+        if not pairs: return
+        numeric={"weight_kg","height_cm","calorie_target","protein_target_g","carb_target_g","fat_target_g","fibre_target_g","water_target_ml","training_days"}
+        if any(float(value)<=0 for key,value in pairs if key in numeric): raise ValueError("Gym targets must be greater than zero")
+        self.execute(f"UPDATE gym_profile SET {','.join(f'{key}=?' for key,_ in pairs)},updated_at=CURRENT_TIMESTAMP WHERE id=1",tuple(value for _,value in pairs))
+
+    def gym_food_entries(self, entry_date: str | None = None) -> list[sqlite3.Row]:
+        chosen=str(entry_date or date.today().isoformat())[:10]; date.fromisoformat(chosen)
+        return self.query("SELECT * FROM gym_food_entries WHERE entry_date=? ORDER BY id DESC",(chosen,))
+
+    def add_gym_food(self, values: dict[str, Any]) -> int:
+        chosen=str(values.get("entry_date") or date.today().isoformat())[:10]; date.fromisoformat(chosen)
+        name=str(values.get("meal_name","")).strip()
+        if not name: raise ValueError("Meal name is required")
+        numbers=[max(0,float(values.get(key,0) or 0)) for key in ("calories","protein_g","carbs_g","fat_g","fibre_g")]
+        return self.execute("INSERT INTO gym_food_entries(entry_date,meal_name,calories,protein_g,carbs_g,fat_g,fibre_g,source,notes) VALUES (?,?,?,?,?,?,?,?,?)",(chosen,name,*numbers,str(values.get("source","Manual")),str(values.get("notes","")).strip()))
+
+    def delete_gym_food(self, entry_id: int) -> None:
+        if self.execute("DELETE FROM gym_food_entries WHERE id=?",(entry_id,))!=1: raise ValueError("Meal entry not found")
+
+    def gym_daily_totals(self, entry_date: str | None = None) -> dict[str,float]:
+        chosen=str(entry_date or date.today().isoformat())[:10]
+        row=self.query("SELECT COALESCE(SUM(calories),0) calories,COALESCE(SUM(protein_g),0) protein_g,COALESCE(SUM(carbs_g),0) carbs_g,COALESCE(SUM(fat_g),0) fat_g,COALESCE(SUM(fibre_g),0) fibre_g FROM gym_food_entries WHERE entry_date=?",(chosen,))[0]
+        return {key:float(row[key]) for key in row.keys()}
+
+    def gym_habit(self, log_date: str | None = None) -> dict[str,Any]:
+        chosen=str(log_date or date.today().isoformat())[:10]
+        rows=self.query("SELECT * FROM gym_habits WHERE log_date=?",(chosen,))
+        return dict(rows[0]) if rows else {"log_date":chosen,"water_ml":0,"bowel_movement":0,"stool_score":0,"sleep_hours":0,"notes":""}
+
+    def save_gym_habit(self, log_date: str | None = None, **values: Any) -> None:
+        chosen=str(log_date or date.today().isoformat())[:10]; date.fromisoformat(chosen)
+        current=self.gym_habit(chosen); current.update(values)
+        water=max(0,int(current.get("water_ml",0))); stool=max(0,min(7,int(current.get("stool_score",0)))); sleep=max(0,min(24,float(current.get("sleep_hours",0))))
+        self.execute("INSERT INTO gym_habits(log_date,water_ml,bowel_movement,stool_score,sleep_hours,notes) VALUES (?,?,?,?,?,?) ON CONFLICT(log_date) DO UPDATE SET water_ml=excluded.water_ml,bowel_movement=excluded.bowel_movement,stool_score=excluded.stool_score,sleep_hours=excluded.sleep_hours,notes=excluded.notes,updated_at=CURRENT_TIMESTAMP",(chosen,water,int(bool(current.get("bowel_movement",0))),stool,sleep,str(current.get("notes","")).strip()))
+
+    def add_gym_water(self, amount_ml: int, label: str = "Bottle", entry_date: str | None = None) -> int:
+        chosen=str(entry_date or date.today().isoformat())[:10]; date.fromisoformat(chosen); amount=int(amount_ml)
+        if amount<=0 or amount>5000: raise ValueError("Water amount must be between 1 ml and 5,000 ml")
+        clean_label=str(label).strip() or "Water"
+        with self.connect() as connection:
+            cursor=connection.execute("INSERT INTO gym_water_entries(entry_date,amount_ml,label,created_at) VALUES (?,?,?,?)",(chosen,amount,clean_label,datetime.now().isoformat(timespec="seconds")))
+            connection.execute(
+                "INSERT INTO gym_habits(log_date,water_ml) VALUES (?,?) ON CONFLICT(log_date) DO UPDATE SET water_ml=water_ml+excluded.water_ml,updated_at=CURRENT_TIMESTAMP",
+                (chosen,amount),
+            )
+            return int(cursor.lastrowid)
+
+    def gym_water_entries(self, entry_date: str | None = None) -> list[sqlite3.Row]:
+        chosen=str(entry_date or date.today().isoformat())[:10]; date.fromisoformat(chosen)
+        return self.query("SELECT * FROM gym_water_entries WHERE entry_date=? ORDER BY id DESC",(chosen,))
+
+    def delete_gym_water(self, entry_id: int) -> None:
+        with self.connect() as connection:
+            row=connection.execute("SELECT id,entry_date,amount_ml FROM gym_water_entries WHERE id=?",(entry_id,)).fetchone()
+            if not row: raise ValueError("Water entry not found")
+            connection.execute("DELETE FROM gym_water_entries WHERE id=?",(entry_id,))
+            connection.execute("UPDATE gym_habits SET water_ml=MAX(0,water_ml-?),updated_at=CURRENT_TIMESTAMP WHERE log_date=?",(row["amount_ml"],row["entry_date"]))
+
+    def gym_logging_streak(self, today: date | None = None) -> int:
+        current=today or date.today()
+        rows=self.query("SELECT entry_date day FROM gym_food_entries UNION SELECT entry_date day FROM gym_water_entries")
+        logged={date.fromisoformat(str(row["day"])[:10]) for row in rows}
+        cursor=current if current in logged else current-timedelta(days=1); streak=0
+        while cursor in logged:
+            streak+=1; cursor-=timedelta(days=1)
+        return streak
+
+    def add_gym_workout(self, workout_date: str, session_name: str, duration_min: int, exercises: list[dict[str,Any]], notes: str = "") -> int:
+        chosen=str(workout_date)[:10]; date.fromisoformat(chosen); session=str(session_name).strip()
+        if not session: raise ValueError("Session name is required")
+        if not exercises: raise ValueError("Add at least one exercise")
+        with self.connect() as connection:
+            cursor=connection.execute("INSERT INTO gym_workouts(workout_date,session_name,duration_min,notes) VALUES (?,?,?,?)",(chosen,session,max(0,int(duration_min)),notes.strip()))
+            workout_id=int(cursor.lastrowid)
+            connection.executemany("INSERT INTO gym_exercise_logs(workout_id,exercise_name,set_count,reps,weight_kg,rir) VALUES (?,?,?,?,?,?)",[(workout_id,str(item["exercise_name"]),max(1,int(item["set_count"])),max(1,int(item["reps"])),max(0,float(item["weight_kg"])),max(0,min(5,int(item["rir"])))) for item in exercises])
+            return workout_id
+
+    def gym_workouts(self, limit: int = 50) -> list[sqlite3.Row]:
+        return self.query("SELECT w.*,COUNT(e.id) exercises,COALESCE(SUM(e.set_count*e.reps*e.weight_kg),0) volume_kg FROM gym_workouts w LEFT JOIN gym_exercise_logs e ON e.workout_id=w.id GROUP BY w.id ORDER BY workout_date DESC,w.id DESC LIMIT ?",(limit,))
+
+    def gym_last_exercise(self, exercise_name: str) -> sqlite3.Row | None:
+        rows=self.query(
+            "SELECT e.*,w.workout_date,w.session_name FROM gym_exercise_logs e JOIN gym_workouts w ON w.id=e.workout_id "
+            "WHERE e.exercise_name=? ORDER BY w.workout_date DESC,e.id DESC LIMIT 1",
+            (str(exercise_name).strip(),),
+        )
+        return rows[0] if rows else None
+
+    def add_gym_measurement(self, values: dict[str,Any]) -> int:
+        chosen=str(values.get("measured_date") or date.today().isoformat())[:10]; date.fromisoformat(chosen); weight=float(values.get("weight_kg",0))
+        if weight<=0: raise ValueError("Weight must be greater than zero")
+        fields=[max(0,float(values.get(key,0) or 0)) for key in ("waist_cm","chest_cm","arm_cm","thigh_cm")]
+        measurement_id=self.execute("INSERT INTO gym_measurements(measured_date,weight_kg,waist_cm,chest_cm,arm_cm,thigh_cm,notes) VALUES (?,?,?,?,?,?,?)",(chosen,weight,*fields,str(values.get("notes","")).strip()))
+        self.save_gym_profile({"weight_kg":weight})
+        return measurement_id
+
+    def gym_measurements(self, limit: int = 100) -> list[sqlite3.Row]:
+        return self.query("SELECT * FROM gym_measurements ORDER BY measured_date DESC,id DESC LIMIT ?",(limit,))
+
+    def delete_gym_measurement(self, measurement_id: int) -> None:
+        if self.execute("DELETE FROM gym_measurements WHERE id=?",(measurement_id,))!=1: raise ValueError("Measurement not found")
+
+    def gym_meals(self, search: str = "", provider: str = "") -> list[sqlite3.Row]:
+        clauses=["active=1"]; params:list[Any]=[]
+        if search:
+            clauses.append("(name LIKE ? OR restaurant LIKE ? OR route LIKE ? OR notes LIKE ?)"); params.extend([f"%{search}%"]*4)
+        if provider and provider!="All": clauses.append("provider LIKE ?"); params.append(f"%{provider}%")
+        return self.query(f"SELECT * FROM gym_meals WHERE {' AND '.join(clauses)} ORDER BY protein_g/calories DESC,name",tuple(params))
 
     def save_credit_card(self, values: dict[str, Any], card_id: int | None = None) -> int:
         credit_limit = Decimal(str(values["credit_limit"]))

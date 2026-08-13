@@ -38,6 +38,7 @@ QPushButton[primary="true"]:hover {{ background: #78e2ff; }}
 QPushButton[danger="true"] {{ color: {COLORS['red']}; }}
 QFrame[navGroup="true"] {{ border-radius: 10px; border-left: 3px solid transparent; }}
 QFrame[navGroup="true"][section="leads"] {{ background: #151329; border-left-color: {COLORS['purple']}; }}
+QFrame[navGroup="true"][section="gym"] {{ background: #0c222b; border-left-color: {COLORS['cyan']}; }}
 QFrame[navGroup="true"][section="money"] {{ background: #0e241e; border-left-color: {COLORS['green']}; }}
 QFrame[navGroup="true"][section="other"] {{ background: #281e0e; border-left-color: {COLORS['amber']}; }}
 QPushButton#nav {{ background: transparent; border: 1px solid transparent; text-align: left; padding: 9px 12px; color: #91a0b5; border-radius: 9px; }}
@@ -46,6 +47,7 @@ QPushButton#nav[section="overview"] {{ background: #0f1925; color: #b7c5d6; bord
 QPushButton#nav[section="overview"]:hover {{ background: #142735; color: {COLORS['cyan']}; border-color: #28485a; }}
 QPushButton#nav[section="overview"]:checked {{ background: #153246; color: {COLORS['cyan']}; border-color: #2b637f; }}
 QPushButton#nav[section="leads"]:checked {{ background: #241e43; color: #c5b9ff; border-color: #54468f; }}
+QPushButton#nav[section="gym"]:checked {{ background: #123544; color: {COLORS['cyan']}; border-color: #28647a; }}
 QPushButton#nav[section="money"]:checked {{ background: #153a30; color: {COLORS['green']}; border-color: #2c7059; }}
 QPushButton#nav[section="other"]:checked {{ background: #3a2a12; color: #ffd77e; border-color: #765822; }}
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit, QTextEdit {{

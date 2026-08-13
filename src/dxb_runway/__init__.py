@@ -1,3 +1,3 @@
 """DXB RUNWAY - local-first financial command centre."""
 
-__version__ = "2.0.3"
+__version__ = "2.2.0"

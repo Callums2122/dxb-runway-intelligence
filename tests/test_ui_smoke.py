@@ -11,8 +11,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
+from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
 from dxb_runway.screens import WhatsAppTemplatesPage
 
 
@@ -28,6 +29,18 @@ def test_first_run_onboarding_constructs(tmp_path: Path):
     assert dialog.fields["uk_cash_gbp"].value()==2000
     assert not dialog.fields["demo"].isChecked()
     dialog.close()
+
+
+def test_mobile_sync_snapshot_contains_only_vehicle_desk_data(tmp_path: Path):
+    db=Database(tmp_path/"data.db")
+    db.add_vehicle(vehicle_name="2024 Porsche 911",purchase_type="cash",purchase_price_aed=400000,expected_sale_price_aed=440000,purchased_date="2026-08-01")
+    db.set_performance_budget("2026-08",2_000_000)
+    db.execute("INSERT INTO earnings(year,month,purchasing_budget_aed,eligible_profit_aed,tier,salary_aed,commission_aed,earned_date,payment_date) VALUES (2026,8,2000000,180000,'Tier 3',6000,9000,'2026-08-31','2026-10-31')")
+    snapshot=db.mobile_sync_snapshot()
+    assert snapshot["vehicles"][0]["vehicle_name"]=="2024 Porsche 911"
+    assert snapshot["months"][0]["purchasing_budget_aed"]==2_000_000
+    assert snapshot["earnings"][0]["tier"]=="Tier 3"
+    assert set(snapshot)=={"vehicles","months","earnings"}
 
 
 def test_hit_kpi_reduces_vehicle_desk_tier_goal(tmp_path: Path):
@@ -101,6 +114,31 @@ def test_whatsapp_customer_picker_searches_large_lists_safely(tmp_path: Path):
     page.close()
 
 
+def test_offer_route_uses_three_percentage_bands():
+    assert offer_route(100_000,90_000)["key"]=="strong"
+    assert offer_route(100_000,89_999)["key"]=="flexibility"
+    assert offer_route(100_000,80_000)["key"]=="flexibility"
+    assert offer_route(100_000,79_999)["key"]=="qualify"
+
+
+def test_offer_route_calculator_generates_copyable_sequence(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); page=WhatsAppTemplatesPage(db); confirmations=[]
+    monkeypatch.setattr("dxb_runway.screens.QMessageBox.information",lambda *args: confirmations.append(args[2]))
+    page.route_listing.setValue(82_000); page.route_offer.setValue(70_000); page.route_vehicle.setText("2021 Volkswagen Tiguan")
+    assert page.route_percent.text()=="85.4% of asking" and page.route_title.text()=="Ask flexibility first"
+    assert page.route_step.count()==3 and page.route_step.itemText(0)=="1 · Confirm availability"
+    page.route_step.setCurrentIndex(1); assert "AED 82,000" in page.route_preview.toPlainText()
+    page.copy_route_message(); assert application.clipboard().text()==page.route_preview.toPlainText()
+    assert confirmations==["Recommended message copied.\n\nIt is ready to paste into WhatsApp."]
+    page.close()
+
+
+def test_offer_route_messages_match_recommended_order():
+    strong=offer_message_steps("strong","Tiguan",115_000,105_000); low=offer_message_steps("qualify","",100_000,70_000)
+    assert len(strong)==2 and "AED 105,000" in strong[1][1]
+    assert len(low)==4 and "quick sale" in low[1][1] and "best figure" in low[2][1]
+
+
 def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypatch):
     application=app(); db=Database(tmp_path/"data.db"); customer_id=db.add_customer_contact({"customer_name":"Gone seller","vehicle_name":"Audi S3","vehicle_age_years":2022,"phone_last5":"54321"}); window=MainWindow(db); page=window.pages["contacts"]; page.tables["today"].selectRow(0)
     monkeypatch.setattr("dxb_runway.screens.QMessageBox.question",lambda *args: QMessageBox.StandardButton.Yes)
@@ -112,12 +150,13 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","kpi","contacts","inspection","templates","stock","vehicles","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","kpi","contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert set(window.pages)=={"dashboard","todo","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","kpi","contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
     assert window.nav_buttons["contacts"].property("section")=="leads"
+    assert window.nav_buttons["gym_today"].property("section")=="gym"
     assert window.nav_buttons["transactions"].property("section")=="money"
     assert window.nav_buttons["goals"].property("section")=="other"
     assert category_label("Transport").endswith("Transport")
@@ -178,6 +217,61 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     window.toggle_sidebar(); assert window.section_headers["leads"][1].text()=="●  LEADS"
     window.show(); application.processEvents(); window.navigate("transactions")
     assert window.pages["transactions"].graphicsEffect() is None
+    window.close()
+
+
+def test_gym_defaults_food_habits_and_measurements(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); profile=db.gym_profile()
+    assert profile["weight_kg"]==70 and profile["height_cm"]==175
+    assert profile["calorie_target"]==2200 and profile["protein_target_g"]==140 and profile["fibre_target_g"]==30
+    meal_id=db.add_gym_food({"meal_name":"Chicken bowl","calories":500,"protein_g":45,"carbs_g":50,"fat_g":14,"fibre_g":8})
+    totals=db.gym_daily_totals(); assert totals["calories"]==500 and totals["protein_g"]==45 and totals["fibre_g"]==8
+    db.save_gym_habit(water_ml=1250,bowel_movement=True,stool_score=4); habit=db.gym_habit(); assert habit["water_ml"]==1250 and habit["bowel_movement"]==1 and habit["stool_score"]==4
+    db.add_gym_measurement({"weight_kg":69.8,"waist_cm":84}); assert db.gym_profile()["weight_kg"]==69.8
+    db.delete_gym_food(meal_id); assert db.gym_daily_totals()["calories"]==0
+
+
+def test_nutrition_can_review_and_backfill_yesterday(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); page=GymNutritionPage(db); yesterday=QDate.currentDate().addDays(-1)
+    monkeypatch.setattr("dxb_runway.gym.QMessageBox.information",lambda *args: None)
+    page.log_date.setDate(yesterday); page.meal_name.setText("Forgotten chicken bowl"); page.meal_values["protein_g"].setValue(45); page.add_meal(); page.refresh()
+    rows=db.gym_food_entries(yesterday.toString("yyyy-MM-dd"))
+    assert len(rows)==1 and rows[0]["meal_name"]=="Forgotten chicken bowl" and rows[0]["protein_g"]==45
+    assert page.entries.rowCount()==1 and page.entries.item(0,0).text()=="Forgotten chicken bowl"
+    page.close()
+
+
+def test_gym_migration_recovers_interrupted_schema_stamp(tmp_path: Path):
+    application=app(); path=tmp_path/"data.db"; db=Database(path)
+    with db.connect() as connection:
+        for table in ("gym_exercise_logs","gym_workouts","gym_food_entries","gym_measurements","gym_habits","gym_water_entries","gym_meals","gym_profile"):
+            connection.execute(f"DROP TABLE {table}")
+        connection.execute("PRAGMA user_version=19")
+    recovered=Database(path)
+    assert recovered.query("PRAGMA user_version")[0][0]==20
+    assert recovered.gym_profile()["weight_kg"]==70 and len(recovered.gym_meals())>=10
+
+
+def test_gym_workout_and_meal_library_pages(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
+    monkeypatch.setattr("dxb_runway.gym.QMessageBox.information",lambda *args: None)
+    training=window.pages["gym_training"]; assert training.exercise_table.rowCount()==7 and training.exercise_table.columnCount()==7
+    assert training.exercise_table.item(0,1).text()=="3 × 8–12" and training.exercise_table.item(0,2).text()=="First session"
+    training.exercise_table.cellWidget(0,5).setValue(80); training.log_workout(); assert len(db.gym_workouts())==1 and db.gym_workouts()[0]["volume_kg"]>0
+    training.load_template(); assert "80 kg" in training.exercise_table.item(0,2).text() and db.gym_last_exercise("Leg press")["weight_kg"]==80
+    meals=window.pages["gym_meals"]; assert meals.table.rowCount()>=10 and "protein" in meals.bowl_result.text()
+    initial=db.gym_daily_totals()["calories"]; meals.add_selected(); assert db.gym_daily_totals()["calories"]>initial
+    window.close()
+
+
+def test_nutrition_bottle_log_updates_water_score_and_history(tmp_path: Path,monkeypatch):
+    application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db); page=window.pages["gym_nutrition"]
+    monkeypatch.setattr("dxb_runway.gym.QMessageBox.information",lambda *args: None)
+    page.add_water(500,"Bottle"); assert db.gym_habit()["water_ml"]==500 and len(db.gym_water_entries())==1
+    assert page.water_log.rowCount()==1 and "500 ml" in page.water_card.value.text() and page.water_progress.value()==20
+    entry_id=db.gym_water_entries()[0]["id"]; db.delete_gym_water(entry_id); page.refresh(); assert db.gym_habit()["water_ml"]==0 and page.water_log.rowCount()==0
+    first_meal=page.quick_meal.itemData(1); page.quick_meal.setCurrentIndex(1); page.quick_add_meal(); assert first_meal and len(db.gym_food_entries())==1 and db.gym_logging_streak()==1
+    assert page.score_card.value.text()!="0%" and page.coach_title.text()
     window.close()
 
 
