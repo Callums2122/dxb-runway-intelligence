@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import math
+import re
 import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -102,6 +103,30 @@ def monthly_kpi_results(db:Database,month:str,call_target:int=240)->list[tuple[s
 def monthly_kpi_adjustment(db:Database,month:str)->tuple[int,Decimal]:
     hit_count=sum(1 for *_,hit in monthly_kpi_results(db,month) if hit)
     return hit_count,Decimal("0.005")*hit_count
+
+
+def vehicle_model_name(vehicle_name:str)->str:
+    """Normalise a vehicle name for model-level performance averages."""
+    cleaned=re.sub(r"^\s*(?:19|20)\d{2}\s+", "", str(vehicle_name).strip())
+    return re.sub(r"\s+", " ", cleaned) or "Unknown vehicle"
+
+
+def vehicle_speed_grade(days:Decimal|float|int)->str:
+    """Grade stock velocity using the agreed day bands."""
+    elapsed=Decimal(str(days))
+    if elapsed<10: return "A+"
+    if elapsed<=20: return "A"
+    if elapsed<=30: return "B"
+    if elapsed<=60: return "C"
+    return "C-"
+
+
+def vehicle_grade_color(grade:str)->str:
+    return {"A+":COLORS["green"],"A":COLORS["cyan"],"B":COLORS["amber"],"C":COLORS["amber"],"C-":COLORS["red"]}.get(grade,COLORS["muted"])
+
+
+def vehicle_margin_percent(profit:Decimal,cost:Decimal)->Decimal:
+    return (profit/cost*Decimal("100")) if cost>0 else Decimal("0")
 
 
 def table_item(text: str, alignment: Qt.AlignmentFlag | None = None, color: str | None = None) -> QTableWidgetItem:
@@ -810,8 +835,8 @@ class StockLevelPage(Page):
         potential.addWidget(self.metrics["realistic_potential"],0,0); potential.addWidget(self.metrics["maximum_potential"],0,1)
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
-        note=QLabel("Consignment cost is the agreed owner payout. It contributes to expected and realised profit, but does not use the cash purchasing budget."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1)
+        note=QLabel("Consignment cost is the agreed owner payout. It contributes to expected and realised profit, but does not use the cash purchasing budget. Margin is profit as a percentage of cost; speed grade uses days held: A+ <10 · A ≤20 · B ≤30 · C ≤60 · C- >60."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
+        self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1)
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -844,11 +869,12 @@ class StockLevelPage(Page):
         for i,row in enumerate(rows):
             self.table.setRowHeight(i,58); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or f"Expected sale · AED {row['expected_sale_price_aed']:,.0f}"); self.table.setItem(i,0,first)
             cost=Decimal(str(row["purchase_price_aed"])); sale=Decimal(str(row["expected_sale_price_aed"])); profit=Decimal(str(row["expected_profit_aed"]))
-            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP"]
+            margin=vehicle_margin_percent(profit,cost); days_held=max(0,(date.today()-date.fromisoformat(str(row["purchased_date"])[:10])).days); grade=vehicle_speed_grade(days_held)
+            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held"]
             for j,value in enumerate(values,1):
-                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else None
+                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else None
                 self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j>=3 else Qt.AlignmentFlag.AlignVCenter,color))
-        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,120); self.table.setColumnWidth(2,100); self.table.setColumnWidth(3,130); self.table.setColumnWidth(4,130)
+        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,120); self.table.setColumnWidth(2,100); self.table.setColumnWidth(3,130); self.table.setColumnWidth(4,130); self.table.setColumnWidth(5,155)
 
     def add_vehicle(self)->None:
         dialog=VehicleDialog(self.db,self)
@@ -981,9 +1007,12 @@ class VehicleDeskPage(Page):
 class VehicleHistoryPage(Page):
     def __init__(self,db:Database):
         super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
-        layout.addWidget(SectionHeader("Vehicle history","Archived monthly performance stays available for year-on-year comparison."))
+        layout.addWidget(SectionHeader("Vehicle performance","See monthly history and which models turn into profit fastest."))
         note=QLabel("Vehicle Desk shows only the latest occurrence of each month name. Nothing is deleted when a month rolls into a new year."); note.setObjectName("muted"); note.setWordWrap(True); layout.addWidget(note)
-        self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["MONTH","CARS SOLD","REALISED PROFIT","COMMISSION","PURCHASING BUDGET","CASH PURCHASED"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.table,1); self.refresh()
+        layout.addWidget(SectionHeader("Monthly history","Archived monthly performance stays available for year-on-year comparison."))
+        self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["MONTH","CARS SOLD","REALISED PROFIT","COMMISSION","PURCHASING BUDGET","CASH PURCHASED"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setMinimumHeight(230); layout.addWidget(self.table)
+        layout.addWidget(SectionHeader("Performance by vehicle","Averages include every sold vehicle; leading model years are ignored so repeated Minis and similar models are grouped together. Speed grade uses average days in stock: A+ <10 days · A ≤20 · B ≤30 · C ≤60 · C- >60."))
+        self.performance_table=QTableWidget(0,8); self.performance_table.setHorizontalHeaderLabels(["MODEL","SOLD","AVG DAYS IN STOCK","GRADE","AVG PURCHASE / PAYOUT","AVG SOLD PRICE","AVG PROFIT","AVG MARGIN"]); self.performance_table.setWordWrap(True); self.performance_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.performance_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.performance_table.verticalHeader().hide(); self.performance_table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.performance_table,1); self.refresh()
 
     def refresh(self)->None:
         months=self.db.query(
@@ -1002,6 +1031,26 @@ class VehicleHistoryPage(Page):
                 color=COLORS["green"] if j in {2,3} and (realised if j==2 else commission)>=0 else COLORS["red"] if j in {2,3} else None
                 self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j else Qt.AlignmentFlag.AlignVCenter,color))
         self.table.setColumnWidth(0,140); self.table.setColumnWidth(1,95); self.table.setColumnWidth(2,150); self.table.setColumnWidth(3,150); self.table.setColumnWidth(4,165)
+        rows=self.db.query("SELECT * FROM vehicles WHERE status='sold' AND sold_date IS NOT NULL ORDER BY sold_date DESC,id DESC")
+        groups:dict[str,dict[str,object]]={}
+        for row in rows:
+            try:
+                purchased=date.fromisoformat(str(row["purchased_date"])[:10]); sold=date.fromisoformat(str(row["sold_date"])[:10])
+            except (TypeError,ValueError):
+                continue
+            cost=Decimal(str(row["purchase_price_aed"] or 0)); sale=Decimal(str(row["sold_price_aed"] or 0)); profit=sale-cost; key=vehicle_model_name(row["vehicle_name"]).casefold()
+            group=groups.setdefault(key,{"model":vehicle_model_name(row["vehicle_name"]),"count":0,"days":Decimal("0"),"cost":Decimal("0"),"sale":Decimal("0"),"profit":Decimal("0")})
+            group["count"]+=1; group["days"]+=Decimal(max(0,(sold-purchased).days)); group["cost"]+=cost; group["sale"]+=sale; group["profit"]+=profit
+        ordered=sorted(groups.values(),key=lambda group:(-int(group["count"]),str(group["model"]).casefold()))
+        self.performance_table.setRowCount(len(ordered))
+        for row_index,group in enumerate(ordered):
+            count=int(group["count"]); average_days=group["days"]/count; average_cost=group["cost"]/count; average_sale=group["sale"]/count; average_profit=group["profit"]/count; margin=vehicle_margin_percent(average_profit,average_cost); grade=vehicle_speed_grade(average_days)
+            values=[str(group["model"]),str(count),f"{average_days:.1f} days",grade,f"AED {average_cost:,.0f}",f"AED {average_sale:,.0f}",f"{average_profit:+,.0f} AED",f"{margin:.1f}%"]
+            self.performance_table.setRowHeight(row_index,52)
+            for column,value in enumerate(values):
+                color=vehicle_grade_color(grade) if column==3 else COLORS["green"] if column in {6,7} and average_profit>=0 else COLORS["red"] if column in {6,7} else None
+                self.performance_table.setItem(row_index,column,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if column else Qt.AlignmentFlag.AlignVCenter,color))
+        for column,width in enumerate([165,65,125,75,145,135,120]): self.performance_table.setColumnWidth(column,width)
 
 
 class TransactionsPage(Page):

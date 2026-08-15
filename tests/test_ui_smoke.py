@@ -189,7 +189,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     vehicles.configure_month_options()
     vehicles.month.setCurrentIndex(date.today().month-1)
     vehicles.refresh()
-    assert history.table.columnCount()==6
+    assert history.table.columnCount()==6 and history.performance_table.columnCount()==8
+    assert history.performance_table.rowCount()==1 and history.performance_table.item(0,3).text() in {"A+","A","B","C","C-"}
     assert set(contacts.tables)=={"today","tomorrow","all"} and contacts.tables["today"].columnCount()==7
     todo=window.pages["todo"]; todo.entry.setText("Follow up with seller"); todo.add_task(); assert todo.table.rowCount()==1 and todo.table.item(0,1).text()=="Follow up with seller"; todo.table.item(0,0).setCheckState(Qt.CheckState.Checked); application.processEvents(); assert todo.metrics["completed"].value.text()=="1"
     kpi=window.pages["kpi"]; kpi.phone.setText("0501234567"); kpi.call_count.setValue(6); kpi.log_call(); assert kpi.calls.rowCount()==1 and "6 / 240" in kpi.call_title.text() and kpi.summary.rowCount()==8
@@ -204,7 +205,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
-    assert stock.table.columnCount()==6
+    assert stock.table.columnCount()==7 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text()
     assert "remaining" in stock.live_budget_value.text() and "revolving" in stock.live_budget_detail.text()
     assert "value" in stock.metrics and "includes consignments" in stock.metrics["value"].detail.text()
     assert "realistic_potential" in stock.metrics and "maximum_potential" in stock.metrics
