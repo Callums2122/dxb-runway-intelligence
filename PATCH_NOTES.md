@@ -8,6 +8,7 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 - Mobile navigation replaces Leads with a compact Vehicle Desk and month view.
 - The Mac remains the source of truth and privately refreshes the phone mirror after edits and every two minutes.
 - Nutrition can now switch between today, yesterday or a chosen earlier date, with backfilled meals and water saved to the selected day.
+- Stock Level now shows realistic (80%) and maximum (100%) projected tier/total pay from the expected profit of the vehicles currently held.
 
 ### Motivating nutrition and bottle logging
 

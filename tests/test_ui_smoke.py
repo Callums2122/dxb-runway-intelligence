@@ -206,6 +206,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert stock.table.columnCount()==6
     assert "remaining" in stock.live_budget_value.text() and "revolving" in stock.live_budget_detail.text()
     assert "value" in stock.metrics and "includes consignments" in stock.metrics["value"].detail.text()
+    assert "realistic_potential" in stock.metrics and "maximum_potential" in stock.metrics
+    assert "profit" in stock.metrics["realistic_potential"].detail.text() and "total" in stock.metrics["maximum_potential"].detail.text()
     assert "stock" not in vehicles.metrics and "expected" not in vehicles.metrics
     assert "total" in vehicles.metrics and "Commission only" in vehicles.metrics["commission"].detail.text()
     assert f"Base AED {vehicles.current_result.salary_aed:,.0f}" in vehicles.metrics["total"].detail.text()
