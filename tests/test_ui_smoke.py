@@ -151,9 +151,10 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
     assert set(window.pages)=={"dashboard","todo","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","kpi","contacts","inspection","templates","stock","vehicles","calendar","scenarios"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["goals","vehicle_history","reports","settings"]]
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","kpi","contacts","inspection","templates","stock","vehicles","vehicle_history","calendar","scenarios"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["goals","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
+    assert window.nav_buttons["vehicle_history"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
     assert window.nav_buttons["contacts"].property("section")=="leads"
     assert window.nav_buttons["gym_today"].property("section")=="gym"
