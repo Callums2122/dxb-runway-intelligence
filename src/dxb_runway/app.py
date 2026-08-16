@@ -28,21 +28,21 @@ def data_dir(override: str | None = None) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser=argparse.ArgumentParser(description="DXB RUNWAY")
+    parser=argparse.ArgumentParser(description="DXB RUNWAY Intelligence")
     parser.add_argument("--data-dir",help="Override AppData location for testing")
     parser.add_argument("--demo",action="store_true",help="Seed representative local demo data")
     parser.add_argument("--skip-onboarding",action="store_true")
     parser.add_argument("--screenshot",help="Save a screenshot after launch")
-    parser.add_argument("--page",default="dashboard",help="Page to open for screenshot or testing")
+    parser.add_argument("--page",default="intelligence",help="Page to open for screenshot or testing")
     parser.add_argument("--exit-after-ms",type=int,default=0)
     args=parser.parse_args(argv)
-    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY"); QApplication.setApplicationVersion("2.2.0")
+    QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY Intelligence"); QApplication.setApplicationVersion("3.0.0")
     app=QApplication(sys.argv[:1]); app.setStyle("Fusion"); app.setStyleSheet(APP_QSS)
     icon=resource_path("assets/dxb_runway.icns" if sys.platform=="darwin" else "assets/dxb_runway.ico")
     if not icon.exists():icon=resource_path("assets/dxb_runway_icon.png")
     if icon.exists():app.setWindowIcon(QIcon(str(icon)))
     try:
-        db=Database(data_dir(args.data_dir)/"dxb_runway.db")
+        db=Database(data_dir(args.data_dir)/"dxb_runway_intelligence.db")
         if args.demo:db.seed_demo()
         if db.get_setting("onboarding_complete","0")!="1" and not args.skip_onboarding:
             onboarding=OnboardingDialog(db)
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         return app.exec()
     except Exception as error:
         log_dir=data_dir(args.data_dir);log_dir.mkdir(parents=True,exist_ok=True);(log_dir/"crash.log").write_text(traceback.format_exc(),encoding="utf-8")
-        QMessageBox.critical(None,"DXB RUNWAY could not start",f"{error}\n\nA diagnostic log was saved locally.")
+        QMessageBox.critical(None,"DXB RUNWAY Intelligence could not start",f"{error}\n\nA diagnostic log was saved locally.")
         return 1
 
 

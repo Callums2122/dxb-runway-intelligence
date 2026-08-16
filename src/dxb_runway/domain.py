@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.9/3.10 compatibility for older Macs.
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        def __str__(self) -> str:
+            return self.value
 import calendar
 import math
 

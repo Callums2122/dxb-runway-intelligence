@@ -23,7 +23,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="DXB RUNWAY",
+    name="DXB RUNWAY Intelligence",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -38,4 +38,3 @@ exe = EXE(
     entitlements_file=None,
     icon=["assets/dxb_runway.ico"],
 )
-

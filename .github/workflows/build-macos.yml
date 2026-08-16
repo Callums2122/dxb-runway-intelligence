@@ -1,4 +1,4 @@
-name: Build macOS apps
+name: Build Intelligence for macOS
 
 on:
   workflow_dispatch:
@@ -52,16 +52,16 @@ jobs:
       - name: Ad-hoc sign and archive
         shell: bash
         run: |
-          codesign --force --deep --sign - "dist/DXB RUNWAY.app"
-          codesign --verify --deep --strict "dist/DXB RUNWAY.app"
-          ditto -c -k --sequesterRsrc --keepParent "dist/DXB RUNWAY.app" "dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip"
+          codesign --force --deep --sign - "dist/DXB RUNWAY Intelligence.app"
+          codesign --verify --deep --strict "dist/DXB RUNWAY Intelligence.app"
+          ditto -c -k --sequesterRsrc --keepParent "dist/DXB RUNWAY Intelligence.app" "dist/DXB-RUNWAY-Intelligence-macOS-${{ matrix.label }}.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: DXB-RUNWAY-macOS-${{ matrix.label }}
-          path: dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip
+          name: DXB-RUNWAY-Intelligence-macOS-${{ matrix.label }}
+          path: dist/DXB-RUNWAY-Intelligence-macOS-${{ matrix.label }}.zip
           if-no-files-found: error
       - name: Attach app to release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "dist/DXB-RUNWAY-macOS-${{ matrix.label }}.zip" --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" "dist/DXB-RUNWAY-Intelligence-macOS-${{ matrix.label }}.zip" --clobber

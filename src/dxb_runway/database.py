@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 23
 
 
 MIGRATIONS: dict[int, str] = {
@@ -297,6 +297,86 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_gym_water_date ON gym_water_entries(entry_date,id DESC);
     """,
+    21: """
+    CREATE TABLE IF NOT EXISTS intelligence_import_batches (
+      id INTEGER PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      stored_name TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      sheet_count INTEGER NOT NULL DEFAULT 1,
+      source_rows INTEGER NOT NULL DEFAULT 0,
+      usable_rows INTEGER NOT NULL DEFAULT 0,
+      review_rows INTEGER NOT NULL DEFAULT 0,
+      duplicate_rows INTEGER NOT NULL DEFAULT 0,
+      imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_intelligence_batches_sha ON intelligence_import_batches(sha256,imported_at DESC);
+    CREATE TABLE IF NOT EXISTS intelligence_records (
+      id INTEGER PRIMARY KEY,
+      batch_id INTEGER NOT NULL REFERENCES intelligence_import_batches(id) ON DELETE RESTRICT,
+      sheet_name TEXT NOT NULL DEFAULT '',
+      source_row INTEGER NOT NULL,
+      raw_json TEXT NOT NULL,
+      row_hash TEXT NOT NULL,
+      duplicate_of INTEGER REFERENCES intelligence_records(id) ON DELETE SET NULL,
+      external_id TEXT NOT NULL DEFAULT '',
+      make TEXT NOT NULL DEFAULT '',
+      model TEXT NOT NULL DEFAULT '',
+      trim TEXT NOT NULL DEFAULT '',
+      model_year INTEGER,
+      mileage INTEGER,
+      purchase_date TEXT,
+      sold_date TEXT,
+      advertised_price_aed REAL,
+      purchase_price_aed REAL,
+      sold_price_aed REAL,
+      preparation_cost_aed REAL NOT NULL DEFAULT 0,
+      purchase_type TEXT NOT NULL DEFAULT '',
+      specification TEXT NOT NULL DEFAULT '',
+      sales_channel TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT '',
+      data_quality REAL NOT NULL DEFAULT 0,
+      review_reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_intelligence_vehicle ON intelligence_records(make,model,trim,model_year);
+    CREATE INDEX IF NOT EXISTS idx_intelligence_dates ON intelligence_records(purchase_date,sold_date);
+    CREATE INDEX IF NOT EXISTS idx_intelligence_row_hash ON intelligence_records(row_hash);
+    """,
+    22: """
+    CREATE TABLE IF NOT EXISTS intelligence_trim_catalog (
+      id INTEGER PRIMARY KEY,
+      make TEXT NOT NULL,
+      model TEXT NOT NULL,
+      trim TEXT NOT NULL,
+      trim_rank INTEGER,
+      trim_count INTEGER,
+      market TEXT NOT NULL DEFAULT 'UAE',
+      generation TEXT NOT NULL DEFAULT '',
+      aliases_json TEXT NOT NULL DEFAULT '[]',
+      source TEXT NOT NULL DEFAULT 'Imported evidence',
+      source_url TEXT NOT NULL DEFAULT '',
+      researched_at TEXT,
+      confidence TEXT NOT NULL DEFAULT 'unverified',
+      UNIQUE(make,model,trim,market,generation)
+    );
+    CREATE INDEX IF NOT EXISTS idx_intelligence_trim_lookup ON intelligence_trim_catalog(make,model,trim);
+    """,
+    23: """
+    CREATE TABLE IF NOT EXISTS intelligence_chat_messages (
+      id INTEGER PRIMARY KEY,
+      role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS intelligence_policy_audit (
+      id INTEGER PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
 }
 
 
@@ -342,6 +422,8 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.receipts_dir = self.path.parent / "receipts"
         self.receipts_dir.mkdir(exist_ok=True)
+        self.intelligence_imports_dir = self.path.parent / "intelligence_imports"
+        self.intelligence_imports_dir.mkdir(exist_ok=True)
         self.migrate()
 
     @contextmanager

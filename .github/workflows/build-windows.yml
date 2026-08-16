@@ -1,0 +1,40 @@
+name: Build Intelligence for Windows
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run automated tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest
+      - name: Build Windows app
+        run: python -m PyInstaller --noconfirm --clean DXB_RUNWAY.spec
+      - name: Archive
+        shell: pwsh
+        run: Compress-Archive -Path "dist/DXB RUNWAY Intelligence.exe" -DestinationPath "dist/DXB-RUNWAY-Intelligence-Windows.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DXB-RUNWAY-Intelligence-Windows
+          path: dist/DXB-RUNWAY-Intelligence-Windows.zip
+          if-no-files-found: error
+      - name: Attach app to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "dist/DXB-RUNWAY-Intelligence-Windows.zip" --clobber

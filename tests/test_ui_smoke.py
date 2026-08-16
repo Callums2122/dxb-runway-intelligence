@@ -150,9 +150,8 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["contacts","inspection","templates","scenarios","goals","reports","settings"]]
-    assert window.nav_buttons["dashboard"].property("section")=="overview"
+    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","intelligence","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar"],["intelligence"],["contacts","inspection","templates","settings"]]
     assert window.nav_buttons["success"].property("section")=="leads"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["vehicle_history"].property("section")=="leads"
@@ -160,10 +159,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert window.nav_buttons["contacts"].property("section")=="other"
     assert window.nav_buttons["inspection"].property("section")=="other"
     assert window.nav_buttons["templates"].property("section")=="other"
-    assert window.nav_buttons["scenarios"].property("section")=="other"
-    assert window.nav_buttons["gym_today"].property("section")=="gym"
-    assert window.nav_buttons["transactions"].property("section")=="money"
-    assert window.nav_buttons["goals"].property("section")=="other"
+    assert window.nav_buttons["intelligence"].property("section")=="ai"
     assert category_label("Transport").endswith("Transport")
     assert category_label("Unknown category").endswith("Unknown category")
     for key,page in window.pages.items():
@@ -214,7 +210,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
-    assert stock.table.columnCount()==7 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text()
+    assert stock.table.columnCount()==8 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text() and "INTELLIGENCE" in stock.table.horizontalHeaderItem(7).text()
     assert success.table.rowCount()==10 and success.table.item(0,1).text()=="Keep cash budget deployed"
     assert "AED" in success.metrics["target"].value.text() and "sold" in success.metrics["projected"].detail.text()
     assert set(stock.spend_targets)=={"tier3","tier2","tier1"} and "budget" in stock.spend_targets["tier3"].detail.text()
@@ -268,7 +264,7 @@ def test_gym_migration_recovers_interrupted_schema_stamp(tmp_path: Path):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("PRAGMA user_version=19")
     recovered=Database(path)
-    assert recovered.query("PRAGMA user_version")[0][0]==20
+    assert recovered.query("PRAGMA user_version")[0][0]==23
     assert recovered.gym_profile()["weight_kg"]==70 and len(recovered.gym_meals())>=10
 
 

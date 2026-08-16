@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from .database import Database
 from .contact_import import import_downloaded_contacts
+from .intelligence import analyse_opportunity, split_vehicle
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
@@ -884,7 +885,7 @@ class StockLevelPage(Page):
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
         note=QLabel("Consignment cost is the agreed owner payout. It contributes to expected and realised profit, but does not use the cash purchasing budget. Margin is profit as a percentage of cost; speed grade uses days held: A+ <10 · A ≤20 · B ≤30 · C ≤60 · C- >60."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
+        self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","INTELLIGENCE GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -925,9 +926,12 @@ class StockLevelPage(Page):
             self.table.setRowHeight(i,58); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or f"Expected sale · AED {row['expected_sale_price_aed']:,.0f}"); self.table.setItem(i,0,first)
             cost=Decimal(str(row["purchase_price_aed"])); sale=Decimal(str(row["expected_sale_price_aed"])); profit=Decimal(str(row["expected_profit_aed"]))
             margin=vehicle_margin_percent(profit,cost); days_held=max(0,(date.today()-date.fromisoformat(str(row["purchased_date"])[:10])).days); grade=vehicle_speed_grade(days_held)
-            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held"]
+            make,model,trim,model_year=split_vehicle(row["vehicle_name"])
+            intelligence=analyse_opportunity(self.db,make=make,model=model,trim=trim,model_year=model_year,purchase_price_aed=float(cost),expected_sale_price_aed=float(sale)) if make and model else {"grade":"NO GRADE","decision":"INSUFFICIENT DATA","confidence":"none","sample_size":0}
+            intelligence_text=f"{intelligence['grade']} · {intelligence['decision']}\n{intelligence['confidence']} confidence · {intelligence.get('sample_size',0)} comps"
+            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held",intelligence_text]
             for j,value in enumerate(values,1):
-                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else None
+                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else COLORS["green"] if j==7 and intelligence["decision"]=="BUY" else COLORS["amber"] if j==7 and intelligence["decision"]=="NEGOTIATE" else COLORS["red"] if j==7 and intelligence["decision"]=="AVOID" else COLORS["muted"] if j==7 else None
                 self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j>=3 else Qt.AlignmentFlag.AlignVCenter,color))
         self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,120); self.table.setColumnWidth(2,100); self.table.setColumnWidth(3,130); self.table.setColumnWidth(4,130); self.table.setColumnWidth(5,155)
 
