@@ -150,9 +150,10 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","kpi","stock","vehicles","vehicle_history","calendar"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["contacts","inspection","templates","scenarios","goals","reports","settings"]]
+    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar"],["gym_today","gym_training","gym_nutrition","gym_progress","gym_meals"],["transactions","debt","budgets"],["contacts","inspection","templates","scenarios","goals","reports","settings"]]
     assert window.nav_buttons["dashboard"].property("section")=="overview"
+    assert window.nav_buttons["success"].property("section")=="leads"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["vehicle_history"].property("section")=="leads"
     assert window.nav_buttons["stock"].property("section")=="leads"
@@ -174,6 +175,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert "★" not in transactions.table.item(0,5).text()
     vehicles=window.pages["vehicles"]
     stock=window.pages["stock"]
+    success=window.pages["success"]
     contacts=window.pages["contacts"]
     inspection=window.pages["inspection"]
     templates=window.pages["templates"]
@@ -213,6 +215,8 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
     assert stock.table.columnCount()==7 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text()
+    assert success.table.rowCount()==10 and success.table.item(0,1).text()=="Keep cash budget deployed"
+    assert "AED" in success.metrics["target"].value.text() and "sold" in success.metrics["projected"].detail.text()
     assert set(stock.spend_targets)=={"tier3","tier2","tier1"} and "budget" in stock.spend_targets["tier3"].detail.text()
     assert stock.findChild(QScrollArea) is not None
     window.resize(1480,920); window.navigate("stock"); window.show(); application.processEvents()

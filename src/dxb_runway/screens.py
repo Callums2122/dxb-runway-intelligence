@@ -815,6 +815,49 @@ class KPITrackerPage(Page):
         self.db.delete_kpi_call(int(self.calls.item(row,0).data(Qt.ItemDataRole.UserRole))); self.refresh(); self.changed.emit()
 
 
+class SuccessChecklistPage(Page):
+    """Automatic monthly actions that connect stock, profit and KPI data to Tier 1."""
+    def __init__(self,db:Database):
+        super().__init__(db)
+        outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(24,22,24,28); layout.setSpacing(14)
+        self.header=SectionHeader("Checklist to success","Your live monthly route to Tier 1. Every item updates automatically from the rest of DXB RUNWAY."); layout.addWidget(self.header)
+        metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
+        for column,(key,label,color) in enumerate([("readiness","Tier 1 readiness",COLORS["green"]),("target","Tier 1 profit target",COLORS["purple"]),("projected","Projected month profit",COLORS["cyan"]),("gap","Profit gap",COLORS["amber"])]):
+            card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,column)
+        layout.addLayout(metrics)
+        progress_card=Card(); progress_layout=QVBoxLayout(progress_card); progress_layout.setContentsMargins(18,16,18,16); progress_top=QHBoxLayout(); self.progress_title=QLabel(); self.progress_title.setStyleSheet("font-size:18px;font-weight:800"); progress_top.addWidget(self.progress_title); progress_top.addStretch(); self.progress_status=QLabel(); self.progress_status.setStyleSheet("font-size:16px;font-weight:800"); progress_top.addWidget(self.progress_status); progress_layout.addLayout(progress_top); self.progress_detail=QLabel(); self.progress_detail.setObjectName("muted"); self.progress_detail.setWordWrap(True); progress_layout.addWidget(self.progress_detail); self.progress_bar=QProgressBar(); progress_layout.addWidget(self.progress_bar); layout.addWidget(progress_card)
+        checklist_card=Card(); checklist_layout=QVBoxLayout(checklist_card); checklist_layout.setContentsMargins(16,15,16,15); checklist_layout.addWidget(SectionHeader("Live checklist","The first three are the Tier 1 foundation. Every KPI below can remove another 0.50% from the profit percentage you need."))
+        self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["DONE","ACTION","TARGET","CURRENT","WHY IT MATTERS","STATUS"]); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setWordWrap(True); self.table.setMinimumHeight(560); checklist_layout.addWidget(self.table); layout.addWidget(checklist_card); outer.addWidget(page_scroll(content)); self.refresh()
+
+    def refresh(self)->None:
+        today=date.today(); month=today.strftime("%Y-%m"); budget=self.db.performance_budget(month); cash_used=self.db.active_cash_stock_total(); spend_pct=(cash_used/budget*Decimal("100")) if budget>0 else Decimal("0")
+        sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(row["realised_profit_aed"])) for row in sold),Decimal("0")); expected=sum((Decimal(str(row["expected_profit_aed"])) for row in self.db.stock_vehicles()),Decimal("0")); projected=money(realised+expected)
+        kpi_hits,kpi_reduction=monthly_kpi_adjustment(self.db,month); tier1_rate=max(Decimal("0"),TARGET_PERCENTAGES[today.month][2]-kpi_reduction); tier1_target=money(budget*tier1_rate); gap=max(Decimal("0"),money(tier1_target-projected))
+        foundations=[
+            ("Keep cash budget deployed","95% of budget",f"{spend_pct:.1f}% · AED {cash_used:,.0f}","Keeps enough cars working and activates Big Spender.",spend_pct>=Decimal("95")),
+            ("Build a Tier 1 profit pipeline",f"AED {tier1_target:,.0f}",f"AED {projected:,.0f}","Sold profit plus expected profit from every car currently in stock.",projected>=tier1_target),
+            ("Bank the Tier 1 profit",f"AED {tier1_target:,.0f}",f"AED {realised:,.0f}","Tier is awarded from realised eligible profit, not projected profit.",realised>=tier1_target),
+        ]
+        kpi_rows=[]
+        for name,target,current,hit in monthly_kpi_results(self.db,month,KPITrackerPage.CALL_TARGET):
+            if name=="Big Spender": continue
+            kpi_rows.append((name,target,current,"Removes 0.50% from every tier goal when achieved.",hit))
+        rows=foundations+kpi_rows; self.table.setRowCount(len(rows))
+        for row_index,(action,target,current,reason,hit) in enumerate(rows):
+            status="✓ COMPLETE" if hit else "TO DO"; values=["✓" if hit else "○",action,target,current,reason,status]
+            for column,value in enumerate(values): self.table.setItem(row_index,column,table_item(value,Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if hit and column in {0,5} else None))
+            self.table.setRowHeight(row_index,52)
+        for column,width in enumerate([58,190,170,175,360]): self.table.setColumnWidth(column,width)
+        foundation_hits=sum(1 for *_,hit in foundations if hit); readiness=int(foundation_hits/len(foundations)*100); self.progress_bar.setRange(0,100); self.progress_bar.setValue(readiness)
+        self.progress_title.setText(f"{calendar.month_name[today.month]} Tier 1 plan · {foundation_hits} / {len(foundations)} foundations ready")
+        ready=foundation_hits==len(foundations); self.progress_status.setText("✓ TIER 1 READY" if ready else f"{len(foundations)-foundation_hits} priority action{'s' if len(foundations)-foundation_hits!=1 else ''} left"); self.progress_status.setStyleSheet(f"font-size:16px;font-weight:800;color:{COLORS['green'] if ready else COLORS['amber']}")
+        self.progress_detail.setText(f"Current KPI wins: {kpi_hits} · tier target reduced by {kpi_reduction*100:g}% · live Tier 1 requirement {tier1_rate*100:g}% of AED {budget:,.0f}.")
+        self.metrics["readiness"].set_value(f"{readiness}%",f"{foundation_hits} of 3 core conditions")
+        self.metrics["target"].set_value(f"AED {tier1_target:,.0f}",f"{tier1_rate*100:g}% after {kpi_hits} KPI win{'s' if kpi_hits!=1 else ''}")
+        self.metrics["projected"].set_value(f"AED {projected:,.0f}",f"AED {realised:,.0f} sold + AED {expected:,.0f} stock")
+        self.metrics["gap"].set_value("COVERED" if gap==0 else f"AED {gap:,.0f}","Projected profit remaining" if gap else "Current pipeline covers Tier 1",COLORS["green"] if gap==0 else COLORS["amber"])
+
+
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
