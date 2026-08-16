@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import html
 import json
 import shlex
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -113,6 +112,120 @@ class IntelligenceSyncJob(QRunnable):
             self.signals.failed.emit(f"Saved locally; AI sync failed: {error}")
 
 
+class ChatComposer(QTextEdit):
+    send_requested = Signal()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter} and not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self.send_requested.emit(); event.accept(); return
+        super().keyPressEvent(event)
+
+
+class AskRunwayPage(Page):
+    """Dedicated conversational surface; the remote adviser still receives no callable tools."""
+
+    def __init__(self, db: Database):
+        super().__init__(db)
+        self._busy = False; self._thinking_phase = 0; self._thinking_widget = None
+        self._typing_answer = ""; self._typing_index = 0; self._typing_label = None
+        self.thinking_timer = QTimer(self); self.thinking_timer.setInterval(360); self.thinking_timer.timeout.connect(self._animate_thinking)
+        self.typing_timer = QTimer(self); self.typing_timer.setInterval(12); self.typing_timer.timeout.connect(self._typing_step)
+        outer = QVBoxLayout(self); outer.setContentsMargins(22,18,22,20); outer.setSpacing(12)
+        head = QHBoxLayout(); head.addWidget(SectionHeader("Ask Runway", "Your sharp, evidence-led buying adviser. Conversation and explicit owner instructions are remembered."), 1)
+        self.state = QLabel("●  Ready"); self.state.setStyleSheet(f"color:{COLORS['green']};font-weight:800"); head.addWidget(self.state, 0, Qt.AlignmentFlag.AlignTop); outer.addLayout(head)
+        safety = QLabel("PRIVATE · READ-ONLY · NO CRM OR EXTERNAL ACTIONS")
+        safety.setStyleSheet(f"color:{COLORS['green']};background:#0d211c;border:1px solid #234a3c;border-radius:10px;padding:8px 12px;font-size:10px;font-weight:800;letter-spacing:1px")
+        outer.addWidget(safety, 0, Qt.AlignmentFlag.AlignLeft)
+        self.chat_scroll = QScrollArea(); self.chat_scroll.setWidgetResizable(True); self.chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.chat_scroll.setStyleSheet("QScrollArea{background:#080e16;border:1px solid #1c2938;border-radius:16px} QScrollArea > QWidget > QWidget{background:#080e16}")
+        self.chat_host = QWidget(); self.chat_layout = QVBoxLayout(self.chat_host); self.chat_layout.setContentsMargins(26,26,26,26); self.chat_layout.setSpacing(18); self.chat_layout.addStretch()
+        self.chat_scroll.setWidget(self.chat_host); outer.addWidget(self.chat_scroll, 1)
+        composer = QFrame(); composer.setProperty("card", True); composer_layout = QHBoxLayout(composer); composer_layout.setContentsMargins(12,10,10,10); composer_layout.setSpacing(10)
+        self.chat_input = ChatComposer(); self.chat_input.setPlaceholderText("Message Runway…"); self.chat_input.setMinimumHeight(48); self.chat_input.setMaximumHeight(110)
+        self.chat_input.send_requested.connect(self.send_chat); composer_layout.addWidget(self.chat_input, 1)
+        self.chat_button = QPushButton("Send  ↑"); self.chat_button.setProperty("primary", True); self.chat_button.setMinimumHeight(44); self.chat_button.clicked.connect(self.send_chat); composer_layout.addWidget(self.chat_button)
+        outer.addWidget(composer)
+        hint = QLabel("Enter to send · Shift + Enter for a new line · say “remember…” to create lasting memory")
+        hint.setObjectName("muted"); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); outer.addWidget(hint)
+        self.refresh()
+
+    def _clear_messages(self) -> None:
+        while self.chat_layout.count() > 1:
+            item = self.chat_layout.takeAt(0)
+            if item.widget(): item.widget().hide(); item.widget().deleteLater()
+
+    def _add_bubble(self, role: str, message: str, label_text: str | None = None) -> tuple[QWidget, QLabel]:
+        row = QWidget(); row_layout = QHBoxLayout(row); row_layout.setContentsMargins(0,0,0,0); row_layout.setSpacing(10)
+        bubble = QFrame(); bubble.setMinimumWidth(520 if role == "assistant" else 280); bubble.setMaximumWidth(860); bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        bubble_layout = QVBoxLayout(bubble); bubble_layout.setContentsMargins(16,12,16,13); bubble_layout.setSpacing(6)
+        speaker = QLabel(label_text or ("You" if role == "user" else "Runway")); speaker.setStyleSheet(f"color:{COLORS['cyan'] if role == 'assistant' else '#bdb1ff'};font-size:11px;font-weight:850")
+        body = QLabel(message); body.setWordWrap(True); body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse); body.setStyleSheet("font-size:14px;line-height:1.45")
+        bubble_layout.addWidget(speaker); bubble_layout.addWidget(body)
+        if role == "user":
+            bubble.setObjectName("userBubble"); bubble.setStyleSheet("QFrame#userBubble{background:#201b3b;border:1px solid #4a3f79;border-radius:16px}"); row_layout.addStretch(); row_layout.addWidget(bubble)
+        else:
+            avatar = QLabel("R"); avatar.setAlignment(Qt.AlignmentFlag.AlignCenter); avatar.setFixedSize(32,32); avatar.setStyleSheet(f"background:{COLORS['cyan']};color:#061018;border-radius:16px;font-weight:900")
+            bubble.setObjectName("assistantBubble"); bubble.setStyleSheet("QFrame#assistantBubble{background:#101925;border:1px solid #27384c;border-radius:16px}"); row_layout.addWidget(avatar, 0, Qt.AlignmentFlag.AlignTop); row_layout.addWidget(bubble); row_layout.addStretch()
+        self.chat_layout.insertWidget(self.chat_layout.count()-1, row); self._scroll_bottom(); return row, body
+
+    def _scroll_bottom(self) -> None:
+        QTimer.singleShot(0, lambda: self.chat_scroll.verticalScrollBar().setValue(self.chat_scroll.verticalScrollBar().maximum()))
+
+    def refresh(self) -> None:
+        if self._busy: return
+        self._clear_messages(); messages = chat_conversation(self.db, 60)
+        if not messages:
+            self._add_bubble("assistant", "Tell me the make, model, trim, year, buying price and expected retail. I’ll give you the evidence, the risk and the brutal answer.", "Runway · ready")
+        else:
+            for message in messages: self._add_bubble(message["role"] if message["role"] in {"user", "assistant"} else "assistant", message["message"])
+
+    def send_chat(self) -> None:
+        question = self.chat_input.toPlainText().strip()
+        if not question or self._busy: return
+        self._busy = True; self.chat_input.clear(); self.chat_input.setEnabled(False); self.chat_button.setEnabled(False); self.chat_button.setText("Working…")
+        save_chat_message(self.db, "user", question); self._add_bubble("user", question)
+        learned = learning_directive(question)
+        if learned:
+            save_intelligence_memory(self.db, learned); self._sync_ai_context()
+            self._add_bubble("assistant", f"Memory saved: {learned}", "Runway · memory")
+        self._thinking_widget, _ = self._add_bubble("assistant", "Thinking", "Runway")
+        self._thinking_phase = 0; self.thinking_timer.start(); self.state.setText("●  Thinking"); self.state.setStyleSheet(f"color:{COLORS['amber']};font-weight:800")
+        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence and owner-approved learned preferences. Learned preferences guide analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
+        job = OpenClawChatJob(json.dumps(context)); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
+
+    def _animate_thinking(self) -> None:
+        if not self._thinking_widget: return
+        labels = self._thinking_widget.findChildren(QLabel)
+        if labels: labels[-1].setText("Thinking" + "." * (self._thinking_phase % 4))
+        self._thinking_phase += 1
+
+    def _remove_thinking(self) -> None:
+        self.thinking_timer.stop()
+        if self._thinking_widget:
+            self.chat_layout.removeWidget(self._thinking_widget); self._thinking_widget.deleteLater(); self._thinking_widget = None
+
+    def _chat_answer(self, answer: str) -> None:
+        self._remove_thinking(); save_chat_message(self.db, "assistant", answer)
+        _, self._typing_label = self._add_bubble("assistant", "", "Runway · typing")
+        self._typing_answer = answer; self._typing_index = 0; self.state.setText("●  Typing"); self.state.setStyleSheet(f"color:{COLORS['cyan']};font-weight:800"); self.typing_timer.start()
+
+    def _typing_step(self) -> None:
+        if not self._typing_label: self._finish_response(); return
+        step = 3 if len(self._typing_answer) < 900 else 6
+        self._typing_index = min(len(self._typing_answer), self._typing_index + step); self._typing_label.setText(self._typing_answer[:self._typing_index]); self._scroll_bottom()
+        if self._typing_index >= len(self._typing_answer): self._finish_response()
+
+    def _finish_response(self) -> None:
+        self.typing_timer.stop(); self._typing_label = None; self._busy = False; self.chat_input.setEnabled(True); self.chat_button.setEnabled(True); self.chat_button.setText("Send  ↑")
+        self.state.setText("●  Ready"); self.state.setStyleSheet(f"color:{COLORS['green']};font-weight:800"); self.chat_input.setFocus()
+
+    def _chat_error(self, error: str) -> None:
+        self._remove_thinking(); self._add_bubble("assistant", error, "Connection problem"); self._finish_response()
+
+    def _sync_ai_context(self) -> None:
+        files = write_intelligence_snapshot(self.db); sync = IntelligenceSyncJob(files); QThreadPool.globalInstance().start(sync); self._active_memory_sync_job = sync
+
+
 class IntelligencePage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
@@ -122,7 +235,6 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._opportunity_tab(), "Opportunity check")
         self.tabs.addTab(self._data_tab(), "Historical data")
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
-        self.tabs.addTab(self._chat_tab(), "Ask Runway")
         self.tabs.addTab(self._memory_tab(), "Memory")
         self.refresh()
 
@@ -164,15 +276,6 @@ class IntelligencePage(Page):
         self.grades_table = QTableWidget(0, 9)
         self.grades_table.setHorizontalHeaderLabels(["VEHICLE", "TRIM", "GRADE", "DECISION", "CONFIDENCE", "SAMPLES", "MEDIAN DAYS", "AVG MARGIN", "TRIM POSITION"])
         self.grades_table.horizontalHeader().setStretchLastSection(True); root.addWidget(self.grades_table)
-        return content
-
-    def _chat_tab(self) -> QWidget:
-        content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(10)
-        safety = QLabel("Runway AI is read-only. It cannot contact customers, access CRM/company systems, send email, make calls, spend money or change grades.")
-        safety.setWordWrap(True); safety.setStyleSheet(f"color:{COLORS['green']};font-weight:700"); root.addWidget(safety)
-        self.chat_history = QTextEdit(); self.chat_history.setReadOnly(True); self.chat_history.setPlaceholderText("Ask about a car, margin, stock risk or the evidence behind a grade."); root.addWidget(self.chat_history, 1)
-        line = QHBoxLayout(); self.chat_input = QLineEdit(); self.chat_input.setPlaceholderText("Ask Runway…"); self.chat_input.returnPressed.connect(self.send_chat); line.addWidget(self.chat_input, 1)
-        self.chat_button = QPushButton("Send"); self.chat_button.setProperty("primary", True); self.chat_button.clicked.connect(self.send_chat); line.addWidget(self.chat_button); root.addLayout(line)
         return content
 
     def _memory_tab(self) -> QWidget:
@@ -226,28 +329,6 @@ class IntelligencePage(Page):
         except Exception as error:
             QMessageBox.critical(self, "Import failed", str(error))
 
-    def send_chat(self) -> None:
-        question = self.chat_input.text().strip()
-        if not question: return
-        save_chat_message(self.db, "user", question)
-        learned = learning_directive(question)
-        if learned:
-            save_intelligence_memory(self.db, learned)
-            self.memory_status.setText(f"Remembered: {learned}")
-            self._refresh_memories(); self._sync_ai_context()
-        self.chat_input.clear(); self.chat_history.append(f"<b>You</b><br>{html.escape(question)}<br>")
-        if learned: self.chat_history.append(f"<span style='color:{COLORS['green']}'><b>Memory saved</b> · this instruction will be used in future chats.</span><br>")
-        self.chat_button.setEnabled(False); self.chat_button.setText("Thinking…")
-        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence and owner-approved learned preferences. Learned preferences guide your analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
-        job = OpenClawChatJob(json.dumps(context)); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
-
-    def _chat_answer(self, answer: str) -> None:
-        save_chat_message(self.db, "assistant", answer)
-        self.chat_history.append(f"<b>Runway</b><br>{html.escape(answer).replace(chr(10), '<br>')}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
-
-    def _chat_error(self, error: str) -> None:
-        self.chat_history.append(f"<b>Connection</b><br>{html.escape(error)}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
-
     def add_memory(self) -> None:
         memory = self.memory_input.text().strip()
         if not memory: return
@@ -274,16 +355,8 @@ class IntelligencePage(Page):
             learned = QTableWidgetItem(memory["memory_text"]); learned.setData(Qt.ItemDataRole.UserRole, memory["id"]); self.memory_table.setItem(row, 0, learned)
             self.memory_table.setItem(row, 1, QTableWidgetItem(memory["source"].title())); self.memory_table.setItem(row, 2, QTableWidgetItem(memory["updated_at"]))
 
-    def _refresh_chat_history(self) -> None:
-        if not hasattr(self, "chat_history"): return
-        self.chat_history.clear()
-        for message in chat_conversation(self.db, 40):
-            speaker = "You" if message["role"] == "user" else "Runway" if message["role"] == "assistant" else "System"
-            body = html.escape(message["message"]).replace("\n", "<br>")
-            self.chat_history.append(f"<b>{speaker}</b><br>{body}<br>")
-
     def refresh(self) -> None:
-        self._refresh_memories(); self._refresh_chat_history()
+        self._refresh_memories()
         if hasattr(self, "batch_table"):
             batches = import_history(self.db); self.batch_table.setRowCount(len(batches))
             for row, batch in enumerate(batches):

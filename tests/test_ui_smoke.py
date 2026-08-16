@@ -151,8 +151,8 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","intelligence","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar"],["intelligence"],["contacts","inspection","templates","settings"]]
+    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","goals","vehicle_history","reports","intelligence","ask_runway","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar"],["intelligence","ask_runway"],["contacts","inspection","templates","settings"]]
     assert window.nav_buttons["success"].property("section")=="leads"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["vehicle_history"].property("section")=="leads"
@@ -161,6 +161,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert window.nav_buttons["inspection"].property("section")=="other"
     assert window.nav_buttons["templates"].property("section")=="other"
     assert window.nav_buttons["intelligence"].property("section")=="ai"
+    assert window.nav_buttons["ask_runway"].property("section")=="ai"
     assert category_label("Transport").endswith("Transport")
     assert category_label("Unknown category").endswith("Unknown category")
     for key,page in window.pages.items():
@@ -250,6 +251,18 @@ def test_intelligence_page_can_store_and_forget_manual_memory(tmp_path: Path):
     assert db.query("SELECT memory_text FROM intelligence_memories WHERE active=1")[0][0]=="Always explain seasonal demand"
     page.memory_table.selectRow(0); page.forget_selected_memory()
     assert db.query("SELECT COUNT(*) FROM intelligence_memories WHERE active=1")[0][0]==0
+    window.close()
+
+
+def test_ask_runway_is_separate_and_animates_received_answer(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
+    intelligence=window.pages["intelligence"]
+    assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Memory"]
+    chat=window.pages["ask_runway"]; chat._busy=True; chat._chat_answer("Evidence first. Buy only at the right margin."); chat.typing_timer.stop()
+    while chat._typing_index < len(chat._typing_answer): chat._typing_step()
+    assert chat.state.text()=="●  Ready"
+    assert db.query("SELECT message FROM intelligence_chat_messages WHERE role='assistant'")[0][0].startswith("Evidence first")
+    window.navigate("ask_runway"); assert window.context.text()=="ASK RUNWAY"
     window.close()
 
 
