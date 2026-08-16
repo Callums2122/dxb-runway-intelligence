@@ -5,8 +5,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
-from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QDate, QPoint, Qt
+from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
 
 from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
@@ -211,6 +211,10 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
     assert stock.table.columnCount()==7 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text()
     assert set(stock.spend_targets)=={"tier3","tier2","tier1"} and "budget" in stock.spend_targets["tier3"].detail.text()
+    assert stock.findChild(QScrollArea) is not None
+    window.resize(1480,920); window.navigate("stock"); window.show(); application.processEvents()
+    spend_card=stock.spend_targets["tier3"]
+    assert spend_card.mapTo(stock,QPoint(0,spend_card.height())).y() <= stock.spend_note.mapTo(stock,QPoint(0,0)).y()
     assert "remaining" in stock.live_budget_value.text() and "revolving" in stock.live_budget_detail.text()
     assert "value" in stock.metrics and "includes consignments" in stock.metrics["value"].detail.text()
     assert "realistic_potential" in stock.metrics and "maximum_potential" in stock.metrics

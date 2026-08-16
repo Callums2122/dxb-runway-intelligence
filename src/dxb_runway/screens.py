@@ -818,7 +818,8 @@ class KPITrackerPage(Page):
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
-        layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
+        outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0)
+        content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Stock level","Every vehicle currently held, including cash purchases and consignments.")); top.addStretch()
         add=QPushButton("＋ Add car"); add.setProperty("primary",True); add.clicked.connect(self.add_vehicle); top.addWidget(add)
         consignment=QPushButton("Mark as consignment"); consignment.clicked.connect(self.mark_consignment); top.addWidget(consignment)
@@ -828,7 +829,7 @@ class StockLevelPage(Page):
         spend_heading=QLabel("ESTIMATED CASH SPEND NEEDED AT CURRENT MARGIN"); spend_heading.setObjectName("eyebrow"); budget_layout.addWidget(spend_heading); spend_grid=QGridLayout(); spend_grid.setSpacing(10); self.spend_targets={}
         for column,(key,label,color) in enumerate([("tier3","T3 spend guide",COLORS["cyan"]),("tier2","T2 spend guide",COLORS["purple"]),("tier1","T1 spend guide",COLORS["green"])]):
             card=MetricCard(label,accent=color); card.setMinimumHeight(168); card.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); card.detail.setMinimumHeight(38); self.spend_targets[key]=card; spend_grid.addWidget(card,0,column)
-        budget_layout.addLayout(spend_grid); spend_note=QLabel("Tier is profit-based, not spend-based. These estimates use your current expected cash-stock margin and exclude consignments. Maintain 95% spend to activate the Big Spender KPI."); spend_note.setObjectName("muted"); spend_note.setWordWrap(True); budget_layout.addWidget(spend_note); layout.addWidget(budget_card)
+        budget_layout.addLayout(spend_grid); self.spend_note=QLabel("Tier is profit-based, not spend-based. These estimates use your current expected cash-stock margin and exclude consignments. Maintain 95% spend to activate the Big Spender KPI."); self.spend_note.setObjectName("muted"); self.spend_note.setWordWrap(True); budget_layout.addWidget(self.spend_note); layout.addWidget(budget_card)
         metrics=QGridLayout(); metrics.setSpacing(12); self.metrics={}
         for i,(key,label,color) in enumerate([("total","Cars in stock",COLORS["cyan"]),("cash","Cash purchases",COLORS["green"]),("consignment","Consignments",COLORS["purple"]),("value","Total stock value",COLORS["cyan"]),("profit","Expected stock profit",COLORS["amber"])]):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
@@ -840,7 +841,7 @@ class StockLevelPage(Page):
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
         note=QLabel("Consignment cost is the agreed owner payout. It contributes to expected and realised profit, but does not use the cash purchasing budget. Margin is profit as a percentage of cost; speed grade uses days held: A+ <10 · A ≤20 · B ≤30 · C ≤60 · C- >60."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1)
+        self.table=QTableWidget(0,7); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
