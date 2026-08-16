@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from .database import Database
 from .dialogs import MoneyBox
-from .intelligence import analyse_opportunity, import_history, import_vehicle_history, recent_vehicle_grades, write_intelligence_snapshot
+from .intelligence import analyse_opportunity, chat_evidence, import_history, import_vehicle_history, recent_vehicle_grades, write_intelligence_snapshot
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
 from .widgets import Card, SectionHeader
@@ -22,6 +22,26 @@ from .widgets import Card, SectionHeader
 
 def _money(value: object) -> str:
     return f"AED {float(value or 0):,.0f}"
+
+
+def openclaw_answer(payload: object) -> str:
+    """Extract visible assistant text from OpenClaw's stable JSON envelope."""
+    if not isinstance(payload, dict):
+        return str(payload)
+    result = payload.get("result")
+    if isinstance(result, dict):
+        payloads = result.get("payloads")
+        if isinstance(payloads, list):
+            parts = [str(item.get("text", "")).strip() for item in payloads if isinstance(item, dict) and item.get("text")]
+            if parts:
+                return "\n\n".join(parts)
+        meta = result.get("meta")
+        if isinstance(meta, dict) and meta.get("finalAssistantVisibleText"):
+            return str(meta["finalAssistantVisibleText"])
+    for key in ("response", "text", "result"):
+        if isinstance(payload.get(key), str):
+            return str(payload[key])
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class WorkerSignals(QObject):
@@ -53,8 +73,7 @@ class OpenClawChatJob(QRunnable):
                 raise RuntimeError(result.stderr.strip() or "OpenClaw did not answer")
             answer = result.stdout.strip()
             try:
-                payload = json.loads(answer)
-                answer = payload.get("result") or payload.get("response") or payload.get("text") or answer
+                answer = openclaw_answer(json.loads(answer))
             except json.JSONDecodeError:
                 pass
             self.signals.finished.emit(str(answer))
@@ -63,7 +82,7 @@ class OpenClawChatJob(QRunnable):
 
 
 class IntelligenceSyncJob(QRunnable):
-    def __init__(self, files: tuple[Path, Path]):
+    def __init__(self, files: tuple[Path, Path, Path]):
         super().__init__(); self.files = files; self.signals = WorkerSignals()
 
     def run(self) -> None:
@@ -73,11 +92,17 @@ class IntelligenceSyncJob(QRunnable):
         try:
             result = subprocess.run(
                 ["scp", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=12",
-                 *(str(path) for path in self.files),
+                 *(str(path) for path in self.files[:2]),
                  "callumadmin@157.180.75.235:/home/callumadmin/.openclaw/workspace-dxb-runway/data/"],
                 capture_output=True, text=True, timeout=300, check=False,
             )
             if result.returncode: raise RuntimeError(result.stderr.strip() or "Secure sync failed")
+            context_result = subprocess.run(
+                ["scp", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=12", str(self.files[2]),
+                 "callumadmin@157.180.75.235:/home/callumadmin/.openclaw/workspace-dxb-runway/USER.md"],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            if context_result.returncode: raise RuntimeError(context_result.stderr.strip() or "AI context sync failed")
             self.signals.finished.emit("Historical data securely synced to Runway AI.")
         except Exception as error:
             self.signals.failed.emit(f"Saved locally; AI sync failed: {error}")
@@ -181,7 +206,7 @@ class IntelligencePage(Page):
         question = self.chat_input.text().strip()
         if not question: return
         self.chat_input.clear(); self.chat_history.append(f"<b>You</b><br>{question}<br>"); self.chat_button.setEnabled(False); self.chat_button.setText("Thinking…")
-        context = {"question": question, "instruction": "Use read-only vehicle intelligence. Never take an external action. Be sharp, brutal, evidence-led and concise."}
+        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
         job = OpenClawChatJob(json.dumps(context)); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
 
     def _chat_answer(self, answer: str) -> None:

@@ -94,8 +94,9 @@ def test_snapshot_contains_index_and_every_retained_row(tmp_path: Path) -> None:
     db = _database(tmp_path); source = tmp_path / "history.csv"; _write_messy_history(source)
     import_vehicle_history(db, source); import_vehicle_history(db, source)
 
-    index_path, history_path = write_intelligence_snapshot(db)
+    index_path, history_path, context_path = write_intelligence_snapshot(db)
 
     index = json.loads(index_path.read_text())
     assert index["total_rows_retained"] == 8 and index["usable_rows"] == 3
     assert len(history_path.read_text().splitlines()) == 8
+    assert "RUNWAY SNAPSHOT" in context_path.read_text() and '"Q8"' in context_path.read_text()

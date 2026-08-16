@@ -12,12 +12,12 @@ Private, data-led vehicle purchasing intelligence for macOS and Windows. This is
 - Prioritises identical make/model/trim examples; same-model vehicles contribute at reduced weight and the wider market is context only.
 - Shows sample size, identical-trim samples, confidence, median days, realised margin, ROI and trim position.
 - Adds the evidence grade to current Stock Level rows.
-- Securely mirrors the full retained evidence and a compact index to a dedicated read-only OpenClaw workspace after each import.
+- Securely stores the full retained evidence for audit and injects a bounded aggregate snapshot into the dedicated OpenClaw workspace after each import.
 - Provides a simple Runway chat powered by GPT-5.6 Luna at medium reasoning on the private VPS.
 
 ## AI safety boundary
 
-The VPS agent is a read-only adviser. It cannot access CRM/Odoo/company systems, execute shell commands, edit files, use a browser, send messages, contact customers, send email, make calls, spend money, use GitHub, create cron jobs or spawn agents. Only Callum and the explicitly bound `🤖・ask-runway` channel are accepted.
+The VPS agent is an adviser with no callable tools. OpenClaw's internal Codex execution mode is `auto`, but the agent's effective tool surface remains empty: it cannot access CRM/Odoo/company systems, execute shell commands, edit files, use a browser, send messages, contact customers, send email, make calls, spend money, use GitHub, create cron jobs or spawn agents. A bounded evidence snapshot is injected into its context, and only Callum and the explicitly bound `🤖・ask-runway` channel are accepted.
 
 The deterministic local score owns the grade. The language model may explain the result but cannot change it. Imported spreadsheet text is untrusted data and can never override agent policy.
 

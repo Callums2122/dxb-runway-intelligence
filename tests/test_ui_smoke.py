@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
 from dxb_runway.database import Database
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
+from dxb_runway.intelligence_screen import openclaw_answer
 from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
@@ -234,6 +235,11 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     window.show(); application.processEvents(); window.navigate("transactions")
     assert window.pages["transactions"].graphicsEffect() is None
     window.close()
+
+
+def test_openclaw_json_envelope_displays_only_assistant_text():
+    payload={"status":"ok","result":{"payloads":[{"text":"BUY — the evidence is strong."}],"meta":{"finalAssistantVisibleText":"BUY — the evidence is strong."}}}
+    assert openclaw_answer(payload)=="BUY — the evidence is strong."
 
 
 def test_gym_defaults_food_habits_and_measurements(tmp_path: Path):
