@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -26,6 +28,22 @@ from .widgets import Card, SectionHeader
 
 def _money(value: object) -> str:
     return f"AED {float(value or 0):,.0f}"
+
+
+def _agent_avatar_path() -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base / "assets" / "runway_agent_profile.png"
+
+
+class AgentAvatar(QWidget):
+    def __init__(self, size: int = 36):
+        super().__init__(); self.setObjectName("agentAvatar"); self.setFixedSize(size, size); self.pixmap = QPixmap(str(_agent_avatar_path()))
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        path = QPainterPath(); path.addEllipse(QRectF(self.rect())); painter.setClipPath(path)
+        if not self.pixmap.isNull(): painter.drawPixmap(self.rect(), self.pixmap)
+        else: painter.fillPath(path, COLORS["cyan"])
 
 
 def openclaw_answer(payload: object) -> str:
@@ -131,7 +149,7 @@ class AskRunwayPage(Page):
         self.thinking_timer = QTimer(self); self.thinking_timer.setInterval(360); self.thinking_timer.timeout.connect(self._animate_thinking)
         self.typing_timer = QTimer(self); self.typing_timer.setInterval(12); self.typing_timer.timeout.connect(self._typing_step)
         outer = QVBoxLayout(self); outer.setContentsMargins(22,18,22,20); outer.setSpacing(12)
-        head = QHBoxLayout(); head.addWidget(SectionHeader("Ask Runway", "Your sharp, evidence-led buying adviser. Conversation and explicit owner instructions are remembered."), 1)
+        head = QHBoxLayout(); head.addWidget(AgentAvatar(46), 0, Qt.AlignmentFlag.AlignTop); head.addWidget(SectionHeader("Ask Runway", "Your sharp, evidence-led buying adviser. Conversation and explicit owner instructions are remembered."), 1)
         self.state = QLabel("●  Ready"); self.state.setStyleSheet(f"color:{COLORS['green']};font-weight:800"); head.addWidget(self.state, 0, Qt.AlignmentFlag.AlignTop); outer.addLayout(head)
         safety = QLabel("PRIVATE · READ-ONLY · NO CRM OR EXTERNAL ACTIONS")
         safety.setStyleSheet(f"color:{COLORS['green']};background:#0d211c;border:1px solid #234a3c;border-radius:10px;padding:8px 12px;font-size:10px;font-weight:800;letter-spacing:1px")
@@ -164,7 +182,7 @@ class AskRunwayPage(Page):
         if role == "user":
             bubble.setObjectName("userBubble"); bubble.setStyleSheet("QFrame#userBubble{background:#201b3b;border:1px solid #4a3f79;border-radius:16px}"); row_layout.addStretch(); row_layout.addWidget(bubble)
         else:
-            avatar = QLabel("R"); avatar.setAlignment(Qt.AlignmentFlag.AlignCenter); avatar.setFixedSize(32,32); avatar.setStyleSheet(f"background:{COLORS['cyan']};color:#061018;border-radius:16px;font-weight:900")
+            avatar = AgentAvatar(36)
             bubble.setObjectName("assistantBubble"); bubble.setStyleSheet("QFrame#assistantBubble{background:#101925;border:1px solid #27384c;border-radius:16px}"); row_layout.addWidget(avatar, 0, Qt.AlignmentFlag.AlignTop); row_layout.addWidget(bubble); row_layout.addStretch()
         self.chat_layout.insertWidget(self.chat_layout.count()-1, row); self._scroll_bottom(); return row, body
 

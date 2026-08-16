@@ -6,7 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
 from PySide6.QtCore import QDate, QPoint, Qt
-from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea, QWidget
 
 from dxb_runway.database import Database, SCHEMA_VERSION
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
@@ -259,6 +259,7 @@ def test_ask_runway_is_separate_and_animates_received_answer(tmp_path: Path):
     intelligence=window.pages["intelligence"]
     assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Memory"]
     chat=window.pages["ask_runway"]; chat._busy=True; chat._chat_answer("Evidence first. Buy only at the right margin."); chat.typing_timer.stop()
+    assert len(chat.findChildren(QWidget, "agentAvatar"))>=2
     while chat._typing_index < len(chat._typing_answer): chat._typing_step()
     assert chat.state.text()=="●  Ready"
     assert db.query("SELECT message FROM intelligence_chat_messages WHERE role='assistant'")[0][0].startswith("Evidence first")

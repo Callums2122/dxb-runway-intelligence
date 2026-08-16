@@ -15,6 +15,7 @@ Private, data-led vehicle purchasing intelligence for macOS and Windows. This is
 - Securely stores the full retained evidence for audit and injects a bounded aggregate snapshot into the dedicated OpenClaw workspace after each import.
 - Provides a simple Runway chat powered by GPT-5.6 Luna at medium reasoning on the private VPS.
 - Presents Ask Runway as its own RUNWAY AI sidebar page with conversational message bubbles, animated thinking feedback and typewriter-style responses.
+- Uses the dedicated Runway agent portrait in the page header and every assistant message.
 - Retains chat history locally and turns clear owner instructions such as “remember”, “from now on” or “add seasonality to the analysis” into durable, reviewable memory.
 - Includes a Memory screen where learned preferences can be added or forgotten; memories are injected into future app and Discord analysis without granting the agent write access.
 
