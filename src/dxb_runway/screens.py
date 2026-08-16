@@ -915,7 +915,7 @@ class VehicleDeskPage(Page):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,i)
         root.addLayout(metrics)
         tier_card=Card(); tier_layout=QVBoxLayout(tier_card); tier_layout.setContentsMargins(18,15,18,15); tier_top=QHBoxLayout(); self.tier=QLabel("BASELINE · 4%"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{COLORS['cyan']}"); tier_top.addWidget(self.tier); tier_top.addStretch(); self.achievement=QLabel(); self.achievement.setObjectName("muted"); tier_top.addWidget(self.achievement); tier_layout.addLayout(tier_top); self.schedule=QLabel(); self.schedule.setObjectName("muted"); self.schedule.setWordWrap(True); tier_layout.addWidget(self.schedule); self.tier_progress=QProgressBar(); tier_layout.addWidget(self.tier_progress); root.addWidget(tier_card)
-        tier_matrix=Card(); matrix_layout=QVBoxLayout(tier_matrix); matrix_layout.setContentsMargins(16,15,16,15); matrix_layout.addWidget(SectionHeader("Monthly tier percentages","Standard targets before KPI reductions; the live tracker below still uses KPI-adjusted thresholds."))
+        tier_matrix=Card(); matrix_layout=QVBoxLayout(tier_matrix); matrix_layout.setContentsMargins(16,15,16,15); matrix_layout.addWidget(SectionHeader("Monthly tier percentages","Standard targets before KPI reductions, using the selected month's purchasing budget across every row. The live tracker still uses KPI-adjusted thresholds."))
         earnings_cards=QGridLayout(); earnings_cards.setSpacing(12); self.tier_earnings={}
         for column,(key,label,color) in enumerate([("tier3","Tier 3 total pay",COLORS["cyan"]),("tier2","Tier 2 total pay",COLORS["purple"]),("tier1","Tier 1 total pay",COLORS["green"])]):
             card=MetricCard(label,accent=color); self.tier_earnings[key]=card; earnings_cards.addWidget(card,0,column)
@@ -973,14 +973,15 @@ class VehicleDeskPage(Page):
             values.insert(0,"Cash purchase" if row["purchase_type"]=="cash" else "Consignment")
             for j,value in enumerate(values,1): self.sold_table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight,color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j in {3,4} and profit>=0 else COLORS["red"] if j in {3,4} else None))
         self.sold_table.setColumnWidth(0,140); self.sold_table.setColumnWidth(1,120); self.sold_table.setColumnWidth(2,95); self.sold_table.setColumnWidth(3,150); self.sold_table.horizontalHeader().setStretchLastSection(True)
-        self.refresh_tier_table(salary)
+        self.refresh_tier_table(salary,budget)
 
-    def refresh_tier_table(self,salary:Decimal)->None:
+    def refresh_tier_table(self,salary:Decimal,table_budget:Decimal|None=None)->None:
+        table_budget=table_budget if table_budget is not None else self.db.performance_budget(self.selected_month())
         self.tier_table.setRowCount(12)
         for row_index in range(12):
-            month_number=row_index+1; month=str(self.month.itemData(row_index,Qt.ItemDataRole.UserRole)); year=int(month[:4]); budget=self.db.performance_budget(month); sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(vehicle["realised_profit_aed"])) for vehicle in sold),Decimal("0")); kpi_hits,kpi_reduction=monthly_kpi_adjustment(self.db,month); result=calculate_earnings(year=year,month=month_number,budget_aed=budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=salary,target_percentage_reduction=kpi_reduction); original=TARGET_PERCENTAGES[month_number]; original_t3,original_t2,original_t1=original
-            target_profits=[money(budget*target) for target in original]
-            values=[self.month.itemText(row_index),f"{budget:,.0f}","4%",f"AED {target_profits[0]:,.0f}\n{float(original_t3*100):g}% / 5%",f"AED {target_profits[1]:,.0f}\n{float(original_t2*100):g}% / 6.5%",f"AED {target_profits[2]:,.0f}\n{float(original_t1*100):g}% / 8%",f"{result.tier.value} / {float(result.rate*100):g}% · {kpi_hits} KPI"]
+            month_number=row_index+1; month=str(self.month.itemData(row_index,Qt.ItemDataRole.UserRole)); year=int(month[:4]); sold=self.db.sold_vehicles(month); realised=sum((Decimal(str(vehicle["realised_profit_aed"])) for vehicle in sold),Decimal("0")); kpi_hits,kpi_reduction=monthly_kpi_adjustment(self.db,month); result=calculate_earnings(year=year,month=month_number,budget_aed=table_budget,eligible_profit_aed=max(Decimal("0"),realised),salary_aed=salary,target_percentage_reduction=kpi_reduction); original=TARGET_PERCENTAGES[month_number]; original_t3,original_t2,original_t1=original
+            target_profits=[money(table_budget*target) for target in original]
+            values=[self.month.itemText(row_index),f"{table_budget:,.0f}","4%",f"AED {target_profits[0]:,.0f}\n{float(original_t3*100):g}% / 5%",f"AED {target_profits[1]:,.0f}\n{float(original_t2*100):g}% / 6.5%",f"AED {target_profits[2]:,.0f}\n{float(original_t1*100):g}% / 8%",f"{result.tier.value} / {float(result.rate*100):g}% · {kpi_hits} KPI"]
             for column,value in enumerate(values):
                 item=table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if column else Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if column==6 and result.tier!=CommissionTier.BASELINE else COLORS["cyan"] if column==6 else None); self.tier_table.setItem(row_index,column,item)
             self.tier_table.setRowHeight(row_index,48)
