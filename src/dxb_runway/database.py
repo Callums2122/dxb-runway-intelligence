@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 
 MIGRATIONS: dict[int, str] = {
@@ -376,6 +376,18 @@ MIGRATIONS: dict[int, str] = {
       detail TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    """,
+    24: """
+    CREATE TABLE IF NOT EXISTS intelligence_memories (
+      id INTEGER PRIMARY KEY,
+      memory_text TEXT NOT NULL,
+      normalized_text TEXT NOT NULL UNIQUE,
+      source TEXT NOT NULL DEFAULT 'conversation',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_intelligence_memories_active ON intelligence_memories(active,created_at DESC);
     """,
 }
 

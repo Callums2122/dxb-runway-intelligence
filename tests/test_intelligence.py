@@ -5,7 +5,11 @@ import json
 from pathlib import Path
 
 from dxb_runway.database import Database
-from dxb_runway.intelligence import analyse_opportunity, import_vehicle_history, write_intelligence_snapshot
+from dxb_runway.intelligence import (
+    analyse_opportunity, chat_evidence, forget_intelligence_memory, import_vehicle_history,
+    intelligence_memories, learning_directive, save_chat_message, save_intelligence_memory,
+    write_intelligence_snapshot,
+)
 
 
 def _database(tmp_path: Path) -> Database:
@@ -100,3 +104,25 @@ def test_snapshot_contains_index_and_every_retained_row(tmp_path: Path) -> None:
     assert index["total_rows_retained"] == 8 and index["usable_rows"] == 3
     assert len(history_path.read_text().splitlines()) == 8
     assert "RUNWAY SNAPSHOT" in context_path.read_text() and '"Q8"' in context_path.read_text()
+
+
+def test_explicit_owner_learning_is_durable_and_injected(tmp_path: Path) -> None:
+    db = _database(tmp_path)
+    instruction = "Add seasonality into every recommendation"
+    assert learning_directive(instruction) == instruction
+    assert learning_directive("Is an Audi Q8 worth buying?") is None
+    memory_id = save_intelligence_memory(db, instruction)
+    save_intelligence_memory(db, instruction.upper())
+    save_chat_message(db, "user", instruction)
+    save_chat_message(db, "assistant", "Understood.")
+
+    assert len(intelligence_memories(db)) == 1
+    evidence = chat_evidence(db)
+    assert evidence["learned_preferences"] == [instruction.upper()]
+    assert [message["role"] for message in evidence["recent_conversation"]] == ["user", "assistant"]
+    context_path = write_intelligence_snapshot(db)[2]
+    assert "OWNER-APPROVED LEARNED PREFERENCES" in context_path.read_text()
+    assert instruction.upper() in context_path.read_text()
+
+    forget_intelligence_memory(db, memory_id)
+    assert intelligence_memories(db) == []

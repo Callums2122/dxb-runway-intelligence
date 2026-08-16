@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 from PySide6.QtCore import QDate, QPoint, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea
 
-from dxb_runway.database import Database
+from dxb_runway.database import Database, SCHEMA_VERSION
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.intelligence_screen import openclaw_answer
@@ -242,6 +242,17 @@ def test_openclaw_json_envelope_displays_only_assistant_text():
     assert openclaw_answer(payload)=="BUY — the evidence is strong."
 
 
+def test_intelligence_page_can_store_and_forget_manual_memory(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
+    page=window.pages["intelligence"]; page.memory_input.setText("Always explain seasonal demand")
+    page._sync_ai_context=lambda: None
+    page.add_memory()
+    assert db.query("SELECT memory_text FROM intelligence_memories WHERE active=1")[0][0]=="Always explain seasonal demand"
+    page.memory_table.selectRow(0); page.forget_selected_memory()
+    assert db.query("SELECT COUNT(*) FROM intelligence_memories WHERE active=1")[0][0]==0
+    window.close()
+
+
 def test_gym_defaults_food_habits_and_measurements(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); profile=db.gym_profile()
     assert profile["weight_kg"]==70 and profile["height_cm"]==175
@@ -270,7 +281,7 @@ def test_gym_migration_recovers_interrupted_schema_stamp(tmp_path: Path):
             connection.execute(f"DROP TABLE {table}")
         connection.execute("PRAGMA user_version=19")
     recovered=Database(path)
-    assert recovered.query("PRAGMA user_version")[0][0]==23
+    assert recovered.query("PRAGMA user_version")[0][0]==SCHEMA_VERSION
     assert recovered.gym_profile()["weight_kg"]==70 and len(recovered.gym_meals())>=10
 
 

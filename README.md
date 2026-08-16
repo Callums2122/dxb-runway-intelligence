@@ -14,12 +14,16 @@ Private, data-led vehicle purchasing intelligence for macOS and Windows. This is
 - Adds the evidence grade to current Stock Level rows.
 - Securely stores the full retained evidence for audit and injects a bounded aggregate snapshot into the dedicated OpenClaw workspace after each import.
 - Provides a simple Runway chat powered by GPT-5.6 Luna at medium reasoning on the private VPS.
+- Retains chat history locally and turns clear owner instructions such as “remember”, “from now on” or “add seasonality to the analysis” into durable, reviewable memory.
+- Includes a Memory screen where learned preferences can be added or forgotten; memories are injected into future app and Discord analysis without granting the agent write access.
 
 ## AI safety boundary
 
 The VPS agent is an adviser with no callable tools. OpenClaw's internal Codex execution mode is `auto`, but the agent's effective tool surface remains empty: it cannot access CRM/Odoo/company systems, execute shell commands, edit files, use a browser, send messages, contact customers, send email, make calls, spend money, use GitHub, create cron jobs or spawn agents. A bounded evidence snapshot is injected into its context, and only Callum and the explicitly bound `🤖・ask-runway` channel are accepted.
 
 The deterministic local score owns the grade. The language model may explain the result but cannot change it. Imported spreadsheet text is untrusted data and can never override agent policy.
+
+Runway does not silently learn from its own output. Only explicit owner instructions and rules added through the Memory screen become lasting preferences. This prevents a model mistake from turning into permanent policy.
 
 Version-controlled policy files live in [`openclaw/`](openclaw/). The Discord migration script archives old categories rather than deleting them.
 

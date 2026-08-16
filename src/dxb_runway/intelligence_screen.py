@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import shlex
 import subprocess
@@ -7,14 +8,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .database import Database
 from .dialogs import MoneyBox
-from .intelligence import analyse_opportunity, chat_evidence, import_history, import_vehicle_history, recent_vehicle_grades, write_intelligence_snapshot
+from .intelligence import (
+    analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
+    import_history, import_vehicle_history, intelligence_memories, learning_directive,
+    recent_vehicle_grades, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
+)
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
 from .widgets import Card, SectionHeader
@@ -118,6 +123,8 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._data_tab(), "Historical data")
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
         self.tabs.addTab(self._chat_tab(), "Ask Runway")
+        self.tabs.addTab(self._memory_tab(), "Memory")
+        self.refresh()
 
     def _opportunity_tab(self) -> QWidget:
         content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
@@ -168,6 +175,23 @@ class IntelligencePage(Page):
         self.chat_button = QPushButton("Send"); self.chat_button.setProperty("primary", True); self.chat_button.clicked.connect(self.send_chat); line.addWidget(self.chat_button); root.addLayout(line)
         return content
 
+    def _memory_tab(self) -> QWidget:
+        content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
+        header = Card(); header_layout = QVBoxLayout(header); header_layout.setContentsMargins(18,16,18,16)
+        header_layout.addWidget(SectionHeader("What Runway remembers", "Clear owner instructions are retained across restarts and included in every future analysis. Memory guides the AI explanation; the tested local grade remains authoritative."))
+        add_line = QHBoxLayout(); self.memory_input = QLineEdit(); self.memory_input.setPlaceholderText("Example: Always include seasonality and sample size in the recommendation")
+        self.memory_input.returnPressed.connect(self.add_memory); add_line.addWidget(self.memory_input, 1)
+        add_button = QPushButton("＋ Add memory"); add_button.setProperty("primary", True); add_button.clicked.connect(self.add_memory); add_line.addWidget(add_button); header_layout.addLayout(add_line)
+        self.memory_status = QLabel("Only you can approve lasting memory. It cannot grant tools or external access."); self.memory_status.setObjectName("muted"); self.memory_status.setWordWrap(True); header_layout.addWidget(self.memory_status); root.addWidget(header)
+        memory_card = Card(); memory_layout = QVBoxLayout(memory_card); memory_layout.setContentsMargins(16,15,16,15)
+        memory_head = QHBoxLayout(); memory_head.addWidget(QLabel("ACTIVE LEARNED RULES")); memory_head.addStretch()
+        remove = QPushButton("Forget selected"); remove.clicked.connect(self.forget_selected_memory); memory_head.addWidget(remove); memory_layout.addLayout(memory_head)
+        self.memory_table = QTableWidget(0, 3); self.memory_table.setHorizontalHeaderLabels(["LEARNED", "SOURCE", "UPDATED"])
+        self.memory_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.memory_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.memory_table.verticalHeader().hide(); self.memory_table.horizontalHeader().setStretchLastSection(True); self.memory_table.setWordWrap(True); memory_layout.addWidget(self.memory_table)
+        root.addWidget(memory_card, 1)
+        return content
+
     def run_analysis(self) -> None:
         if not self.make.text().strip() or not self.model.text().strip():
             QMessageBox.information(self, "Vehicle required", "Enter at least the make and model."); return
@@ -205,17 +229,61 @@ class IntelligencePage(Page):
     def send_chat(self) -> None:
         question = self.chat_input.text().strip()
         if not question: return
-        self.chat_input.clear(); self.chat_history.append(f"<b>You</b><br>{question}<br>"); self.chat_button.setEnabled(False); self.chat_button.setText("Thinking…")
-        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
+        save_chat_message(self.db, "user", question)
+        learned = learning_directive(question)
+        if learned:
+            save_intelligence_memory(self.db, learned)
+            self.memory_status.setText(f"Remembered: {learned}")
+            self._refresh_memories(); self._sync_ai_context()
+        self.chat_input.clear(); self.chat_history.append(f"<b>You</b><br>{html.escape(question)}<br>")
+        if learned: self.chat_history.append(f"<span style='color:{COLORS['green']}'><b>Memory saved</b> · this instruction will be used in future chats.</span><br>")
+        self.chat_button.setEnabled(False); self.chat_button.setText("Thinking…")
+        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence and owner-approved learned preferences. Learned preferences guide your analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
         job = OpenClawChatJob(json.dumps(context)); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
 
     def _chat_answer(self, answer: str) -> None:
-        self.chat_history.append(f"<b>Runway</b><br>{answer}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
+        save_chat_message(self.db, "assistant", answer)
+        self.chat_history.append(f"<b>Runway</b><br>{html.escape(answer).replace(chr(10), '<br>')}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
 
     def _chat_error(self, error: str) -> None:
-        self.chat_history.append(f"<b>Connection</b><br>{error}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
+        self.chat_history.append(f"<b>Connection</b><br>{html.escape(error)}<br>"); self.chat_button.setEnabled(True); self.chat_button.setText("Send")
+
+    def add_memory(self) -> None:
+        memory = self.memory_input.text().strip()
+        if not memory: return
+        save_intelligence_memory(self.db, memory, "manual")
+        self.memory_input.clear(); self.memory_status.setText(f"Remembered: {memory}"); self._refresh_memories(); self._sync_ai_context()
+
+    def forget_selected_memory(self) -> None:
+        row = self.memory_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Select a memory", "Select the learned rule you want Runway to forget."); return
+        item = self.memory_table.item(row, 0); memory_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if memory_id is None: return
+        forget_intelligence_memory(self.db, int(memory_id)); self.memory_status.setText("Selected memory forgotten."); self._refresh_memories(); self._sync_ai_context()
+
+    def _sync_ai_context(self) -> None:
+        files = write_intelligence_snapshot(self.db); sync = IntelligenceSyncJob(files)
+        sync.signals.finished.connect(self.memory_status.setText); sync.signals.failed.connect(self.memory_status.setText)
+        QThreadPool.globalInstance().start(sync); self._active_memory_sync_job = sync
+
+    def _refresh_memories(self) -> None:
+        if not hasattr(self, "memory_table"): return
+        memories = intelligence_memories(self.db); self.memory_table.setRowCount(len(memories))
+        for row, memory in enumerate(memories):
+            learned = QTableWidgetItem(memory["memory_text"]); learned.setData(Qt.ItemDataRole.UserRole, memory["id"]); self.memory_table.setItem(row, 0, learned)
+            self.memory_table.setItem(row, 1, QTableWidgetItem(memory["source"].title())); self.memory_table.setItem(row, 2, QTableWidgetItem(memory["updated_at"]))
+
+    def _refresh_chat_history(self) -> None:
+        if not hasattr(self, "chat_history"): return
+        self.chat_history.clear()
+        for message in chat_conversation(self.db, 40):
+            speaker = "You" if message["role"] == "user" else "Runway" if message["role"] == "assistant" else "System"
+            body = html.escape(message["message"]).replace("\n", "<br>")
+            self.chat_history.append(f"<b>{speaker}</b><br>{body}<br>")
 
     def refresh(self) -> None:
+        self._refresh_memories(); self._refresh_chat_history()
         if hasattr(self, "batch_table"):
             batches = import_history(self.db); self.batch_table.setRowCount(len(batches))
             for row, batch in enumerate(batches):

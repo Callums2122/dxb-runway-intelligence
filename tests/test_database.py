@@ -19,6 +19,7 @@ def test_schema_migrations_and_defaults(tmp_path: Path):
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_tasks'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_calls'")
     assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_work_days'")
+    assert db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='intelligence_memories'")
     assert "pipeline_stage" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
     assert "inspection_date" in {row[1] for row in db.query("PRAGMA table_info(customer_contacts)")}
 
