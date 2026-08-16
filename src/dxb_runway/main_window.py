@@ -24,10 +24,10 @@ from .style import COLORS
 
 OVERVIEW_NAV = ("dashboard", "⌂", "Overview")
 NAV_SECTIONS = [
-    ("leads", "LEADS", COLORS["purple"], [("todo", "✓", "Today's to-do"), ("kpi", "◫", "KPI tracker"), ("contacts", "◉", "Customer contact"), ("inspection", "⌕", "Inspection"), ("templates", "✉", "WhatsApp templates"), ("stock", "▦", "Stock level"), ("vehicles", "◈", "Vehicle desk"), ("vehicle_history", "◷", "Vehicle performance"), ("calendar", "▣", "Calendar"), ("scenarios", "⌁", "Scenario lab")]),
+    ("leads", "LEADS", COLORS["purple"], [("todo", "✓", "Today's to-do"), ("kpi", "◫", "KPI tracker"), ("stock", "▦", "Stock level"), ("vehicles", "◈", "Vehicle desk"), ("vehicle_history", "◷", "Vehicle performance"), ("calendar", "▣", "Calendar")]),
     ("gym", "GYM", COLORS["cyan"], [("gym_today", "◆", "Today"), ("gym_training", "▥", "Training"), ("gym_nutrition", "◫", "Nutrition"), ("gym_progress", "↗", "Progress"), ("gym_meals", "☰", "Meals & bowls")]),
     ("money", "MONEY TRACKING", COLORS["green"], [("transactions", "↕", "Transactions"), ("debt", "◇", "Debt control"), ("budgets", "▤", "Budgets")]),
-    ("other", "MISC / OTHER", COLORS["amber"], [("goals", "◎", "Momentum"), ("reports", "▥", "Reports"), ("settings", "⚙", "Settings")]),
+    ("other", "MISC / OTHER", COLORS["amber"], [("contacts", "◉", "Customer contact"), ("inspection", "⌕", "Inspection"), ("templates", "✉", "WhatsApp templates"), ("scenarios", "⌁", "Scenario lab"), ("goals", "◎", "Momentum"), ("reports", "▥", "Reports"), ("settings", "⚙", "Settings")]),
 ]
 NAVIGATION = [OVERVIEW_NAV]+[item for _,_,_,items in NAV_SECTIONS for item in items]
 COMMAND_MOD = "Meta" if sys.platform == "darwin" else "Ctrl"
