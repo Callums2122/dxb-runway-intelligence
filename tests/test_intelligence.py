@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import date
 from pathlib import Path
 
 from dxb_runway.database import Database
@@ -140,3 +141,19 @@ def test_explicit_owner_learning_is_durable_and_injected(tmp_path: Path) -> None
 
     forget_intelligence_memory(db, memory_id)
     assert intelligence_memories(db) == []
+
+
+def test_chat_evidence_contains_authoritative_live_stock_snapshot(tmp_path: Path) -> None:
+    db = _database(tmp_path)
+    db.set_performance_budget(date.today().strftime("%Y-%m"), 2_000_000)
+    db.add_vehicle(vehicle_name="Audi Q8", purchase_price_aed=227_000, expected_sale_price_aed=285_000, purchased_date=date.today().isoformat(), purchase_type="cash")
+    db.add_vehicle(vehicle_name="Mercedes E-Class", purchase_price_aed=285_000, expected_sale_price_aed=305_000, purchased_date=date.today().isoformat(), purchase_type="consignment")
+
+    stock = chat_evidence(db)["live_stock"]
+
+    assert stock["count"] == 2
+    assert stock["cash_purchase_count"] == 1 and stock["consignment_count"] == 1
+    assert stock["cash_invested_aed"] == 227_000
+    assert stock["cash_budget_remaining_aed"] == 1_773_000
+    assert stock["total_expected_stock_profit_aed"] == 78_000
+    assert stock["vehicles"][0]["vehicle"] in {"Audi Q8", "Mercedes E-Class"}

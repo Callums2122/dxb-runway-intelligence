@@ -545,7 +545,48 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
         "FROM intelligence_records WHERE duplicate_of IS NULL AND review_reason='' GROUP BY make,model,trim ORDER BY samples DESC LIMIT ?",
         (limit,),
     )
+    today = date.today()
+    stock: list[dict[str, Any]] = []
+    for row in db.stock_vehicles():
+        item = dict(row)
+        cost = float(item.get("purchase_price_aed") or 0)
+        expected_sale = float(item.get("expected_sale_price_aed") or 0)
+        try:
+            days_held = max(0, (today - date.fromisoformat(str(item.get("purchased_date", ""))[:10])).days)
+        except ValueError:
+            days_held = None
+        stock.append({
+            "vehicle_id": item.get("id"),
+            "vehicle": item.get("vehicle_name"),
+            "stock_type": item.get("purchase_type"),
+            "stocked_date": item.get("purchased_date"),
+            "days_held": days_held,
+            "cost_or_owner_payout_aed": cost,
+            "initial_owner_payout_aed": item.get("initial_owner_payout_aed"),
+            "expected_sale_aed": expected_sale,
+            "expected_profit_aed": expected_sale - cost,
+            "expected_margin_on_cost_percent": round((expected_sale - cost) / cost * 100, 1) if cost else None,
+            "notes": item.get("notes") or "",
+        })
+    budget = float(db.performance_budget(today.strftime("%Y-%m")))
+    cash_stock = [item for item in stock if item["stock_type"] == "cash"]
+    cash_invested = sum(float(item["cost_or_owner_payout_aed"]) for item in cash_stock)
+    expected_profit = sum(float(item["expected_profit_aed"]) for item in stock)
+    live_stock = {
+        "as_of": today.isoformat(),
+        "count": len(stock),
+        "cash_purchase_count": len(cash_stock),
+        "consignment_count": len(stock) - len(cash_stock),
+        "purchasing_budget_aed": budget,
+        "cash_invested_aed": cash_invested,
+        "cash_budget_used_percent": round(cash_invested / budget * 100, 1) if budget else None,
+        "cash_budget_remaining_aed": max(0.0, budget - cash_invested),
+        "total_expected_sale_value_aed": sum(float(item["expected_sale_aed"]) for item in stock),
+        "total_expected_stock_profit_aed": expected_profit,
+        "vehicles": stock,
+    }
     return {"usable_rows": db.query("SELECT COUNT(*) n FROM intelligence_records WHERE duplicate_of IS NULL AND review_reason='' ")[0]["n"],
             "vehicle_history": [dict(row) for row in rows],
+            "live_stock": live_stock,
             "learned_preferences": [row["memory_text"] for row in intelligence_memories(db)],
             "recent_conversation": chat_conversation(db)}
