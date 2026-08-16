@@ -178,8 +178,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert vehicles.month.count()==12
     assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
     assert "AED" in vehicles.tier_table.item(0,3).text() and "AED" in vehicles.tier_table.item(0,5).text()
-    july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; _,july_reduction=monthly_kpi_adjustment(db,vehicles.selected_month()); expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*max(Decimal("0"),july_t3-july_reduction))*Decimal("0.05"))
+    july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*july_t3)*Decimal("0.05"))
     assert vehicles.tier_earnings["tier3"].value.text()==f"AED {expected_t3:,.0f}"
+    assert "before KPI" in vehicles.tier_earnings["tier3"].detail.text()
     vehicles.configure_month_options(date(2026,7,30))
     assert vehicles.month.itemText(6)=="July 2026"
     assert vehicles.month.itemText(7)=="August 2025"

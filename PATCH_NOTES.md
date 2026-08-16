@@ -12,6 +12,7 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 - Vehicle Desk now shows the AED profit required to reach every tier for each month, including the current KPI-adjusted percentage.
 - Stock Level now grades current cars by days held and shows expected margin; Vehicle Performance groups all sold cars by model with average sale price, profit, margin and speed grade.
 - Vehicle Performance now sits under Leads beside Stock Level and Vehicle Desk.
+- Monthly tier cards and the percentage chart now show standard pre-KPI targets; the live tier tracker and achieved result continue to apply KPI reductions.
 
 ### Motivating nutrition and bottle logging
 
