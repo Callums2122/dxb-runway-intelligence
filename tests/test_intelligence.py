@@ -6,9 +6,9 @@ from pathlib import Path
 
 from dxb_runway.database import Database
 from dxb_runway.intelligence import (
-    analyse_opportunity, chat_evidence, forget_intelligence_memory, import_vehicle_history,
+    analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory, import_vehicle_history,
     intelligence_memories, learning_directive, save_chat_message, save_intelligence_memory,
-    write_intelligence_snapshot,
+    save_chat_attachments, write_intelligence_snapshot,
 )
 
 
@@ -62,6 +62,20 @@ def test_duplicate_import_is_retained_but_excluded_from_analysis(tmp_path: Path)
     result = analyse_opportunity(db, make="Audi", model="Q8", trim="S line")
     assert result["sample_size"] == 3
     assert result["identical_trim_samples"] == 2
+
+
+def test_chat_screenshot_is_copied_and_persisted_with_message(tmp_path: Path) -> None:
+    db = _database(tmp_path)
+    screenshot = tmp_path / "deal-drive.png"
+    screenshot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"market-evidence")
+    message_id = save_chat_message(db, "user", "Challenge the price using this listing")
+
+    saved = save_chat_attachments(db, message_id, [screenshot])
+    conversation = chat_conversation(db)
+
+    assert len(saved) == 1
+    assert Path(saved[0]["stored_path"]).exists()
+    assert conversation[0]["attachments"][0]["original_name"] == "deal-drive.png"
 
 
 def test_exact_trim_has_priority_and_trim_position_is_reported(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Sequence
+from uuid import uuid4
 
 from .database import Database
 
@@ -452,9 +453,42 @@ def save_chat_message(db: Database, role: str, message: str) -> int:
     return db.execute("INSERT INTO intelligence_chat_messages(role,message) VALUES (?,?)", (role, text))
 
 
+def save_chat_attachments(db: Database, message_id: int, paths: Sequence[Path]) -> list[dict[str, Any]]:
+    """Copy validated chat images into durable app storage and bind them to one message."""
+    if not message_id:
+        return []
+    destination = db.path.parent / "intelligence_chat_media"
+    destination.mkdir(parents=True, exist_ok=True)
+    saved: list[dict[str, Any]] = []
+    mime_by_suffix = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    for source in paths:
+        source = Path(source)
+        mime_type = mime_by_suffix.get(source.suffix.lower())
+        if not mime_type or not source.is_file():
+            continue
+        raw = source.read_bytes()
+        if not raw or len(raw) > 6 * 1024 * 1024:
+            continue
+        digest = hashlib.sha256(raw).hexdigest()
+        target = destination / f"{uuid4().hex}{source.suffix.lower()}"
+        shutil.copy2(source, target)
+        attachment_id = db.execute(
+            "INSERT INTO intelligence_chat_attachments(message_id,stored_path,original_name,mime_type,file_size,sha256) VALUES (?,?,?,?,?,?)",
+            (message_id, str(target), source.name, mime_type, len(raw), digest),
+        )
+        saved.append({"id": attachment_id, "stored_path": str(target), "original_name": source.name, "mime_type": mime_type, "file_size": len(raw), "sha256": digest})
+    return saved
+
+
 def chat_conversation(db: Database, limit: int = 30) -> list[dict[str, Any]]:
-    rows = db.query("SELECT role,message,created_at FROM intelligence_chat_messages ORDER BY id DESC LIMIT ?", (max(1, min(limit, 100)),))
-    return [dict(row) for row in reversed(rows)]
+    rows = db.query("SELECT id,role,message,created_at FROM intelligence_chat_messages ORDER BY id DESC LIMIT ?", (max(1, min(limit, 100)),))
+    messages = [dict(row) for row in reversed(rows)]
+    for message in messages:
+        message["attachments"] = [dict(row) for row in db.query(
+            "SELECT id,stored_path,original_name,mime_type,file_size,sha256 FROM intelligence_chat_attachments WHERE message_id=? ORDER BY id",
+            (message["id"],),
+        )]
+    return messages
 
 
 def write_intelligence_snapshot(db: Database) -> tuple[Path, Path, Path]:

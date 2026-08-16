@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import shlex
 import subprocess
@@ -19,7 +20,7 @@ from .dialogs import MoneyBox
 from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
     import_history, import_vehicle_history, intelligence_memories, learning_directive,
-    recent_vehicle_grades, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
+    recent_vehicle_grades, save_chat_attachments, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
@@ -50,6 +51,17 @@ def openclaw_answer(payload: object) -> str:
     """Extract visible assistant text from OpenClaw's stable JSON envelope."""
     if not isinstance(payload, dict):
         return str(payload)
+    output = payload.get("output")
+    if isinstance(output, list):
+        parts: list[str] = []
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if isinstance(content, dict) and content.get("type") in {"output_text", "text"} and content.get("text"):
+                    parts.append(str(content["text"]).strip())
+        if parts:
+            return "\n\n".join(parts)
     result = payload.get("result")
     if isinstance(result, dict):
         payloads = result.get("payloads")
@@ -74,9 +86,10 @@ class WorkerSignals(QObject):
 class OpenClawChatJob(QRunnable):
     """Runs only the fixed, owner-controlled OpenClaw agent over the dedicated SSH key."""
 
-    def __init__(self, prompt: str):
+    def __init__(self, prompt: str, attachments: list[dict[str, object]] | None = None):
         super().__init__()
         self.prompt = prompt
+        self.attachments = attachments or []
         self.signals = WorkerSignals()
 
     def run(self) -> None:
@@ -84,13 +97,24 @@ class OpenClawChatJob(QRunnable):
         if not key.exists():
             self.signals.failed.emit("AI connection is not configured on this computer. Offline grading still works.")
             return
-        remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; openclaw agent --agent dxb-runway --thinking medium --json --message " + shlex.quote(self.prompt)
         try:
-            result = subprocess.run(
-                ["ssh", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=12",
-                 "callumadmin@157.180.75.235", remote],
-                capture_output=True, text=True, timeout=150, check=False,
-            )
+            ssh = ["ssh", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=12", "callumadmin@157.180.75.235"]
+            if self.attachments:
+                content: list[dict[str, object]] = [{"type": "input_text", "text": self.prompt}]
+                for attachment in self.attachments:
+                    path = Path(str(attachment["stored_path"]))
+                    content.append({"type": "input_image", "source": {"type": "base64", "media_type": attachment["mime_type"], "data": base64.b64encode(path.read_bytes()).decode("ascii")}})
+                request = json.dumps({
+                    "model": "openclaw/dxb-runway",
+                    "input": [{"type": "message", "role": "user", "content": content}],
+                    "reasoning": {"effort": "medium"},
+                    "max_output_tokens": 1800,
+                })
+                remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; curl -sS --fail-with-body --max-time 150 -H \"Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN\" -H \"Content-Type: application/json\" -H \"x-openclaw-agent-id: dxb-runway\" http://127.0.0.1:18789/v1/responses --data-binary @-"
+                result = subprocess.run(ssh + [remote], input=request, capture_output=True, text=True, timeout=165, check=False)
+            else:
+                remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; openclaw agent --agent dxb-runway --thinking medium --json --message " + shlex.quote(self.prompt)
+                result = subprocess.run(ssh + [remote], capture_output=True, text=True, timeout=150, check=False)
             if result.returncode:
                 raise RuntimeError(result.stderr.strip() or "OpenClaw did not answer")
             answer = result.stdout.strip()
@@ -144,7 +168,7 @@ class AskRunwayPage(Page):
 
     def __init__(self, db: Database):
         super().__init__(db)
-        self._busy = False; self._thinking_phase = 0; self._thinking_widget = None
+        self._busy = False; self._thinking_phase = 0; self._thinking_widget = None; self._pending_images: list[Path] = []
         self._typing_answer = ""; self._typing_index = 0; self._typing_label = None
         self.thinking_timer = QTimer(self); self.thinking_timer.setInterval(360); self.thinking_timer.timeout.connect(self._animate_thinking)
         self.typing_timer = QTimer(self); self.typing_timer.setInterval(12); self.typing_timer.timeout.connect(self._typing_step)
@@ -158,12 +182,15 @@ class AskRunwayPage(Page):
         self.chat_scroll.setStyleSheet("QScrollArea{background:#080e16;border:1px solid #1c2938;border-radius:16px} QScrollArea > QWidget > QWidget{background:#080e16}")
         self.chat_host = QWidget(); self.chat_layout = QVBoxLayout(self.chat_host); self.chat_layout.setContentsMargins(26,26,26,26); self.chat_layout.setSpacing(18); self.chat_layout.addStretch()
         self.chat_scroll.setWidget(self.chat_host); outer.addWidget(self.chat_scroll, 1)
-        composer = QFrame(); composer.setProperty("card", True); composer_layout = QHBoxLayout(composer); composer_layout.setContentsMargins(12,10,10,10); composer_layout.setSpacing(10)
+        composer = QFrame(); composer.setProperty("card", True); composer_outer = QVBoxLayout(composer); composer_outer.setContentsMargins(12,10,10,10); composer_outer.setSpacing(8)
+        self.preview_frame = QFrame(); self.preview_layout = QHBoxLayout(self.preview_frame); self.preview_layout.setContentsMargins(0,0,0,0); self.preview_layout.setSpacing(8); self.preview_frame.hide(); composer_outer.addWidget(self.preview_frame)
+        composer_layout = QHBoxLayout(); composer_layout.setContentsMargins(0,0,0,0); composer_layout.setSpacing(10)
+        self.image_button = QPushButton("＋ Image"); self.image_button.setToolTip("Attach Deal Drive or other competitor screenshots"); self.image_button.setMinimumHeight(44); self.image_button.clicked.connect(self.choose_images); composer_layout.addWidget(self.image_button)
         self.chat_input = ChatComposer(); self.chat_input.setPlaceholderText("Message Runway…"); self.chat_input.setMinimumHeight(48); self.chat_input.setMaximumHeight(110)
         self.chat_input.send_requested.connect(self.send_chat); composer_layout.addWidget(self.chat_input, 1)
         self.chat_button = QPushButton("Send  ↑"); self.chat_button.setProperty("primary", True); self.chat_button.setMinimumHeight(44); self.chat_button.clicked.connect(self.send_chat); composer_layout.addWidget(self.chat_button)
-        outer.addWidget(composer)
-        hint = QLabel("Enter to send · Shift + Enter for a new line · say “remember…” to create lasting memory")
+        composer_outer.addLayout(composer_layout); outer.addWidget(composer)
+        hint = QLabel("Attach up to 4 screenshots · image evidence can guide pricing but never changes the calculated grade")
         hint.setObjectName("muted"); hint.setAlignment(Qt.AlignmentFlag.AlignCenter); outer.addWidget(hint)
         self.refresh()
 
@@ -172,13 +199,22 @@ class AskRunwayPage(Page):
             item = self.chat_layout.takeAt(0)
             if item.widget(): item.widget().hide(); item.widget().deleteLater()
 
-    def _add_bubble(self, role: str, message: str, label_text: str | None = None) -> tuple[QWidget, QLabel]:
+    def _add_bubble(self, role: str, message: str, label_text: str | None = None, attachments: list[dict[str, object]] | None = None) -> tuple[QWidget, QLabel]:
         row = QWidget(); row_layout = QHBoxLayout(row); row_layout.setContentsMargins(0,0,0,0); row_layout.setSpacing(10)
         bubble = QFrame(); bubble.setMinimumWidth(520 if role == "assistant" else 280); bubble.setMaximumWidth(860); bubble.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         bubble_layout = QVBoxLayout(bubble); bubble_layout.setContentsMargins(16,12,16,13); bubble_layout.setSpacing(6)
         speaker = QLabel(label_text or ("You" if role == "user" else "Runway")); speaker.setStyleSheet(f"color:{COLORS['cyan'] if role == 'assistant' else '#bdb1ff'};font-size:11px;font-weight:850")
         body = QLabel(message); body.setWordWrap(True); body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse); body.setStyleSheet("font-size:14px;line-height:1.45")
-        bubble_layout.addWidget(speaker); bubble_layout.addWidget(body)
+        bubble_layout.addWidget(speaker)
+        if attachments:
+            gallery = QHBoxLayout(); gallery.setSpacing(8)
+            for attachment in attachments[:4]:
+                preview = QLabel(); preview.setFixedSize(150, 96); preview.setAlignment(Qt.AlignmentFlag.AlignCenter); preview.setStyleSheet("background:#070c13;border:1px solid #33465c;border-radius:9px")
+                pixmap = QPixmap(str(attachment.get("stored_path", "")))
+                if not pixmap.isNull(): preview.setPixmap(pixmap.scaled(preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                preview.setToolTip(str(attachment.get("original_name", "Screenshot"))); gallery.addWidget(preview)
+            gallery.addStretch(); bubble_layout.addLayout(gallery)
+        bubble_layout.addWidget(body)
         if role == "user":
             bubble.setObjectName("userBubble"); bubble.setStyleSheet("QFrame#userBubble{background:#201b3b;border:1px solid #4a3f79;border-radius:16px}"); row_layout.addStretch(); row_layout.addWidget(bubble)
         else:
@@ -195,21 +231,53 @@ class AskRunwayPage(Page):
         if not messages:
             self._add_bubble("assistant", "Tell me the make, model, trim, year, buying price and expected retail. I’ll give you the evidence, the risk and the brutal answer.", "Runway · ready")
         else:
-            for message in messages: self._add_bubble(message["role"] if message["role"] in {"user", "assistant"} else "assistant", message["message"])
+            for message in messages: self._add_bubble(message["role"] if message["role"] in {"user", "assistant"} else "assistant", message["message"], attachments=message.get("attachments"))
+
+    def choose_images(self) -> None:
+        files, _ = QFileDialog.getOpenFileNames(self, "Attach market screenshots", str(Path.home() / "Desktop"), "Images (*.png *.jpg *.jpeg *.webp)")
+        for name in files:
+            path = Path(name)
+            if path in self._pending_images:
+                continue
+            if len(self._pending_images) >= 4:
+                QMessageBox.information(self, "Four screenshots maximum", "Send these screenshots first, then attach more in your next message."); break
+            if path.stat().st_size > 6 * 1024 * 1024 or QPixmap(str(path)).isNull():
+                QMessageBox.warning(self, "Image not accepted", f"{path.name} must be a valid PNG, JPG or WebP under 6 MB."); continue
+            self._pending_images.append(path)
+        self._render_pending_images()
+
+    def _render_pending_images(self) -> None:
+        while self.preview_layout.count():
+            item = self.preview_layout.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+        for path in self._pending_images:
+            card = QFrame(); card.setStyleSheet("QFrame{background:#101925;border:1px solid #2b3d51;border-radius:10px}")
+            layout = QHBoxLayout(card); layout.setContentsMargins(7,6,7,6); layout.setSpacing(7)
+            thumb = QLabel(); thumb.setFixedSize(58,42); pixmap = QPixmap(str(path)); thumb.setPixmap(pixmap.scaled(thumb.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)); layout.addWidget(thumb)
+            name = QLabel(path.name); name.setMaximumWidth(150); name.setToolTip(path.name); layout.addWidget(name)
+            remove = QPushButton("×"); remove.setFixedSize(26,26); remove.setToolTip("Remove screenshot"); remove.clicked.connect(lambda checked=False, selected=path: self._remove_pending_image(selected)); layout.addWidget(remove)
+            self.preview_layout.addWidget(card)
+        self.preview_layout.addStretch(); self.preview_frame.setVisible(bool(self._pending_images))
+
+    def _remove_pending_image(self, path: Path) -> None:
+        self._pending_images = [item for item in self._pending_images if item != path]; self._render_pending_images()
 
     def send_chat(self) -> None:
         question = self.chat_input.toPlainText().strip()
-        if not question or self._busy: return
-        self._busy = True; self.chat_input.clear(); self.chat_input.setEnabled(False); self.chat_button.setEnabled(False); self.chat_button.setText("Working…")
-        save_chat_message(self.db, "user", question); self._add_bubble("user", question)
+        if (not question and not self._pending_images) or self._busy: return
+        if not question: question = "Analyse these competitor listings and advise how we should currently price the vehicle."
+        pending = list(self._pending_images); self._pending_images.clear(); self._render_pending_images()
+        self._busy = True; self.chat_input.clear(); self.chat_input.setEnabled(False); self.image_button.setEnabled(False); self.chat_button.setEnabled(False); self.chat_button.setText("Working…")
+        message_id = save_chat_message(self.db, "user", question); attachments = save_chat_attachments(self.db, message_id, pending)
+        self._add_bubble("user", question, attachments=attachments)
         learned = learning_directive(question)
         if learned:
             save_intelligence_memory(self.db, learned); self._sync_ai_context()
             self._add_bubble("assistant", f"Memory saved: {learned}", "Runway · memory")
         self._thinking_widget, _ = self._add_bubble("assistant", "Thinking", "Runway")
         self._thinking_phase = 0; self.thinking_timer.start(); self.state.setText("●  Thinking"); self.state.setStyleSheet(f"color:{COLORS['amber']};font-weight:800")
-        context = {"question": question, "evidence": chat_evidence(self.db), "instruction": "Use only the supplied deterministic vehicle evidence and owner-approved learned preferences. Learned preferences guide analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
-        job = OpenClawChatJob(json.dumps(context)); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
+        context = {"question": question, "evidence": chat_evidence(self.db), "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "Use only the supplied deterministic vehicle evidence and owner-approved learned preferences. Discuss a current retail/asking-price range separately from the locked grade. Learned preferences guide analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
+        job = OpenClawChatJob(json.dumps(context), attachments); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
 
     def _animate_thinking(self) -> None:
         if not self._thinking_widget: return
@@ -234,7 +302,7 @@ class AskRunwayPage(Page):
         if self._typing_index >= len(self._typing_answer): self._finish_response()
 
     def _finish_response(self) -> None:
-        self.typing_timer.stop(); self._typing_label = None; self._busy = False; self.chat_input.setEnabled(True); self.chat_button.setEnabled(True); self.chat_button.setText("Send  ↑")
+        self.typing_timer.stop(); self._typing_label = None; self._busy = False; self.chat_input.setEnabled(True); self.image_button.setEnabled(True); self.chat_button.setEnabled(True); self.chat_button.setText("Send  ↑")
         self.state.setText("●  Ready"); self.state.setStyleSheet(f"color:{COLORS['green']};font-weight:800"); self.chat_input.setFocus()
 
     def _chat_error(self, error: str) -> None:
