@@ -14,6 +14,7 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 - Vehicle Performance now sits under Leads beside Stock Level and Vehicle Desk.
 - Monthly tier cards and the percentage chart now show standard pre-KPI targets; the live tier tracker and achieved result continue to apply KPI reductions.
 - The monthly chart now uses the selected month's saved purchasing budget consistently across every row until the budget is manually changed.
+- Stock Level now includes T3/T2/T1 spend guides using the current cash-stock expected margin, with the 95% Big Spender KPI floor called out separately.
 
 ### Motivating nutrition and bottle logging
 
