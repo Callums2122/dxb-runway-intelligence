@@ -35,6 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--screenshot",help="Save a screenshot after launch")
     parser.add_argument("--page",default="intelligence",help="Page to open for screenshot or testing")
     parser.add_argument("--exit-after-ms",type=int,default=0)
+    parser.add_argument("--nightly-deal-drive-sync",action="store_true",help=argparse.SUPPRESS)
     args=parser.parse_args(argv)
     QApplication.setOrganizationName("DXB Runway"); QApplication.setApplicationName("DXB RUNWAY Intelligence"); QApplication.setApplicationVersion("3.0.0")
     app=QApplication(sys.argv[:1]); app.setStyle("Fusion"); app.setStyleSheet(APP_QSS)
@@ -43,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
     if icon.exists():app.setWindowIcon(QIcon(str(icon)))
     try:
         db=Database(data_dir(args.data_dir)/"dxb_runway_intelligence.db")
+        if args.nightly_deal_drive_sync:
+            from .deal_drive import nightly_sync
+            nightly_sync(db)
+            return 0
         if args.demo:db.seed_demo()
         if db.get_setting("onboarding_complete","0")!="1" and not args.skip_onboarding:
             onboarding=OnboardingDialog(db)
@@ -57,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         return app.exec()
     except Exception as error:
         log_dir=data_dir(args.data_dir);log_dir.mkdir(parents=True,exist_ok=True);(log_dir/"crash.log").write_text(traceback.format_exc(),encoding="utf-8")
+        if args.nightly_deal_drive_sync:
+            return 1
         QMessageBox.critical(None,"DXB RUNWAY Intelligence could not start",f"{error}\n\nA diagnostic log was saved locally.")
         return 1
 

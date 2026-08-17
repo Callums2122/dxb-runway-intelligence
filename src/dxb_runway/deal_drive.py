@@ -17,6 +17,7 @@ KEYCHAIN_SERVICE = "com.dxb-runway-intelligence.deal-drive"
 
 LOGIN = """mutation Login($input: LoginInput!) { login(input: $input) { accessToken refreshToken } }"""
 OFFER_IDS = """query UAEOfferIds($input: SelectMarketOffersInput!) { marketOffers(input: $input) { edges { node } } }"""
+COUNT_OFFERS = """query UAEOfferAccess($input: SelectMarketOffersInput!) { countMarketOffers(input: $input) }"""
 OFFER_DATA = """query UAEOfferData($input: [ID!]!) { marketOffersData(input: $input) {
   id createdAt updatedAt externalId url price priceInWorkspaceDefaultCurrency marketPrice marketPriceDiff
   deleted deletedAt publishedAt lastPriceUpdatedAt year modelYear mileage priceHistory { priceUpdatedAt price }
@@ -90,7 +91,7 @@ class DealDriveClient:
 
     def _run(self, operation: str, variables: dict[str, Any], *, authenticated: bool = True) -> dict[str, Any]:
         # No caller can provide a query: this map is the complete API permission boundary.
-        query = {"login": LOGIN, "offer_ids": OFFER_IDS, "offer_data": OFFER_DATA, "brands": CATALOG_BRANDS,
+        query = {"login": LOGIN, "count_offers": COUNT_OFFERS, "offer_ids": OFFER_IDS, "offer_data": OFFER_DATA, "brands": CATALOG_BRANDS,
                  "models": CATALOG_MODELS, "trims": CATALOG_TRIMS, "regions": CATALOG_REGIONS,
                  "autofilters": AUTOFILTERS, "evaluate": EVALUATE}[operation]
         return self._transport({"query": query, "variables": variables}, self._access_token if authenticated else None)
@@ -101,6 +102,10 @@ class DealDriveClient:
             raise DealDriveError("Deal Drive login did not return an access token. Partner API credentials may be required.")
         self._access_token = auth["accessToken"]
         self._refresh_token = auth.get("refreshToken")
+
+    def verify_market_access(self) -> int:
+        data=self._run("count_offers", {"input":{"limit":1,"filters":{"countryCode":"AE"}}})
+        return int(data.get("countMarketOffers") or 0)
 
     def fetch_market(self, *, country_code: str = "AE", limit: int = 5000,
                      progress: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
@@ -169,11 +174,12 @@ def _name(value: Any) -> str:
     return str((value or {}).get("name") or "") if isinstance(value, dict) else ""
 
 
-def save_market_snapshot(db: Database, offers: list[dict[str, Any]], country_code: str, requested_limit: int) -> int:
+def save_market_snapshot(db: Database, offers: list[dict[str, Any]], country_code: str, requested_limit: int,
+                         *, sync_mode: str = "comparison", subject: dict[str, Any] | None = None) -> int:
     now = datetime.now(timezone.utc).isoformat()
     with db.connect() as connection:
-        cursor = connection.execute("INSERT INTO deal_drive_sync_runs(started_at,status,country_code,requested_limit) VALUES (?,?,?,?)",
-                                    (now, "running", country_code, requested_limit))
+        cursor = connection.execute("INSERT INTO deal_drive_sync_runs(started_at,status,country_code,requested_limit,sync_mode,subject_json) VALUES (?,?,?,?,?,?)",
+                                    (now, "running", country_code, requested_limit, sync_mode, json.dumps(subject or {})))
         run_id = int(cursor.lastrowid)
         for offer in offers:
             unit = offer.get("catalogMileageUnit") or {}; multiplier = float(unit.get("multiplierToKm") or 1)
@@ -263,6 +269,53 @@ def sync_status(db: Database) -> dict[str, Any]:
     snapshots = int(db.query("SELECT COUNT(*) n FROM deal_drive_sync_runs WHERE status='success'")[0]["n"])
     retained = int(db.query("SELECT COUNT(*) n FROM deal_drive_market_offers")[0]["n"])
     return {"latest": dict(rows[0]) if rows else None, "snapshots": snapshots, "retained_offers": retained}
+
+
+def nightly_sync(db: Database, progress: Callable[[str], None] | None = None) -> int:
+    email=db.get_setting("deal_drive_email").strip()
+    if not email: raise DealDriveError("Nightly sync skipped: no Deal Drive email is configured.")
+    password=KeychainCredentials().load(email)
+    if not password: raise DealDriveError("Nightly sync skipped: Deal Drive password is unavailable in macOS Keychain.")
+    limit=int(db.get_setting("deal_drive_nightly_limit","10000"))
+    try:
+        client=DealDriveClient(); client.login(email,password); client.verify_market_access()
+        offers=client.fetch_market(limit=limit,progress=progress)
+        return save_market_snapshot(db,offers,"AE",limit,sync_mode="nightly_market")
+    except Exception as error:
+        with db.connect() as connection:
+            connection.execute("INSERT INTO deal_drive_sync_runs(started_at,completed_at,status,country_code,requested_limit,detail,sync_mode) VALUES (CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'failed','AE',?,?,?)",
+                               (limit,str(error),"nightly_market"))
+        raise
+
+
+def velocity_rankings(db: Database, limit: int = 10) -> dict[str, Any]:
+    last_attempt=db.query("SELECT * FROM deal_drive_sync_runs WHERE sync_mode='nightly_market' ORDER BY id DESC LIMIT 1")
+    if last_attempt and last_attempt[0]["status"]=="failed":
+        return {"status":"sync_failed","fast":[],"slow":[],"snapshots":0,"last_sync":last_attempt[0]["completed_at"],"error":last_attempt[0]["detail"]}
+    runs=db.query("SELECT * FROM deal_drive_sync_runs WHERE status='success' AND sync_mode='nightly_market' ORDER BY id DESC LIMIT 2")
+    if not runs: return {"status":"waiting_for_first_nightly_sync","fast":[],"slow":[],"snapshots":0}
+    latest=runs[0]; latest_id=latest["id"]
+    slow=db.query("""SELECT brand,model,trim,COUNT(*) samples,
+        AVG(julianday(?) - julianday(COALESCE(published_at,captured_at))) average_days,
+        MIN(julianday(?) - julianday(COALESCE(published_at,captured_at))) minimum_days,
+        MAX(julianday(?) - julianday(COALESCE(published_at,captured_at))) maximum_days
+        FROM deal_drive_market_offers WHERE sync_run_id=? AND active_market=1 AND exclusion_reason='' AND duplicate_of_offer_id IS NULL
+        AND brand<>'' AND model<>'' GROUP BY brand,model,trim HAVING COUNT(*)>=3 ORDER BY average_days DESC,samples DESC LIMIT ?""",
+        (latest["completed_at"],latest["completed_at"],latest["completed_at"],latest_id,limit))
+    fast=[]
+    if len(runs)>1:
+        previous=runs[1]
+        fast=db.query("""SELECT p.brand,p.model,p.trim,COUNT(*) samples,
+            AVG(julianday(?) - julianday(COALESCE(p.published_at,p.captured_at))) average_days,
+            MIN(julianday(?) - julianday(COALESCE(p.published_at,p.captured_at))) minimum_days,
+            MAX(julianday(?) - julianday(COALESCE(p.published_at,p.captured_at))) maximum_days
+            FROM deal_drive_market_offers p LEFT JOIN deal_drive_market_offers n ON n.sync_run_id=? AND n.offer_id=p.offer_id
+            WHERE p.sync_run_id=? AND n.id IS NULL AND p.exclusion_reason='' AND p.duplicate_of_offer_id IS NULL
+            AND p.brand<>'' AND p.model<>'' GROUP BY p.brand,p.model,p.trim HAVING COUNT(*)>=3 ORDER BY average_days ASC,samples DESC LIMIT ?""",
+            (latest["completed_at"],latest["completed_at"],latest["completed_at"],latest_id,previous["id"],limit))
+    return {"status":"ready" if len(runs)>1 else "building_history","snapshots":len(runs),"last_sync":latest["completed_at"],
+            "fast":[dict(row) for row in fast],"slow":[dict(row) for row in slow],
+            "method":"Fast = listings disappearing between nightly snapshots; slow = active listing age. Disappearance is a liquidity signal, not a confirmed sale."}
 
 
 def market_evidence(db: Database, limit: int = 200) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
-from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_summary, save_market_snapshot, sync_status
+from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_summary, save_market_snapshot, sync_status, velocity_rankings
 from .dialogs import MoneyBox
 from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
@@ -101,7 +101,8 @@ class DealDriveJob(QRunnable):
             self.signals.progress.emit("Signing in securely…")
             client = DealDriveClient(); client.login(self.email, self.password)
             if not self.sync:
-                self.signals.finished.emit("Connected. Partner API credentials accepted."); return
+                count=client.verify_market_access()
+                self.signals.finished.emit(f"Connected. Market-offer access verified · {count:,} UAE offers available."); return
             self.signals.progress.emit("Connected. Reading UAE market-offer IDs…")
             if self.subject:
                 offers, _ = client.evaluate_subject(**self.subject, progress=self.signals.progress.emit)
@@ -358,6 +359,7 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._opportunity_tab(), "Opportunity check")
         self.tabs.addTab(self._data_tab(), "Historical data")
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
+        self.tabs.addTab(self._velocity_tab(), "Market velocity")
         self.tabs.addTab(self._deal_drive_tab(), "Deal Drive")
         self.tabs.addTab(self._memory_tab(), "Memory")
         self.refresh()
@@ -418,6 +420,21 @@ class IntelligencePage(Page):
         self.memory_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.memory_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.memory_table.verticalHeader().hide(); self.memory_table.horizontalHeader().setStretchLastSection(True); self.memory_table.setWordWrap(True); memory_layout.addWidget(self.memory_table)
         root.addWidget(memory_card, 1)
+        return content
+
+    def _velocity_tab(self) -> QWidget:
+        content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
+        header=Card(); header_layout=QHBoxLayout(header); header_layout.setContentsMargins(18,16,18,16)
+        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Daily market velocity", "The strongest fast/slow liquidity signals from retained Deal Drive snapshots."))
+        self.velocity_status=QLabel("Building history"); self.velocity_status.setObjectName("muted"); self.velocity_status.setWordWrap(True); copy.addWidget(self.velocity_status); header_layout.addLayout(copy,1)
+        schedule=QLabel("AUTOMATIC SYNC\nEvery day · 23:59 Dubai time"); schedule.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter); schedule.setStyleSheet(f"color:{COLORS['green']};font-weight:850"); header_layout.addWidget(schedule); root.addWidget(header)
+        columns=QHBoxLayout(); columns.setSpacing(12)
+        fast_card=Card(); fast_layout=QVBoxLayout(fast_card); fast_layout.setContentsMargins(14,13,14,14); fast_layout.addWidget(SectionHeader("Fastest movers", "Listings disappearing quickest · minimum 3 observations"))
+        self.velocity_fast=QTableWidget(0,4); self.velocity_fast.setHorizontalHeaderLabels(["VEHICLE","TRIM","SIGNAL DAYS","SAMPLES"]); self.velocity_fast.horizontalHeader().setStretchLastSection(True); fast_layout.addWidget(self.velocity_fast); columns.addWidget(fast_card,1)
+        slow_card=Card(); slow_layout=QVBoxLayout(slow_card); slow_layout.setContentsMargins(14,13,14,14); slow_layout.addWidget(SectionHeader("Slowest movers", "Oldest active listing cohorts · minimum 3 listings"))
+        self.velocity_slow=QTableWidget(0,4); self.velocity_slow.setHorizontalHeaderLabels(["VEHICLE","TRIM","ACTIVE DAYS","SAMPLES"]); self.velocity_slow.horizontalHeader().setStretchLastSection(True); slow_layout.addWidget(self.velocity_slow); columns.addWidget(slow_card,1)
+        root.addLayout(columns,1)
+        note=QLabel("Evidence rule: a disappeared advert is a liquidity signal, not a confirmed completed sale. Confirmed DXB Runway sales remain the stronger source."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
         return content
 
     def _deal_drive_tab(self) -> QWidget:
@@ -593,6 +610,7 @@ class IntelligencePage(Page):
     def refresh(self) -> None:
         self._refresh_memories()
         self._refresh_deal_drive()
+        self._refresh_velocity()
         if hasattr(self, "batch_table"):
             batches = import_history(self.db); self.batch_table.setRowCount(len(batches))
             for row, batch in enumerate(batches):
@@ -603,3 +621,17 @@ class IntelligencePage(Page):
             for row, grade in enumerate(grades):
                 values = [f"{grade.get('model_year') or ''} {grade['make']} {grade['model']}".strip(), grade["trim"], grade["grade"], grade["decision"], grade["confidence"], grade["sample_size"], grade.get("median_days", "—"), _money(grade.get("average_profit_aed")), grade.get("trim_position", "—")]
                 for column, value in enumerate(values): self.grades_table.setItem(row, column, QTableWidgetItem(str(value)))
+
+    def _refresh_velocity(self) -> None:
+        if not hasattr(self,"velocity_fast"): return
+        result=velocity_rankings(self.db)
+        if result["status"]=="sync_failed": status=f"Nightly sync failed {result.get('last_sync','')} · {result.get('error','Unknown error')}"
+        elif result["status"]=="waiting_for_first_nightly_sync": status="Waiting for the first automatic 23:59 Deal Drive market snapshot."
+        elif result["status"]=="building_history": status=f"First snapshot saved {result.get('last_sync','')} · fast movers appear after the next nightly comparison."
+        else: status=f"Updated {result.get('last_sync','')} · {result.get('method','')}"
+        self.velocity_status.setText(status)
+        for table,key in ((self.velocity_fast,"fast"),(self.velocity_slow,"slow")):
+            rows=result.get(key,[]); table.setRowCount(len(rows))
+            for index,row in enumerate(rows):
+                values=[f"{row['brand']} {row['model']}",row["trim"] or "—",f"{float(row['average_days'] or 0):.0f}",row["samples"]]
+                for column,value in enumerate(values): table.setItem(index,column,QTableWidgetItem(str(value)))

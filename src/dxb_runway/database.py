@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 
 
 MIGRATIONS: dict[int, str] = {
@@ -442,6 +442,10 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE deal_drive_market_offers ADD COLUMN exclusion_reason TEXT NOT NULL DEFAULT '';
     ALTER TABLE deal_drive_market_offers ADD COLUMN comparison_weight REAL;
     """,
+    28: """
+    ALTER TABLE deal_drive_sync_runs ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'comparison';
+    ALTER TABLE deal_drive_sync_runs ADD COLUMN subject_json TEXT NOT NULL DEFAULT '';
+    """,
 }
 
 
@@ -557,6 +561,10 @@ class Database:
                     }
                     for column, definition in definitions.items():
                         if column not in columns: connection.execute(f"ALTER TABLE deal_drive_market_offers ADD COLUMN {column} {definition}")
+                elif version == 28:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(deal_drive_sync_runs)").fetchall()}
+                    if "sync_mode" not in columns: connection.execute("ALTER TABLE deal_drive_sync_runs ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'comparison'")
+                    if "subject_json" not in columns: connection.execute("ALTER TABLE deal_drive_sync_runs ADD COLUMN subject_json TEXT NOT NULL DEFAULT ''")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")

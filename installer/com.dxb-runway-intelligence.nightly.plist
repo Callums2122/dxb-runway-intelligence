@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dxb-runway-intelligence.nightly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/DXB RUNWAY Intelligence.app/Contents/MacOS/DXB RUNWAY Intelligence</string>
+    <string>--nightly-deal-drive-sync</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>23</integer><key>Minute</key><integer>59</integer></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/private/tmp/dxb-runway-nightly.log</string>
+  <key>StandardErrorPath</key><string>/private/tmp/dxb-runway-nightly-error.log</string>
+</dict>
+</plist>

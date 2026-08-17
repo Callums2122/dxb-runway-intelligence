@@ -1,5 +1,5 @@
 from dxb_runway.database import Database
-from dxb_runway.deal_drive import DealDriveClient, comparison_exclusion, comparison_summary, market_evidence, save_market_snapshot, sync_status
+from dxb_runway.deal_drive import DealDriveClient, comparison_exclusion, comparison_summary, market_evidence, save_market_snapshot, sync_status, velocity_rankings
 
 
 def test_allowlisted_client_logs_in_and_chunks_market_details():
@@ -56,3 +56,19 @@ def test_comparison_keeps_live_and_history_separate_and_uses_medians(tmp_path):
     assert result["live_market_asking"]["median_price_aed"] == 210000
     assert result["live_market_asking"]["average_price_aed"] > 400000
     assert result["historical_sold_or_removed"]["median_price_aed"] == 190000
+
+
+def test_velocity_uses_disappearance_for_fast_and_listing_age_for_slow(tmp_path):
+    db=Database(tmp_path/"runway.db")
+    base={"catalogBrand":{"name":"Toyota"},"catalogModel":{"name":"Land Cruiser"},"catalogTrim":{"name":"GXR"},"modelYear":2022,
+          "mileage":30000,"catalogMileageUnit":{"multiplierToKm":1},"catalogRegionalSpecs":{"name":"GCC"},
+          "marketSellerType":{"name":"Dealer"},"address":"Dubai","publishedAt":"2026-07-01T00:00:00+00:00"}
+    first=[{**base,"id":f"gone-{i}","price":200000+i,"marketSeller":{"id":f"d-{i}"}} for i in range(3)]
+    first += [{**base,"id":f"stay-{i}","price":210000+i,"marketSeller":{"id":f"s-{i}"}} for i in range(3)]
+    save_market_snapshot(db,first,"AE",100,sync_mode="nightly_market")
+    second=[row for row in first if str(row["id"]).startswith("stay")]
+    save_market_snapshot(db,second,"AE",100,sync_mode="nightly_market")
+    result=velocity_rankings(db)
+    assert result["status"]=="ready"
+    assert result["fast"][0]["samples"]==3
+    assert result["slow"][0]["samples"]==3
