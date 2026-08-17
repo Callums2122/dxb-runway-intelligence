@@ -493,3 +493,10 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Radar now separates live comparable count from archived sample count and confidence follows the archived sample.
 - Cohorts without archive evidence show `UNPROVEN` instead of being falsely labelled fast.
 - Legacy snapshots using live-ad age automatically bypass the cooldown for one corrective resync.
+
+# 2026-08-17 — Invalid zero-day archive guard
+
+- Confirmed Deal Drive can return `weightedAvgDaysInSale: 0` as an invalid sentinel despite many archived offers.
+- Runway now rejects zero or negative archive durations instead of falsely awarding a Fast classification.
+- When the API duration is invalid, Runway calculates median days directly from each archived advert's publication and archive timestamps.
+- Existing first-generation archive snapshots automatically bypass cooldown for a corrective resync.

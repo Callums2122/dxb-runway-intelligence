@@ -2,7 +2,7 @@ from dxb_runway.database import Database
 from datetime import datetime, timedelta, timezone
 
 from dxb_runway.market_watchlist import (
-    delete_watchlist_item, radar_rows, save_watchlist_item, set_watchlist_active,
+    archive_speed_days, delete_watchlist_item, radar_rows, save_watchlist_item, set_watchlist_active,
     snapshot_watchlist_item, watchlist_items, watchlist_sync_due,
 )
 
@@ -38,13 +38,13 @@ def test_snapshot_retains_cohort_and_builds_radar(tmp_path):
     rows=radar_rows(db)
     assert len(rows)==1 and rows[0]["sample_size"]==3 and rows[0]["current_listings"]==8
     assert rows[0]["median_asking_aed"]==215000 and rows[0]["confidence"]=="Low"
-    assert rows[0]["median_listing_age_days"]==21 and rows[0]["speed_source"]=="deal_drive_archive"
+    assert rows[0]["median_listing_age_days"]==21 and rows[0]["speed_source"]=="deal_drive_archive_v2"
     assert rows[0]["live_median_age_days"] is not None
 
 
 def test_watchlist_sync_uses_rolling_three_day_cooldown():
     now=datetime(2026,8,17,12,tzinfo=timezone.utc)
-    base={"last_synced":(now-timedelta(hours=71)).isoformat(),"updated_at":(now-timedelta(days=5)).isoformat(),"last_detail_json":'{"speed_source":"deal_drive_archive"}'}
+    base={"last_synced":(now-timedelta(hours=71)).isoformat(),"updated_at":(now-timedelta(days=5)).isoformat(),"last_detail_json":'{"speed_source":"deal_drive_archive_v2"}'}
     assert not watchlist_sync_due(base,now)
     assert watchlist_sync_due({**base,"last_synced":(now-timedelta(hours=72)).isoformat()},now)
     assert watchlist_sync_due({**base,"last_synced":None},now)
@@ -52,7 +52,7 @@ def test_watchlist_sync_uses_rolling_three_day_cooldown():
 
 def test_editing_watchlist_cohort_bypasses_cooldown():
     now=datetime(2026,8,17,12,tzinfo=timezone.utc)
-    item={"last_synced":(now-timedelta(hours=2)).isoformat(),"updated_at":(now-timedelta(hours=1)).isoformat(),"last_detail_json":'{"speed_source":"deal_drive_archive"}'}
+    item={"last_synced":(now-timedelta(hours=2)).isoformat(),"updated_at":(now-timedelta(hours=1)).isoformat(),"last_detail_json":'{"speed_source":"deal_drive_archive_v2"}'}
     assert watchlist_sync_due(item,now)
 
 
@@ -60,3 +60,10 @@ def test_legacy_live_age_snapshot_is_due_for_archive_speed_correction():
     now=datetime(2026,8,17,12,tzinfo=timezone.utc)
     item={"last_synced":(now-timedelta(hours=1)).isoformat(),"updated_at":(now-timedelta(days=2)).isoformat(),"last_detail_json":"{}"}
     assert watchlist_sync_due(item,now)
+
+
+def test_zero_archive_days_is_rejected_and_observed_timestamps_win():
+    assert archive_speed_days(0,[18,42,30])==30
+    assert archive_speed_days("0",[20,40])==30
+    assert archive_speed_days(27,[100,120])==27
+    assert archive_speed_days(0,[]) is None

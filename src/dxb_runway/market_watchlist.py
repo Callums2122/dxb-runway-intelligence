@@ -90,7 +90,7 @@ def watchlist_sync_due(item: dict[str, Any], now: datetime | None = None, cooldo
     if last is None:return True
     try:detail=json.loads(str(item.get("last_detail_json") or "{}"))
     except json.JSONDecodeError:detail={}
-    if detail.get("speed_source")!="deal_drive_archive":return True
+    if detail.get("speed_source")!="deal_drive_archive_v2":return True
     updated=_timestamp(item.get("updated_at"))
     if updated is not None and updated>last:return True
     return current-last>=timedelta(days=cooldown_days)
@@ -124,6 +124,16 @@ def _score(sample: int, median_age: float | None, new: int, exits: int, reductio
 
 def _label(score: float) -> str:
     return "Strong" if score >= 80 else "Healthy" if score >= 60 else "Neutral" if score >= 40 else "Weak" if score >= 20 else "Avoid"
+
+
+def archive_speed_days(api_value: Any, observed_durations: list[float]) -> float | None:
+    """Reject Deal Drive's occasional zero sentinel and prefer observed archive timestamps."""
+    try:
+        value=float(api_value)
+        if value>0:return value
+    except (TypeError,ValueError):pass
+    valid=[float(value) for value in observed_durations if float(value)>0]
+    return statistics.median(valid) if valid else None
 
 
 def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[str, Any], progress: Callable[[str], None] | None = None) -> int:
@@ -169,8 +179,7 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
     median_price = statistics.median(prices) if prices else None
     evaluation = meta.get("evaluation") or {}
     sales_history=evaluation.get("salesHistory") or {}
-    archive_days=sales_history.get("weightedAvgDaysInSale")
-    if archive_days is None and archive_durations:archive_days=statistics.median(archive_durations)
+    archive_days=archive_speed_days(sales_history.get("weightedAvgDaysInSale"),archive_durations)
     archive_sample=len(archived) or int(sales_history.get("usefulOffersCount") or 0)
     weighted = weighted_median([(float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")),float(row.get("_comparison_weight",1))*float(row.get("_runway_dealer_weight",1))) for row in filtered if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")])
     change_7 = _trend(db, item["id"], now, 7, median_price); change_30 = _trend(db, item["id"], now, 30, median_price); change_90 = _trend(db, item["id"], now, 90, median_price)
@@ -180,7 +189,7 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
         weighted_market_price_aed,median_listing_age_days,new_listings,market_exits,price_reductions,sample_size,confidence,score,label,
         change_7d,change_30d,change_90d,detail_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
         item["id"], now.isoformat(), len(filtered), median_price, weighted, archive_days, new, exits, reductions,
-        archive_sample, confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation,"speed_source":"deal_drive_archive","live_median_age_days":statistics.median(ages) if ages else None,"archive_sample_size":archive_sample,"archive_observed_durations":len(archive_durations),"dealer_policy":{"direct":sum(row.get("_runway_dealer_tier")=="direct" for row in filtered+archived),"consider":sum(row.get("_runway_dealer_tier")=="consider" for row in filtered+archived),"unrated":sum(row.get("_runway_dealer_tier")=="unrated" for row in filtered+archived),"dubai_priority":True}}, default=str),
+        archive_sample, confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation,"speed_source":"deal_drive_archive_v2","archive_api_days_raw":sales_history.get("weightedAvgDaysInSale"),"live_median_age_days":statistics.median(ages) if ages else None,"archive_sample_size":archive_sample,"archive_observed_durations":len(archive_durations),"dealer_policy":{"direct":sum(row.get("_runway_dealer_tier")=="direct" for row in filtered+archived),"consider":sum(row.get("_runway_dealer_tier")=="consider" for row in filtered+archived),"unrated":sum(row.get("_runway_dealer_tier")=="unrated" for row in filtered+archived),"dubai_priority":True}}, default=str),
     ))
     with db.connect() as connection:
         connection.executemany("INSERT INTO market_watchlist_snapshot_offers(snapshot_id,offer_id,price_aed,published_at) VALUES (?,?,?,?)", [
