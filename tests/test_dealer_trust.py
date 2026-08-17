@@ -8,13 +8,20 @@ def offer(name,address="Dubai"):
 def test_promoted_dealers_are_direct_and_dubai_gets_priority():
     for name in ("Park Lane","Zeus Auto","Blackline Motors"):
         tier,weight,_=dealer_evidence(offer(name));assert tier=="direct" and weight>1.25
-    assert dealer_evidence(offer("RMA Motors","Abu Dhabi"))[1] < dealer_evidence(offer("RMA Motors","Dubai"))[1]
+    assert dealer_evidence(offer("GTA Cars","Abu Dhabi"))[0] == "exclude"
 
 
 def test_consider_and_excluded_dealers_are_transparent():
     assert dealer_evidence(offer("Kavak"))[0]=="consider"
     assert dealer_evidence(offer("Random Motors","Al Aweer, Dubai"))[0]=="exclude"
     assert dealer_evidence(offer("Random Motors","Sharjah"))[0]=="exclude"
+
+
+def test_abudhabi_is_allowed_only_for_the_matching_official_agency():
+    maserati={**offer("Al Tayer Motors","Abu Dhabi"),"catalogBrand":{"name":"Maserati"}}
+    wrong_brand={**offer("Al Tayer Motors","Abu Dhabi"),"catalogBrand":{"name":"Audi"}}
+    assert dealer_evidence(maserati)[0]=="agency"
+    assert dealer_evidence(wrong_brand)[0]=="exclude"
 
 
 def test_weighted_median_prioritises_stronger_evidence():

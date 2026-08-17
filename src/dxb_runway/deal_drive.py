@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from .database import Database
+from .dealer_trust import dealer_evidence
 
 ENDPOINT = "https://partnerapi.deal-drive.com/query"
 KEYCHAIN_SERVICE = "com.dxb-runway-intelligence.deal-drive"
@@ -279,6 +280,7 @@ def comparison_exclusion(offer: dict[str, Any], *, allow_imports: bool = False, 
     if exclude_sharjah_ajman and "ajman" in address: return "Ajman excluded"
     regional = _name(offer.get("catalogRegionalSpecs")).casefold()
     if not allow_imports and not any(term in regional for term in ("gcc", "gulf", "middle east")): return "non-GCC or unknown specification"
+    if dealer_evidence(offer)[0] == "exclude": return "outside Dubai or excluded dealer/location"
     return ""
 
 

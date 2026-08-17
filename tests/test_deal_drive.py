@@ -92,6 +92,9 @@ def test_policy_excludes_private_non_gcc_and_disallowed_emirates():
     assert "Sharjah" in comparison_exclusion({**base,"address":"Sharjah"})
     assert "non-GCC" in comparison_exclusion({**base,"catalogRegionalSpecs":{"name":"US Spec"}})
     assert comparison_exclusion({**base,"catalogRegionalSpecs":{"name":"US Spec"}},allow_imports=True) == ""
+    assert "outside Dubai" in comparison_exclusion({**base,"address":"Abu Dhabi"})
+    agency={**base,"address":"Abu Dhabi","catalogBrand":{"name":"Maserati"},"marketSeller":{"name":"Al Tayer Motors"}}
+    assert comparison_exclusion(agency)==""
 
 
 def test_comparison_keeps_live_and_history_separate_and_uses_medians(tmp_path):

@@ -4,6 +4,7 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 
 ## Current release — 2.2.0
 
+- Deal Drive evidence is now Dubai-only, except for manufacturer-matched official UAE agencies; Dealer Trust has a separate searchable reference-style agency section.
 - Market Watchlist now recognises variants that Deal Drive stores as model versions/modifications rather than trims (including Maserati Grecale Trofeo), while preserving strict exact-variant filtering.
 
 - Mobile Stock Level now mirrors live Mac cash and consignment vehicles.

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
-from .dealer_trust import CONSIDER_DEALERS, DIRECT_DEALERS, EXCLUDED_DEALERS
+from .dealer_trust import CONSIDER_DEALERS, DIRECT_DEALERS, EXCLUDED_DEALERS, OFFICIAL_AGENCIES
 from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_summary, save_market_snapshot, sync_status, velocity_rankings
 from .dialogs import MoneyBox
 from .intelligence import (
@@ -566,8 +566,9 @@ class IntelligencePage(Page):
     def _dealer_trust_tab(self) -> QWidget:
         content=QWidget();root=QVBoxLayout(content);root.setContentsMargins(4,14,4,4);root.setSpacing(12)
         hero=Card();hero_layout=QVBoxLayout(hero);hero_layout.setContentsMargins(18,16,18,16)
-        hero_layout.addWidget(SectionHeader("Dealer Trust", "Transparent comparison priority · Dubai evidence gets priority within every permitted tier."))
-        note=QLabel("GREEN carries the strongest weight · ORANGE supports the comparison · RED is excluded. Dealer trust changes the current price estimate, never the locked historical grade.");note.setObjectName("muted");note.setWordWrap(True);hero_layout.addWidget(note);root.addWidget(hero)
+        hero_layout.addWidget(SectionHeader("Dealer Trust", "Dubai-only market evidence · recognised official agencies are the sole Abu Dhabi exception."))
+        note=QLabel("Used dealers must be in Dubai. An Abu Dhabi listing is counted only when the seller is the official agency for that vehicle brand. Trust policy changes current market evidence, never the locked historical grade.");note.setObjectName("muted");note.setWordWrap(True);hero_layout.addWidget(note);root.addWidget(hero)
+        sections=QTabWidget();used=QWidget();used_root=QVBoxLayout(used);used_root.setContentsMargins(0,10,0,0)
         columns=QHBoxLayout();columns.setSpacing(12)
         groups=(("✓ DIRECT · STRONG",DIRECT_DEALERS,COLORS["green"],"Best comparison evidence"),("△ CONSIDER",CONSIDER_DEALERS,COLORS["amber"],"Useful supporting evidence"),("× DO NOT CONSIDER",EXCLUDED_DEALERS,COLORS["red"],"Removed from evidence"))
         for title,names,color,subtitle in groups:
@@ -575,7 +576,16 @@ class IntelligencePage(Page):
             heading=QLabel(title);heading.setStyleSheet(f"font-size:16px;font-weight:900;color:{color}");layout.addWidget(heading)
             sub=QLabel(subtitle);sub.setObjectName("muted");layout.addWidget(sub)
             listing=QLabel("\n".join(f"•  {name}" for name in names));listing.setWordWrap(True);listing.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);layout.addWidget(listing);layout.addStretch();columns.addWidget(card,1)
-        root.addLayout(columns,1);return page_scroll(content)
+        used_root.addLayout(columns,1);sections.addTab(used,"Used dealerships")
+        agencies=QWidget();agency_root=QVBoxLayout(agencies);agency_root.setContentsMargins(0,10,0,0)
+        agency_card=Card();agency_layout=QVBoxLayout(agency_card);agency_layout.setContentsMargins(16,15,16,15)
+        agency_heading=QLabel("★ OFFICIAL UAE AGENCIES");agency_heading.setStyleSheet(f"font-size:16px;font-weight:900;color:{COLORS['cyan']}");agency_layout.addWidget(agency_heading)
+        agency_note=QLabel("Manufacturer-matched agency adverts remain valid in Dubai or Abu Dhabi. The agency name alone is not enough—it must match the listed vehicle brand.");agency_note.setObjectName("muted");agency_note.setWordWrap(True);agency_layout.addWidget(agency_note)
+        agency_table=QTableWidget(len(OFFICIAL_AGENCIES),2);agency_table.setHorizontalHeaderLabels(["OFFICIAL AGENCY","MANUFACTURERS"]);agency_table.verticalHeader().hide();agency_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);agency_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        agency_table.horizontalHeader().setSectionResizeMode(0,QHeaderView.ResizeMode.ResizeToContents);agency_table.horizontalHeader().setSectionResizeMode(1,QHeaderView.ResizeMode.Stretch)
+        for row,(agency,brands) in enumerate(OFFICIAL_AGENCIES):agency_table.setItem(row,0,table_item(agency));agency_table.setItem(row,1,table_item(" · ".join(brands)))
+        agency_layout.addWidget(agency_table);agency_root.addWidget(agency_card);sections.addTab(agencies,"Official agencies")
+        root.addWidget(sections,1);return page_scroll(content)
 
     def _deal_drive_tab(self) -> QWidget:
         content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
@@ -608,7 +618,7 @@ class IntelligencePage(Page):
         policy = Card(); policy_layout = QGridLayout(policy); policy_layout.setContentsMargins(14,12,14,12)
         policy_layout.addWidget(QLabel("ACTIVE COMPARISON POLICY"),0,0,1,3)
         for column, text in enumerate(("✓ Dealers/commercial only", "✓ Subject year + 1", "✓ Exact trim first")): policy_layout.addWidget(QLabel(text),1,column)
-        for column, text in enumerate(("✓ Sharjah & Ajman excluded", "✓ Mileage ±25% / minimum 15k km", "✓ Likely reposts collapsed")): policy_layout.addWidget(QLabel(text),2,column)
+        for column, text in enumerate(("✓ Dubai only · official agency exception", "✓ Mileage ±25% / minimum 15k km", "✓ Likely reposts collapsed")): policy_layout.addWidget(QLabel(text),2,column)
         policy_layout.addWidget(QLabel("✓ Live asking and historical sold evidence remain separate · median/weighted median is primary"),3,0,1,3)
         self.dd_allow_imports = QCheckBox("Explicitly allow non-GCC/import vehicles for this comparison")
         self.dd_allow_imports.setChecked(self.db.get_setting("deal_drive_allow_imports", "0") == "1"); policy_layout.addWidget(self.dd_allow_imports,4,0,1,3); box.addWidget(policy)
