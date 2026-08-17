@@ -1,7 +1,9 @@
 from dxb_runway.database import Database
+from datetime import datetime, timedelta, timezone
+
 from dxb_runway.market_watchlist import (
     delete_watchlist_item, radar_rows, save_watchlist_item, set_watchlist_active,
-    snapshot_watchlist_item, watchlist_items,
+    snapshot_watchlist_item, watchlist_items, watchlist_sync_due,
 )
 
 
@@ -33,3 +35,17 @@ def test_snapshot_retains_cohort_and_builds_radar(tmp_path):
     rows=radar_rows(db)
     assert len(rows)==1 and rows[0]["sample_size"]==8
     assert rows[0]["median_asking_aed"]==215000 and rows[0]["confidence"]=="Medium"
+
+
+def test_watchlist_sync_uses_rolling_three_day_cooldown():
+    now=datetime(2026,8,17,12,tzinfo=timezone.utc)
+    base={"last_synced":(now-timedelta(hours=71)).isoformat(),"updated_at":(now-timedelta(days=5)).isoformat()}
+    assert not watchlist_sync_due(base,now)
+    assert watchlist_sync_due({**base,"last_synced":(now-timedelta(hours=72)).isoformat()},now)
+    assert watchlist_sync_due({**base,"last_synced":None},now)
+
+
+def test_editing_watchlist_cohort_bypasses_cooldown():
+    now=datetime(2026,8,17,12,tzinfo=timezone.utc)
+    item={"last_synced":(now-timedelta(hours=2)).isoformat(),"updated_at":(now-timedelta(hours=1)).isoformat()}
+    assert watchlist_sync_due(item,now)

@@ -467,3 +467,11 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Market lane is now determined by the owner-defined speed rule: under 45 median days is Fast; 45+ days is Slow.
 - Kept the 0–100 multi-factor score as supporting evidence rather than allowing it to override actual market speed.
 - Expanded each cohort with median age, live comparables, sample size, asking median, exits, new supply, price cuts, 30-day trend and confidence.
+
+# 2026-08-17 — Three-day Deal Drive fetch protection
+
+- Added a rolling 72-hour cooldown to every successfully synced watchlist cohort.
+- Manual and nightly runs skip fresh vehicles before logging in, so skipped cohorts consume no Deal Drive fetches.
+- Sync progress reports the number protected by cooldown and confirms when no API fetches were needed.
+- Editing a cohort's trim, years, mileage or rules makes it immediately due so changed comparisons never inherit stale data.
+- Market Watchlist status now visibly distinguishes `Active · due` from `Active · 72h cooldown`.

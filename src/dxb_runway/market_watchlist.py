@@ -76,9 +76,19 @@ def _timestamp(value: Any) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+        parsed=datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return (parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed).astimezone(timezone.utc)
     except ValueError:
         return None
+
+
+def watchlist_sync_due(item: dict[str, Any], now: datetime | None = None, cooldown_days: int = 3) -> bool:
+    """Return true only for never-synced, changed, or 72-hour-old cohorts."""
+    current=(now or datetime.now(timezone.utc)).astimezone(timezone.utc); last=_timestamp(item.get("last_synced"))
+    if last is None:return True
+    updated=_timestamp(item.get("updated_at"))
+    if updated is not None and updated>last:return True
+    return current-last>=timedelta(days=cooldown_days)
 
 
 def _trend(db: Database, watchlist_id: int, captured: datetime, days: int, median_price: float | None) -> float | None:
@@ -165,14 +175,20 @@ def nightly_watchlist_sync(db: Database, progress: Callable[[str], None] | None 
     items = watchlist_items(db, active_only=True)
     if not items:
         raise DealDriveError("Nightly watchlist sync skipped: add at least one active Market Watchlist vehicle.")
+    due=[item for item in items if watchlist_sync_due(item)]
+    skipped=len(items)-len(due)
+    if skipped and progress:progress(f"Cooldown protected · skipped {skipped} cohort{'s' if skipped!=1 else ''} synced within the last 72 hours.")
+    if not due:
+        if progress:progress("Everything is current · no Deal Drive fetches used.")
+        return 0
     email = db.get_setting("deal_drive_email").strip(); workspace_id = db.get_setting("deal_drive_workspace_id").strip()
     password = KeychainCredentials().load(email) if email else None
     if not email or not password or not workspace_id:
         raise DealDriveError("Nightly watchlist sync skipped: Deal Drive connection is incomplete.")
     client = DealDriveClient(workspace_id=workspace_id); client.login(email, password); client.verify_market_access()
     completed = 0
-    for index, item in enumerate(items, 1):
-        if progress: progress(f"Watchlist {index}/{len(items)} · {item['year_from']}–{item['year_to']} {item['make']} {item['model']} {item['trim']}")
+    for index, item in enumerate(due, 1):
+        if progress: progress(f"Due {index}/{len(due)} · {item['year_from']}–{item['year_to']} {item['make']} {item['model']} {item['trim']}")
         snapshot_watchlist_item(db, client, item, progress)
         completed += 1
     return completed

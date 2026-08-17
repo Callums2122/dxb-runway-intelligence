@@ -27,7 +27,7 @@ from .intelligence import (
 )
 from .market_watchlist import (
     delete_watchlist_item, ignore_suggestion, matching_market_snapshot, nightly_watchlist_sync, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
-    watchlist_items, watchlist_suggestions,
+    watchlist_items, watchlist_suggestions, watchlist_sync_due,
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
@@ -166,7 +166,9 @@ class WatchlistSyncJob(QRunnable):
     def run(self) -> None:
         try:
             count=nightly_watchlist_sync(self.db,self.signals.progress.emit)
-            self.signals.finished.emit(f"Sync complete · {count} active watchlist vehicle{'s' if count!=1 else ''} refreshed.")
+            message=(f"Sync complete · {count} due watchlist vehicle{'s' if count!=1 else ''} refreshed." if count else
+                     "Everything is current · all active vehicles are inside the 72-hour cooldown. No Deal Drive fetches used.")
+            self.signals.finished.emit(message)
         except Exception as error:
             self.signals.failed.emit(str(error))
 
@@ -768,7 +770,8 @@ class IntelligencePage(Page):
             vehicle=QTableWidgetItem(f"{row['make']} {row['model']}"); vehicle.setData(Qt.ItemDataRole.UserRole,row["id"]); self.watchlist_table.setItem(index,0,vehicle)
             mileage="Any" if row["mileage_min"] is None and row["mileage_max"] is None else f"{int(row['mileage_min'] or 0):,}–{int(row['mileage_max'] or 1000000):,} km"
             rules=("GCC" if row["gcc_only"] else "Imports allowed")+(" · Dealer" if row["dealer_only"] else " · All sellers")+(" · DXB/AUH" if row["exclude_sharjah_ajman"] else "")
-            values=[row["trim"],f"{row['year_from']}–{row['year_to']}",rules,mileage,"Active" if row["active"] else "Paused",row["last_synced"] or "Never"]
+            state="Paused" if not row["active"] else "Active · due" if watchlist_sync_due(row) else "Active · 72h cooldown"
+            values=[row["trim"],f"{row['year_from']}–{row['year_to']}",rules,mileage,state,row["last_synced"] or "Never"]
             for column,value in enumerate(values,1):self.watchlist_table.setItem(index,column,QTableWidgetItem(str(value)))
         suggestions=watchlist_suggestions(self.db,1); self._current_watchlist_suggestion=suggestions[0] if suggestions else None
         if suggestions:
