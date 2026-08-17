@@ -257,7 +257,7 @@ def test_intelligence_page_can_store_and_forget_manual_memory(tmp_path: Path):
 def test_ask_runway_is_separate_and_animates_received_answer(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
     intelligence=window.pages["intelligence"]
-    assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Memory"]
+    assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Deal Drive","Memory"]
     chat=window.pages["ask_runway"]; chat._busy=True; chat._chat_answer("Evidence first. Buy only at the right margin."); chat.typing_timer.stop()
     assert len(chat.findChildren(QWidget, "agentAvatar"))>=2
     while chat._typing_index < len(chat._typing_answer): chat._typing_step()

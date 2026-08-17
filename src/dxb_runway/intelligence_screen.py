@@ -5,6 +5,7 @@ import json
 import shlex
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
+from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, save_market_snapshot, sync_status
 from .dialogs import MoneyBox
 from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
@@ -81,6 +83,32 @@ def openclaw_answer(payload: object) -> str:
 class WorkerSignals(QObject):
     finished = Signal(str)
     failed = Signal(str)
+
+
+class DealDriveSignals(QObject):
+    progress = Signal(str)
+    finished = Signal(str)
+    failed = Signal(str)
+
+
+class DealDriveJob(QRunnable):
+    def __init__(self, db: Database, email: str, password: str, limit: int, sync: bool):
+        super().__init__(); self.db = db; self.email = email; self.password = password; self.limit = limit; self.sync = sync
+        self.signals = DealDriveSignals()
+
+    def run(self) -> None:
+        try:
+            self.signals.progress.emit("Signing in securely…")
+            client = DealDriveClient(); client.login(self.email, self.password)
+            if not self.sync:
+                self.signals.finished.emit("Connected. Partner API credentials accepted."); return
+            self.signals.progress.emit("Connected. Reading UAE market-offer IDs…")
+            offers = client.fetch_market(limit=self.limit, progress=self.signals.progress.emit)
+            self.signals.progress.emit("Saving a retained local snapshot…")
+            save_market_snapshot(self.db, offers, "AE", self.limit)
+            self.signals.finished.emit(f"Sync complete · {len(offers):,} market offers retained locally.")
+        except Exception as error:
+            self.signals.failed.emit(str(error))
 
 
 class OpenClawChatJob(QRunnable):
@@ -321,6 +349,7 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._opportunity_tab(), "Opportunity check")
         self.tabs.addTab(self._data_tab(), "Historical data")
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
+        self.tabs.addTab(self._deal_drive_tab(), "Deal Drive")
         self.tabs.addTab(self._memory_tab(), "Memory")
         self.refresh()
 
@@ -380,6 +409,70 @@ class IntelligencePage(Page):
         self.memory_table.verticalHeader().hide(); self.memory_table.horizontalHeader().setStretchLastSection(True); self.memory_table.setWordWrap(True); memory_layout.addWidget(self.memory_table)
         root.addWidget(memory_card, 1)
         return content
+
+    def _deal_drive_tab(self) -> QWidget:
+        content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
+        intro = Card(); box = QVBoxLayout(intro); box.setContentsMargins(18,16,18,16); box.setSpacing(10)
+        box.addWidget(SectionHeader("Deal Drive market connection", "Read-only UAE listing evidence. Every sync is retained; previous snapshots are never overwritten."))
+        boundary = QLabel("LOCKED SCOPE · MARKET OFFERS ONLY · NO CRM, CONTACTS, VIN, REGISTRATION OR COMPANY RECORDS")
+        boundary.setWordWrap(True); boundary.setStyleSheet(f"color:{COLORS['green']};font-weight:800")
+        box.addWidget(boundary)
+        form = QGridLayout(); form.setHorizontalSpacing(12); form.setVerticalSpacing(8)
+        self.dd_email = QLineEdit(self.db.get_setting("deal_drive_email")); self.dd_email.setPlaceholderText("Partner API email")
+        self.dd_password = QLineEdit(); self.dd_password.setEchoMode(QLineEdit.EchoMode.Password); self.dd_password.setPlaceholderText("Stored in macOS Keychain after a successful test")
+        self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 10000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(int(self.db.get_setting("deal_drive_limit", "5000")))
+        form.addWidget(QLabel("Email"),0,0); form.addWidget(self.dd_email,1,0); form.addWidget(QLabel("Password"),0,1); form.addWidget(self.dd_password,1,1)
+        form.addWidget(QLabel("Maximum UAE offers per sync"),2,0); form.addWidget(self.dd_limit,3,0); box.addLayout(form)
+        actions = QHBoxLayout(); self.dd_test = QPushButton("Test & connect"); self.dd_test.clicked.connect(lambda: self._run_deal_drive(False)); actions.addWidget(self.dd_test)
+        self.dd_sync = QPushButton("Sync market now"); self.dd_sync.setProperty("primary", True); self.dd_sync.clicked.connect(lambda: self._run_deal_drive(True)); actions.addWidget(self.dd_sync)
+        forget = QPushButton("Forget login"); forget.clicked.connect(self._forget_deal_drive); actions.addWidget(forget); actions.addStretch(); box.addLayout(actions); root.addWidget(intro)
+        status_card = Card(); status_layout = QGridLayout(status_card); status_layout.setContentsMargins(18,16,18,16)
+        self.dd_connection = QLabel("NOT CONFIGURED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['amber']}")
+        self.dd_last = QLabel("Never synced"); self.dd_counts = QLabel("0 snapshots · 0 retained offers")
+        status_layout.addWidget(QLabel("CONNECTION"),0,0); status_layout.addWidget(QLabel("LAST SYNC"),0,1); status_layout.addWidget(QLabel("RETAINED EVIDENCE"),0,2)
+        status_layout.addWidget(self.dd_connection,1,0); status_layout.addWidget(self.dd_last,1,1); status_layout.addWidget(self.dd_counts,1,2); root.addWidget(status_card)
+        log_card = Card(); log_layout = QVBoxLayout(log_card); log_layout.setContentsMargins(16,14,16,14); log_layout.addWidget(QLabel("SYNC ACTIVITY"))
+        self.dd_log = QTextEdit(); self.dd_log.setReadOnly(True); self.dd_log.setMaximumHeight(180); self.dd_log.setPlaceholderText("Connection and import progress will appear here."); log_layout.addWidget(self.dd_log); root.addWidget(log_card); root.addStretch()
+        return page_scroll(content)
+
+    def _dd_message(self, message: str) -> None:
+        self.dd_log.append(f"{datetime.now().strftime('%H:%M:%S')}  {message}")
+
+    def _run_deal_drive(self, sync: bool) -> None:
+        email = self.dd_email.text().strip(); password = self.dd_password.text()
+        if not email:
+            QMessageBox.information(self, "Email required", "Enter the Deal Drive Partner API email."); return
+        if not password: password = KeychainCredentials().load(email) or ""
+        if not password:
+            QMessageBox.information(self, "Password required", "Enter the Partner API password once; it will be saved to macOS Keychain only after a successful connection."); return
+        self.dd_test.setEnabled(False); self.dd_sync.setEnabled(False); self._dd_message("Starting read-only connection test…" if not sync else "Starting read-only UAE market sync…")
+        job = DealDriveJob(self.db, email, password, self.dd_limit.value(), sync)
+        job.signals.progress.connect(self._dd_message)
+        job.signals.failed.connect(self._deal_drive_failed)
+        job.signals.finished.connect(lambda message, e=email, p=password: self._deal_drive_finished(message, e, p))
+        self._active_deal_drive_job = job; QThreadPool.globalInstance().start(job)
+
+    def _deal_drive_finished(self, message: str, email: str, password: str) -> None:
+        try: KeychainCredentials().save(email, password)
+        except DealDriveError as error: self._dd_message(str(error))
+        self.db.set_setting("deal_drive_email", email); self.db.set_setting("deal_drive_limit", self.dd_limit.value())
+        self.dd_password.clear(); self.dd_connection.setText("CONNECTED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['green']}")
+        self._dd_message(message); self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True); self._refresh_deal_drive()
+
+    def _deal_drive_failed(self, message: str) -> None:
+        self.dd_connection.setText("CONNECTION FAILED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['red']}")
+        self._dd_message(f"FAILED · {message}"); self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True)
+
+    def _forget_deal_drive(self) -> None:
+        email = self.dd_email.text().strip() or self.db.get_setting("deal_drive_email")
+        if email: KeychainCredentials().delete(email)
+        self.db.set_setting("deal_drive_email", ""); self.dd_email.clear(); self.dd_password.clear(); self.dd_connection.setText("NOT CONFIGURED"); self._dd_message("Saved Keychain login removed. Retained market snapshots were kept.")
+
+    def _refresh_deal_drive(self) -> None:
+        if not hasattr(self, "dd_counts"): return
+        state = sync_status(self.db); latest = state["latest"]
+        self.dd_counts.setText(f"{state['snapshots']:,} snapshots · {state['retained_offers']:,} retained offers")
+        self.dd_last.setText(str(latest["completed_at"] or latest["started_at"]) if latest else "Never synced")
 
     def run_analysis(self) -> None:
         if not self.make.text().strip() or not self.model.text().strip():
@@ -443,6 +536,7 @@ class IntelligencePage(Page):
 
     def refresh(self) -> None:
         self._refresh_memories()
+        self._refresh_deal_drive()
         if hasattr(self, "batch_table"):
             batches = import_history(self.db); self.batch_table.setRowCount(len(batches))
             for row, batch in enumerate(batches):

@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 
 
 MIGRATIONS: dict[int, str] = {
@@ -402,6 +402,34 @@ MIGRATIONS: dict[int, str] = {
     );
     CREATE INDEX IF NOT EXISTS idx_intelligence_chat_attachments_message
       ON intelligence_chat_attachments(message_id,id);
+    """,
+    26: """
+    CREATE TABLE IF NOT EXISTS deal_drive_sync_runs (
+      id INTEGER PRIMARY KEY,
+      started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT,
+      status TEXT NOT NULL CHECK(status IN ('running','success','failed')),
+      country_code TEXT NOT NULL DEFAULT 'AE',
+      requested_limit INTEGER NOT NULL,
+      offer_count INTEGER NOT NULL DEFAULT 0,
+      detail TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS deal_drive_market_offers (
+      id INTEGER PRIMARY KEY,
+      sync_run_id INTEGER NOT NULL REFERENCES deal_drive_sync_runs(id) ON DELETE CASCADE,
+      offer_id TEXT NOT NULL,
+      captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      source_name TEXT NOT NULL DEFAULT '', external_id TEXT NOT NULL DEFAULT '', listing_url TEXT NOT NULL DEFAULT '',
+      price_aed REAL, market_price_aed REAL, market_price_diff REAL,
+      brand TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', model_version TEXT NOT NULL DEFAULT '',
+      generation TEXT NOT NULL DEFAULT '', modification TEXT NOT NULL DEFAULT '', trim TEXT NOT NULL DEFAULT '',
+      model_year INTEGER, mileage_km REAL, regional_spec TEXT NOT NULL DEFAULT '', seller_type TEXT NOT NULL DEFAULT '',
+      published_at TEXT, source_updated_at TEXT, deleted INTEGER NOT NULL DEFAULT 0,
+      price_history_json TEXT NOT NULL DEFAULT '[]', raw_json TEXT NOT NULL,
+      UNIQUE(sync_run_id,offer_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deal_drive_offer_vehicle ON deal_drive_market_offers(brand,model,trim,model_year);
+    CREATE INDEX IF NOT EXISTS idx_deal_drive_offer_run ON deal_drive_market_offers(sync_run_id);
     """,
 }
 

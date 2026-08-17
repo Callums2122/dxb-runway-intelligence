@@ -585,8 +585,10 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
         "total_expected_stock_profit_aed": expected_profit,
         "vehicles": stock,
     }
+    from .deal_drive import market_evidence
     return {"usable_rows": db.query("SELECT COUNT(*) n FROM intelligence_records WHERE duplicate_of IS NULL AND review_reason='' ")[0]["n"],
             "vehicle_history": [dict(row) for row in rows],
             "live_stock": live_stock,
+            "deal_drive_market": market_evidence(db),
             "learned_preferences": [row["memory_text"] for row in intelligence_memories(db)],
             "recent_conversation": chat_conversation(db)}
