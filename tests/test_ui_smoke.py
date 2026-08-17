@@ -5,10 +5,11 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 
-from PySide6.QtCore import QDate, QPoint, Qt
+from PySide6.QtCore import QDate, QPoint, QRect, Qt
 from PySide6.QtWidgets import QApplication, QMessageBox, QScrollArea, QWidget
 
 from dxb_runway.database import Database, SCHEMA_VERSION
+from dxb_runway.app import place_on_secondary_display
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.intelligence_screen import openclaw_answer
@@ -20,6 +21,39 @@ from dxb_runway.screens import WhatsAppTemplatesPage
 
 def app():
     return QApplication.instance() or QApplication([])
+
+
+def test_launch_window_prefers_named_secondary_display():
+    class Screen:
+        def __init__(self,name,area):self._name=name;self._area=area
+        def name(self):return self._name
+        def availableGeometry(self):return self._area
+    class Screens:
+        def __init__(self,primary,secondary):self.primary=primary;self.secondary=secondary
+        def primaryScreen(self):return self.primary
+        def screens(self):return [self.primary,*self.secondary]
+    class Window:
+        def __init__(self):self._width=1480;self._height=920;self.position=None
+        def width(self):return self._width
+        def height(self):return self._height
+        def resize(self,width,height):self._width=width;self._height=height
+        def move(self,x,y):self.position=(x,y)
+    primary=Screen("Built-in",QRect(0,0,1512,982))
+    left=Screen("Studio Display",QRect(-1920,0,1920,1080))
+    right=Screen("Office TV",QRect(1512,0,2560,1440))
+    window=Window()
+    assert place_on_secondary_display(window,Screens(primary,[left,right]),"Office TV")=="Office TV"
+    assert window.position==(2052,260)
+
+
+def test_launch_window_stays_put_when_only_primary_display_exists():
+    class Screen:pass
+    class Screens:
+        def __init__(self):self.primary=Screen()
+        def primaryScreen(self):return self.primary
+        def screens(self):return [self.primary]
+    class Window:pass
+    assert place_on_secondary_display(Window(),Screens())==""
 
 
 def test_first_run_onboarding_constructs(tmp_path: Path):

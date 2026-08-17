@@ -27,6 +27,19 @@ def data_dir(override: str | None = None) -> Path:
     return root
 
 
+def place_on_secondary_display(window, app: QApplication, preferred_name: str = "") -> str:
+    """Centre the main window on a non-primary display and return its name."""
+    primary=app.primaryScreen()
+    secondary=[screen for screen in app.screens() if screen is not primary]
+    if not secondary:return ""
+    target=next((screen for screen in secondary if screen.name()==preferred_name),secondary[0])
+    area=target.availableGeometry()
+    width=min(window.width(),area.width());height=min(window.height(),area.height())
+    window.resize(width,height)
+    window.move(area.x()+max(0,(area.width()-width)//2),area.y()+max(0,(area.height()-height)//2))
+    return target.name()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser=argparse.ArgumentParser(description="DXB RUNWAY Intelligence")
     parser.add_argument("--data-dir",help="Override AppData location for testing")
@@ -53,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
             onboarding=OnboardingDialog(db)
             if onboarding.exec()!=OnboardingDialog.DialogCode.Accepted:return 0
         window=MainWindow(db,icon);window.navigate(args.page);window.show()
+        def place_window():
+            display_name=place_on_secondary_display(window,app,db.get_setting("preferred_secondary_display",""))
+            if display_name:db.set_setting("preferred_secondary_display",display_name)
+        QTimer.singleShot(100,place_window)
         if args.screenshot:
             destination=Path(args.screenshot);destination.parent.mkdir(parents=True,exist_ok=True)
             def capture():

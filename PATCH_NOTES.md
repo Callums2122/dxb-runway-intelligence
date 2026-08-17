@@ -440,3 +440,9 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Added immutable daily cohort snapshots with supply, median asking price, weighted market price, listing age, new listings, market exits, reductions, confidence and 7/30/90-day price change.
 - Added a transparent 0–100 Market Radar and matching watchlist evidence inside Opportunity Check and Ask Runway context.
 - The 23:59 scheduler now refreshes only active watchlist vehicles.
+
+# 2026-08-17 — Secondary-display launch
+
+- DXB RUNWAY Intelligence now opens centred on a connected non-primary display.
+- The selected secondary display is remembered by name for future launches.
+- If the secondary display is disconnected, launch safely falls back to normal macOS placement on the primary display.
