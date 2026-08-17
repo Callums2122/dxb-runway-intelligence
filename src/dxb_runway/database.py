@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 
 
 MIGRATIONS: dict[int, str] = {
@@ -431,6 +431,17 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_deal_drive_offer_vehicle ON deal_drive_market_offers(brand,model,trim,model_year);
     CREATE INDEX IF NOT EXISTS idx_deal_drive_offer_run ON deal_drive_market_offers(sync_run_id);
     """,
+    27: """
+    ALTER TABLE deal_drive_market_offers ADD COLUMN address TEXT NOT NULL DEFAULT '';
+    ALTER TABLE deal_drive_market_offers ADD COLUMN latitude REAL;
+    ALTER TABLE deal_drive_market_offers ADD COLUMN longitude REAL;
+    ALTER TABLE deal_drive_market_offers ADD COLUMN seller_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE deal_drive_market_offers ADD COLUMN seller_name TEXT NOT NULL DEFAULT '';
+    ALTER TABLE deal_drive_market_offers ADD COLUMN active_market INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE deal_drive_market_offers ADD COLUMN duplicate_of_offer_id TEXT;
+    ALTER TABLE deal_drive_market_offers ADD COLUMN exclusion_reason TEXT NOT NULL DEFAULT '';
+    ALTER TABLE deal_drive_market_offers ADD COLUMN comparison_weight REAL;
+    """,
 }
 
 
@@ -536,6 +547,16 @@ class Database:
                     columns = {row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
                     if "initial_owner_payout_aed" not in columns:
                         connection.execute("ALTER TABLE vehicles ADD COLUMN initial_owner_payout_aed REAL")
+                elif version == 27:
+                    columns = {row[1] for row in connection.execute("PRAGMA table_info(deal_drive_market_offers)").fetchall()}
+                    definitions = {
+                        "address":"TEXT NOT NULL DEFAULT ''", "latitude":"REAL", "longitude":"REAL",
+                        "seller_id":"TEXT NOT NULL DEFAULT ''", "seller_name":"TEXT NOT NULL DEFAULT ''",
+                        "active_market":"INTEGER NOT NULL DEFAULT 1", "duplicate_of_offer_id":"TEXT",
+                        "exclusion_reason":"TEXT NOT NULL DEFAULT ''", "comparison_weight":"REAL",
+                    }
+                    for column, definition in definitions.items():
+                        if column not in columns: connection.execute(f"ALTER TABLE deal_drive_market_offers ADD COLUMN {column} {definition}")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")

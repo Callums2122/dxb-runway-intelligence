@@ -11,13 +11,13 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
 from .database import Database
-from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, save_market_snapshot, sync_status
+from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_summary, save_market_snapshot, sync_status
 from .dialogs import MoneyBox
 from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
@@ -92,8 +92,8 @@ class DealDriveSignals(QObject):
 
 
 class DealDriveJob(QRunnable):
-    def __init__(self, db: Database, email: str, password: str, limit: int, sync: bool):
-        super().__init__(); self.db = db; self.email = email; self.password = password; self.limit = limit; self.sync = sync
+    def __init__(self, db: Database, email: str, password: str, limit: int, sync: bool, subject: dict[str, object] | None = None):
+        super().__init__(); self.db = db; self.email = email; self.password = password; self.limit = limit; self.sync = sync; self.subject = subject
         self.signals = DealDriveSignals()
 
     def run(self) -> None:
@@ -103,7 +103,10 @@ class DealDriveJob(QRunnable):
             if not self.sync:
                 self.signals.finished.emit("Connected. Partner API credentials accepted."); return
             self.signals.progress.emit("Connected. Reading UAE market-offer IDs…")
-            offers = client.fetch_market(limit=self.limit, progress=self.signals.progress.emit)
+            if self.subject:
+                offers, _ = client.evaluate_subject(**self.subject, progress=self.signals.progress.emit)
+            else:
+                offers = client.fetch_market(limit=self.limit, progress=self.signals.progress.emit)
             self.signals.progress.emit("Saving a retained local snapshot…")
             save_market_snapshot(self.db, offers, "AE", self.limit)
             self.signals.finished.emit(f"Sync complete · {len(offers):,} market offers retained locally.")
@@ -360,12 +363,13 @@ class IntelligencePage(Page):
         self.model = QLineEdit(); self.model.setPlaceholderText("Q8")
         self.trim = QLineEdit(); self.trim.setPlaceholderText("S line")
         self.year = QSpinBox(); self.year.setRange(0, 2035); self.year.setSpecialValueText("Unknown"); self.year.setValue(0)
+        self.mileage = QSpinBox(); self.mileage.setRange(0, 1000000); self.mileage.setSuffix(" km"); self.mileage.setSingleStep(1000)
         self.buy_price = MoneyBox(maximum=100_000_000); self.retail_price = MoneyBox(maximum=100_000_000); self.prep = MoneyBox(maximum=5_000_000)
-        fields = [("Make", self.make), ("Model", self.model), ("Trim", self.trim), ("Model year", self.year),
+        fields = [("Make", self.make), ("Model", self.model), ("Trim", self.trim), ("Model year", self.year), ("Mileage", self.mileage),
                   ("Purchase price · AED", self.buy_price), ("Expected sale · AED", self.retail_price), ("Prep allowance · AED", self.prep)]
         for index, (label, widget) in enumerate(fields):
             row, column = divmod(index, 2); grid.addWidget(QLabel(label), row * 2, column); grid.addWidget(widget, row * 2 + 1, column)
-        check = QPushButton("Analyse opportunity"); check.setProperty("primary", True); check.clicked.connect(self.run_analysis); grid.addWidget(check, 8, 1)
+        check = QPushButton("Analyse opportunity"); check.setProperty("primary", True); check.clicked.connect(self.run_analysis); grid.addWidget(check, 10, 1)
         root.addWidget(form_card)
         self.result = Card(); result_layout = QVBoxLayout(self.result); result_layout.setContentsMargins(20,18,20,18); result_layout.setSpacing(10)
         self.result_title = QLabel("Enter a vehicle to get an evidence-led decision"); self.result_title.setStyleSheet("font-size:22px;font-weight:900"); result_layout.addWidget(self.result_title)
@@ -422,9 +426,16 @@ class IntelligencePage(Page):
         self.dd_password = QLineEdit(); self.dd_password.setEchoMode(QLineEdit.EchoMode.Password); self.dd_password.setPlaceholderText("Stored in macOS Keychain after a successful test")
         self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 10000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(int(self.db.get_setting("deal_drive_limit", "5000")))
         form.addWidget(QLabel("Email"),0,0); form.addWidget(self.dd_email,1,0); form.addWidget(QLabel("Password"),0,1); form.addWidget(self.dd_password,1,1)
-        form.addWidget(QLabel("Maximum UAE offers per sync"),2,0); form.addWidget(self.dd_limit,3,0); box.addLayout(form)
+        form.addWidget(QLabel("Emergency broad-sync limit"),2,0); form.addWidget(self.dd_limit,3,0); box.addLayout(form)
+        policy = Card(); policy_layout = QGridLayout(policy); policy_layout.setContentsMargins(14,12,14,12)
+        policy_layout.addWidget(QLabel("ACTIVE COMPARISON POLICY"),0,0,1,3)
+        for column, text in enumerate(("✓ Dealers/commercial only", "✓ Subject year + 1", "✓ Exact trim first")): policy_layout.addWidget(QLabel(text),1,column)
+        for column, text in enumerate(("✓ Sharjah & Ajman excluded", "✓ Mileage ±25% / minimum 15k km", "✓ Likely reposts collapsed")): policy_layout.addWidget(QLabel(text),2,column)
+        policy_layout.addWidget(QLabel("✓ Live asking and historical sold evidence remain separate · median/weighted median is primary"),3,0,1,3)
+        self.dd_allow_imports = QCheckBox("Explicitly allow non-GCC/import vehicles for this comparison")
+        self.dd_allow_imports.setChecked(self.db.get_setting("deal_drive_allow_imports", "0") == "1"); policy_layout.addWidget(self.dd_allow_imports,4,0,1,3); box.addWidget(policy)
         actions = QHBoxLayout(); self.dd_test = QPushButton("Test & connect"); self.dd_test.clicked.connect(lambda: self._run_deal_drive(False)); actions.addWidget(self.dd_test)
-        self.dd_sync = QPushButton("Sync market now"); self.dd_sync.setProperty("primary", True); self.dd_sync.clicked.connect(lambda: self._run_deal_drive(True)); actions.addWidget(self.dd_sync)
+        self.dd_sync = QPushButton("Compare selected opportunity"); self.dd_sync.setProperty("primary", True); self.dd_sync.clicked.connect(lambda: self._run_deal_drive(True)); actions.addWidget(self.dd_sync)
         forget = QPushButton("Forget login"); forget.clicked.connect(self._forget_deal_drive); actions.addWidget(forget); actions.addStretch(); box.addLayout(actions); root.addWidget(intro)
         status_card = Card(); status_layout = QGridLayout(status_card); status_layout.setContentsMargins(18,16,18,16)
         self.dd_connection = QLabel("NOT CONFIGURED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['amber']}")
@@ -446,7 +457,15 @@ class IntelligencePage(Page):
         if not password:
             QMessageBox.information(self, "Password required", "Enter the Partner API password once; it will be saved to macOS Keychain only after a successful connection."); return
         self.dd_test.setEnabled(False); self.dd_sync.setEnabled(False); self._dd_message("Starting read-only connection test…" if not sync else "Starting read-only UAE market sync…")
-        job = DealDriveJob(self.db, email, password, self.dd_limit.value(), sync)
+        subject = None
+        if sync:
+            if not self.make.text().strip() or not self.model.text().strip() or not self.year.value() or not self.mileage.value():
+                self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True)
+                QMessageBox.information(self, "Opportunity details required", "Complete make, model, year and mileage in Opportunity check first. Exact trim is strongly recommended."); return
+            subject = {"make":self.make.text().strip(),"model":self.model.text().strip(),"trim":self.trim.text().strip(),"year":self.year.value(),
+                       "mileage_km":self.mileage.value(),"allow_imports":self.dd_allow_imports.isChecked()}
+        self.db.set_setting("deal_drive_allow_imports", int(self.dd_allow_imports.isChecked()))
+        job = DealDriveJob(self.db, email, password, self.dd_limit.value(), sync, subject)
         job.signals.progress.connect(self._dd_message)
         job.signals.failed.connect(self._deal_drive_failed)
         job.signals.finished.connect(lambda message, e=email, p=password: self._deal_drive_finished(message, e, p))
@@ -456,6 +475,14 @@ class IntelligencePage(Page):
         try: KeychainCredentials().save(email, password)
         except DealDriveError as error: self._dd_message(str(error))
         self.db.set_setting("deal_drive_email", email); self.db.set_setting("deal_drive_limit", self.dd_limit.value())
+        if getattr(self, "_active_deal_drive_job", None) and self._active_deal_drive_job.subject:
+            saved = dict(self._active_deal_drive_job.subject); saved.pop("allow_imports", None)
+            self.db.set_setting("deal_drive_last_subject", json.dumps(saved))
+            comparison = comparison_summary(self.db, **saved)
+            receipt = comparison.get("filter_receipt", {})
+            live = comparison.get("live_market_asking", {}); history = comparison.get("historical_sold_or_removed", {})
+            self._dd_message(f"FILTER RECEIPT · {receipt.get('vehicle')} · {receipt.get('trim_rule')} · {receipt.get('regional_spec')} · {receipt.get('seller')}")
+            self._dd_message(f"RESULT · live asking {live.get('samples',0)} samples / median {_money(live.get('median_price_aed'))} · sold-or-removed history {history.get('samples',0)} samples / median {_money(history.get('median_price_aed'))}")
         self.dd_password.clear(); self.dd_connection.setText("CONNECTED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['green']}")
         self._dd_message(message); self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True); self._refresh_deal_drive()
 
