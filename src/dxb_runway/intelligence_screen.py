@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import shlex
 import statistics
 import subprocess
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from .database import Database
+from .dealer_trust import CONSIDER_DEALERS, DIRECT_DEALERS, EXCLUDED_DEALERS
 from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_summary, save_market_snapshot, sync_status, velocity_rankings
 from .dialogs import MoneyBox
 from .intelligence import (
@@ -27,7 +29,7 @@ from .intelligence import (
 )
 from .market_watchlist import (
     delete_watchlist_item, ignore_suggestion, matching_market_snapshot, nightly_watchlist_sync, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
-    watchlist_items, watchlist_suggestions, watchlist_sync_due,
+    snapshot_watchlist_item, watchlist_items, watchlist_suggestions, watchlist_sync_due,
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
@@ -42,6 +44,12 @@ def market_pace_bucket(median_days: object) -> str:
     """The owner-defined 45-day market-speed line; unknown data is never labelled fast."""
     try:return "fast" if float(median_days) < 45 else "slow"
     except (TypeError,ValueError):return "slow"
+
+
+def watchlist_match_from_question(question: str, items: list[dict[str, object]]) -> dict[str, object] | None:
+    key=re.sub(r"[^a-z0-9]+","",question.casefold())
+    matches=[item for item in items if all(re.sub(r"[^a-z0-9]+","",str(item.get(field,"")).casefold()) in key for field in ("make","model","trim"))]
+    return max(matches,key=lambda item:sum(len(str(item.get(field,""))) for field in ("make","model","trim"))) if matches else None
 
 
 def _agent_avatar_path() -> Path:
@@ -171,6 +179,19 @@ class WatchlistSyncJob(QRunnable):
             self.signals.finished.emit(message)
         except Exception as error:
             self.signals.failed.emit(str(error))
+
+
+class WatchlistItemSyncJob(QRunnable):
+    def __init__(self,db: Database,item: dict[str,object]):
+        super().__init__();self.db=db;self.item=item;self.signals=DealDriveSignals()
+    def run(self)->None:
+        try:
+            email=self.db.get_setting("deal_drive_email").strip();workspace=self.db.get_setting("deal_drive_workspace_id").strip();password=KeychainCredentials().load(email) if email else None
+            if not email or not password or not workspace:raise DealDriveError("Deal Drive connection is incomplete.")
+            self.signals.progress.emit("Refreshing the exact Deal Drive cohort before Runway answers…")
+            client=DealDriveClient(workspace_id=workspace);client.login(email,password);client.verify_market_access();snapshot_watchlist_item(self.db,client,self.item,self.signals.progress.emit)
+            self.signals.finished.emit("Exact market cohort refreshed.")
+        except Exception as error:self.signals.failed.emit(str(error))
 
 
 class OpenClawChatJob(QRunnable):
@@ -364,15 +385,28 @@ class AskRunwayPage(Page):
         if learned:
             save_intelligence_memory(self.db, learned); self._sync_ai_context()
             self._add_bubble("assistant", f"Memory saved: {learned}", "Runway · memory")
-        evidence = chat_evidence(self.db)
-        if "deal" in question.casefold() and "drive" in question.casefold() and not evidence.get("deal_drive_current_comparison"):
-            answer = ("Deal Drive is connected, but no vehicle comparison has been run yet. I will not pretend authentication means I can see a useful market cohort.\n\n"
-                      "Open Runway AI → Deal Drive, complete make, model, exact trim, year and mileage, then press Compare this vehicle. "
-                      "When the filter receipt appears, ask me again. Your login works; the missing step is the vehicle-specific comparison.")
-            save_chat_message(self.db, "assistant", answer); self._add_bubble("assistant", answer, "Runway · action needed"); self._finish_response(); return
         self._thinking_widget, _ = self._add_bubble("assistant", "Thinking", "Runway")
         self._thinking_phase = 0; self.thinking_timer.start(); self.state.setText("●  Thinking"); self.state.setStyleSheet(f"color:{COLORS['amber']};font-weight:800")
-        context = {"question": question, "evidence": chat_evidence(self.db), "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "Use the supplied live_stock snapshot as the authoritative current Stock Level and the vehicle_history section as realised historical evidence. You may count, compare and critique the complete current portfolio, including budget concentration, ageing, expected margins and pricing risk. Clearly distinguish expected profit from realised profit. Discuss a current retail/asking-price range separately from the locked grade. Learned preferences guide analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
+        matched=watchlist_match_from_question(question,watchlist_items(self.db,active_only=True))
+        if matched and watchlist_sync_due(matched):
+            job=WatchlistItemSyncJob(self.db,matched);job.signals.progress.connect(self.state.setText)
+            job.signals.finished.connect(lambda message,q=question,a=attachments,i=matched:self._continue_chat(q,a,i,""))
+            job.signals.failed.connect(lambda error,q=question,a=attachments,i=matched:self._continue_chat(q,a,i,f"Live Deal Drive refresh failed: {error}"))
+            self._active_chat_market_job=job;QThreadPool.globalInstance().start(job);return
+        self._continue_chat(question,attachments,matched,"")
+
+    def _continue_chat(self,question: str,attachments: list[dict[str,object]],matched: dict[str,object] | None,market_warning: str) -> None:
+        evidence=chat_evidence(self.db)
+        if matched:
+            year_match=re.search(r"\b(20\d{2})\b",question);year=int(year_match.group(1)) if year_match else int(matched["year_from"])
+            grade=analyse_opportunity(self.db,make=str(matched["make"]),model=str(matched["model"]),trim=str(matched["trim"]),model_year=year)
+            market=matching_market_snapshot(self.db,str(matched["make"]),str(matched["model"]),str(matched["trim"]),year)
+            estimate=None
+            if market:
+                centre=float(market.get("weighted_market_price_aed") or market.get("median_asking_aed") or 0)
+                estimate={"weighted_dealer_price_aed":market.get("weighted_market_price_aed"),"median_asking_aed":market.get("median_asking_aed"),"rough_retail_range_aed":[round(centre*.95,-3),round(centre*1.05,-3)] if centre else None,"median_market_age_days":market.get("median_listing_age_days"),"sample_size":market.get("sample_size"),"confidence":market.get("confidence"),"market_score":market.get("score")}
+            evidence["requested_vehicle"]={"watchlist":matched,"locked_historical_grade":grade,"dealer_weighted_market_estimate":estimate,"refresh_warning":market_warning or None}
+        context = {"question": question, "evidence": evidence, "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "For requested_vehicle, state the locked historical grade separately from the current Deal Drive estimate. Give the rough retail range only when supplied, and state sample and confidence. Dubai and owner-approved direct dealers have greater weight; consider-tier and unrated dealers are supporting evidence. Never invent a purchase ceiling. Use live_stock as authoritative current Stock Level. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
         job = OpenClawChatJob(json.dumps(context), attachments); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
 
     def _animate_thinking(self) -> None:
@@ -419,6 +453,7 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
         self.tabs.addTab(self._watchlist_tab(), "Market Watchlist")
         self.tabs.addTab(self._velocity_tab(), "Market Radar")
+        self.tabs.addTab(self._dealer_trust_tab(), "Dealer Trust")
         self.tabs.addTab(self._deal_drive_tab(), "Deal Drive")
         self.tabs.addTab(self._memory_tab(), "Memory")
         self.refresh()
@@ -527,6 +562,20 @@ class IntelligencePage(Page):
         table.verticalHeader().hide(); table.setAlternatingRowColors(True); table.setMinimumHeight(175)
         header=table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); header.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(6,QHeaderView.ResizeMode.Stretch); return table
+
+    def _dealer_trust_tab(self) -> QWidget:
+        content=QWidget();root=QVBoxLayout(content);root.setContentsMargins(4,14,4,4);root.setSpacing(12)
+        hero=Card();hero_layout=QVBoxLayout(hero);hero_layout.setContentsMargins(18,16,18,16)
+        hero_layout.addWidget(SectionHeader("Dealer Trust", "Transparent comparison priority · Dubai evidence gets priority within every permitted tier."))
+        note=QLabel("GREEN carries the strongest weight · ORANGE supports the comparison · RED is excluded. Dealer trust changes the current price estimate, never the locked historical grade.");note.setObjectName("muted");note.setWordWrap(True);hero_layout.addWidget(note);root.addWidget(hero)
+        columns=QHBoxLayout();columns.setSpacing(12)
+        groups=(("✓ DIRECT · STRONG",DIRECT_DEALERS,COLORS["green"],"Best comparison evidence"),("△ CONSIDER",CONSIDER_DEALERS,COLORS["amber"],"Useful supporting evidence"),("× DO NOT CONSIDER",EXCLUDED_DEALERS,COLORS["red"],"Removed from evidence"))
+        for title,names,color,subtitle in groups:
+            card=Card();layout=QVBoxLayout(card);layout.setContentsMargins(16,15,16,15)
+            heading=QLabel(title);heading.setStyleSheet(f"font-size:16px;font-weight:900;color:{color}");layout.addWidget(heading)
+            sub=QLabel(subtitle);sub.setObjectName("muted");layout.addWidget(sub)
+            listing=QLabel("\n".join(f"•  {name}" for name in names));listing.setWordWrap(True);listing.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse);layout.addWidget(listing);layout.addStretch();columns.addWidget(card,1)
+        root.addLayout(columns,1);return page_scroll(content)
 
     def _deal_drive_tab(self) -> QWidget:
         content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)

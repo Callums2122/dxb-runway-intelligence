@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from .database import Database
+from .dealer_trust import dealer_evidence, weighted_median
 from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials, comparison_exclusion
 
 
@@ -139,8 +140,11 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
         mileage = offer.get("mileage")
         if mileage_min is not None and mileage is not None and float(mileage) < float(mileage_min): reason = "Below mileage range"
         if mileage_max is not None and mileage is not None and float(mileage) > float(mileage_max): reason = "Above mileage range"
+        dealer_tier,dealer_weight,_=dealer_evidence(offer)
+        if dealer_tier=="exclude":reason="Dealer/location excluded by owner trust policy"
         if reason or not offer.get("_active_market", not bool(offer.get("deleted"))):
             continue
+        offer["_runway_dealer_tier"]=dealer_tier; offer["_runway_dealer_weight"]=dealer_weight
         seen.add(offer_id); filtered.append(offer)
     now = datetime.now(timezone.utc)
     prices = [float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")) for row in filtered if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")]
@@ -155,7 +159,7 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
     reductions = sum(current[key] < previous_offers[key] for key in set(current) & set(previous_offers) if current[key] and previous_offers[key])
     median_price = statistics.median(prices) if prices else None
     evaluation = meta.get("evaluation") or {}
-    weighted = ((evaluation.get("liveMarket") or {}).get("weightedAvgPrice") or evaluation.get("marketPrice"))
+    weighted = weighted_median([(float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")),float(row.get("_comparison_weight",1))*float(row.get("_runway_dealer_weight",1))) for row in filtered if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")])
     change_7 = _trend(db, item["id"], now, 7, median_price); change_30 = _trend(db, item["id"], now, 30, median_price); change_90 = _trend(db, item["id"], now, 90, median_price)
     score = _score(len(filtered), statistics.median(ages) if ages else None, new, exits, reductions, int(previous["sample_size"] or 0) if previous else 0, change_30)
     confidence = "High" if len(filtered) >= 20 else "Medium" if len(filtered) >= 8 else "Low"
@@ -163,7 +167,7 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
         weighted_market_price_aed,median_listing_age_days,new_listings,market_exits,price_reductions,sample_size,confidence,score,label,
         change_7d,change_30d,change_90d,detail_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
         item["id"], now.isoformat(), len(filtered), median_price, weighted, statistics.median(ages) if ages else None, new, exits, reductions,
-        len(filtered), confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation}, default=str),
+        len(filtered), confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation,"dealer_policy":{"direct":sum(row.get("_runway_dealer_tier")=="direct" for row in filtered),"consider":sum(row.get("_runway_dealer_tier")=="consider" for row in filtered),"unrated":sum(row.get("_runway_dealer_tier")=="unrated" for row in filtered),"dubai_priority":True}}, default=str),
     ))
     with db.connect() as connection:
         connection.executemany("INSERT INTO market_watchlist_snapshot_offers(snapshot_id,offer_id,price_aed,published_at) VALUES (?,?,?,?)", [

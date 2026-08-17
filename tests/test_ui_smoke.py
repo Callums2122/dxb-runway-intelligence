@@ -12,7 +12,7 @@ from dxb_runway.database import Database, SCHEMA_VERSION
 from dxb_runway.app import place_on_secondary_display
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer
+from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer, watchlist_match_from_question
 from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
@@ -70,6 +70,12 @@ def test_market_radar_uses_owner_45_day_pace_line():
     assert market_pace_bucket(45)=="slow"
     assert market_pace_bucket(61)=="slow"
     assert market_pace_bucket(None)=="slow"
+
+
+def test_chat_detects_exact_approved_watchlist_vehicle():
+    items=[{"make":"Audi","model":"Q8","trim":"S line"},{"make":"Audi","model":"Q7","trim":"S line"}]
+    assert watchlist_match_from_question("Rate a 2022 Audi Q8 S-line at 165k",items)==items[0]
+    assert watchlist_match_from_question("What about a BMW X5?",items) is None
 
 
 def test_first_run_onboarding_constructs(tmp_path: Path):
@@ -307,7 +313,7 @@ def test_intelligence_page_can_store_and_forget_manual_memory(tmp_path: Path):
 def test_ask_runway_is_separate_and_animates_received_answer(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
     intelligence=window.pages["intelligence"]
-    assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Market Watchlist","Market Radar","Deal Drive","Memory"]
+    assert [intelligence.tabs.tabText(index) for index in range(intelligence.tabs.count())]==["Opportunity check","Historical data","Vehicle grades","Market Watchlist","Market Radar","Dealer Trust","Deal Drive","Memory"]
     chat=window.pages["ask_runway"]; chat._busy=True; chat._chat_answer("Evidence first. Buy only at the right margin."); chat.typing_timer.stop()
     assert len(chat.findChildren(QWidget, "agentAvatar"))>=2
     while chat._typing_index < len(chat._typing_answer): chat._typing_step()

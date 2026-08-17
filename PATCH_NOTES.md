@@ -475,3 +475,12 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Sync progress reports the number protected by cooldown and confirms when no API fetches were needed.
 - Editing a cohort's trim, years, mileage or rules makes it immediately due so changed comparisons never inherit stale data.
 - Market Watchlist status now visibly distinguishes `Active · due` from `Active · 72h cooldown`.
+
+# 2026-08-17 — Chat-triggered market intelligence and Dealer Trust
+
+- Ask Runway now recognises exact make/model/trim combinations already approved in Market Watchlist.
+- A fresh retained snapshot is reused; a due or missing snapshot triggers an exact Deal Drive evaluator refresh before the AI answers.
+- Each response receives a deterministic historical grade and a separate dealer-weighted current retail estimate with range, age, sample and confidence.
+- Added a dedicated Dealer Trust tab with owner-approved Direct, Consider and Do Not Consider lists.
+- Dubai comparisons receive priority; Direct dealers carry the strongest weight, Consider dealers support, and red dealers/locations are excluded.
+- Park Lane, Zeus Auto and Blackline Motors are promoted into the green Direct tier.
