@@ -56,6 +56,15 @@ def test_launch_window_stays_put_when_only_primary_display_exists():
     assert place_on_secondary_display(Window(),Screens())==""
 
 
+def test_market_watchlist_exposes_manual_sync(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); window=MainWindow(db)
+    intelligence=window.pages["intelligence"]
+    assert intelligence.watch_sync.text()=="↻ Sync now"
+    assert intelligence.watch_sync.isEnabled()
+    assert "Ready to sync" in intelligence.watch_sync_status.text()
+    window.close()
+
+
 def test_first_run_onboarding_constructs(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db")
     assert db.get_setting("onboarding_complete")=="0"

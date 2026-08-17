@@ -446,3 +446,10 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - DXB RUNWAY Intelligence now opens centred on a connected non-primary display.
 - The selected secondary display is remembered by name for future launches.
 - If the secondary display is disconnected, launch safely falls back to normal macOS placement on the primary display.
+
+# 2026-08-17 — Manual Market Watchlist sync
+
+- Added a visible **Sync now** button to Market Watchlist.
+- Manual sync refreshes every active cohort through the same read-only Deal Drive evaluator flow as the nightly job.
+- Live progress, clear failure messages and completion counts are shown without freezing the app.
+- Successful runs immediately update each vehicle's Last Sync value and refresh Market Radar while retaining all older snapshots.

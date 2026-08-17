@@ -25,7 +25,7 @@ from .intelligence import (
     recent_vehicle_grades, save_chat_attachments, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
 )
 from .market_watchlist import (
-    delete_watchlist_item, ignore_suggestion, matching_market_snapshot, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
+    delete_watchlist_item, ignore_suggestion, matching_market_snapshot, nightly_watchlist_sync, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
     watchlist_items, watchlist_suggestions,
 )
 from .screens import Page, page_scroll, table_item
@@ -148,6 +148,18 @@ class DealDriveJob(QRunnable):
             self.signals.progress.emit("Saving a retained local snapshot…")
             save_market_snapshot(self.db, offers, "AE", self.limit)
             self.signals.finished.emit(f"Sync complete · {len(offers):,} market offers retained locally.")
+        except Exception as error:
+            self.signals.failed.emit(str(error))
+
+
+class WatchlistSyncJob(QRunnable):
+    def __init__(self, db: Database):
+        super().__init__(); self.db=db; self.signals=DealDriveSignals()
+
+    def run(self) -> None:
+        try:
+            count=nightly_watchlist_sync(self.db,self.signals.progress.emit)
+            self.signals.finished.emit(f"Sync complete · {count} active watchlist vehicle{'s' if count!=1 else ''} refreshed.")
         except Exception as error:
             self.signals.failed.emit(str(error))
 
@@ -465,7 +477,9 @@ class IntelligencePage(Page):
         header=Card(); head=QHBoxLayout(header); head.setContentsMargins(18,16,18,16)
         copy=QVBoxLayout(); copy.addWidget(SectionHeader("Market Watchlist","Only these owner-approved vehicle cohorts are monitored through Deal Drive every night."))
         note=QLabel("Simple and curated: Runway never adds suggestions without your approval."); note.setObjectName("muted"); copy.addWidget(note); head.addLayout(copy,1)
+        self.watch_sync=QPushButton("↻ Sync now"); self.watch_sync.clicked.connect(self._sync_watchlist_now); head.addWidget(self.watch_sync)
         add=QPushButton("＋ Add vehicle"); add.setProperty("primary",True); add.clicked.connect(self._add_watchlist); head.addWidget(add); root.addWidget(header)
+        self.watch_sync_status=QLabel("Ready to sync active vehicles."); self.watch_sync_status.setObjectName("muted"); self.watch_sync_status.setWordWrap(True); root.addWidget(self.watch_sync_status)
         actions=QHBoxLayout(); edit=QPushButton("Edit selected"); edit.clicked.connect(self._edit_watchlist); actions.addWidget(edit)
         self.watch_pause=QPushButton("Pause / resume"); self.watch_pause.clicked.connect(self._toggle_watchlist); actions.addWidget(self.watch_pause)
         remove=QPushButton("Delete selected"); remove.clicked.connect(self._delete_watchlist); actions.addWidget(remove); actions.addStretch(); root.addLayout(actions)
@@ -701,6 +715,22 @@ class IntelligencePage(Page):
         if not item: QMessageBox.information(self,"Select a vehicle","Select the watched vehicle to delete."); return
         if QMessageBox.question(self,"Delete watched vehicle",f"Delete {item['make']} {item['model']} {item['trim']} and its retained watchlist history?")!=QMessageBox.StandardButton.Yes:return
         delete_watchlist_item(self.db,int(item["id"])); self._refresh_watchlist(); self._refresh_velocity()
+
+    def _sync_watchlist_now(self) -> None:
+        if not watchlist_items(self.db,active_only=True):
+            QMessageBox.information(self,"No active vehicles","Add or resume at least one Market Watchlist vehicle first."); return
+        self.watch_sync.setEnabled(False); self.watch_sync.setText("Syncing…"); self.watch_sync_status.setText("Connecting securely to Deal Drive…")
+        job=WatchlistSyncJob(self.db); job.signals.progress.connect(self.watch_sync_status.setText)
+        job.signals.finished.connect(self._watchlist_sync_finished); job.signals.failed.connect(self._watchlist_sync_failed)
+        self._active_watchlist_sync_job=job; QThreadPool.globalInstance().start(job)
+
+    def _watchlist_sync_finished(self,message: str) -> None:
+        self.watch_sync.setEnabled(True); self.watch_sync.setText("↻ Sync now"); self.watch_sync_status.setText(message)
+        self._refresh_watchlist(); self._refresh_velocity(); self.changed.emit()
+
+    def _watchlist_sync_failed(self,message: str) -> None:
+        self.watch_sync.setEnabled(True); self.watch_sync.setText("↻ Sync now"); self.watch_sync_status.setText(f"Sync failed · {message}")
+        QMessageBox.warning(self,"Watchlist sync failed",message)
 
     def _accept_watchlist_suggestion(self) -> None:
         suggestion=getattr(self,"_current_watchlist_suggestion",None)
