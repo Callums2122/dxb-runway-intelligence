@@ -69,7 +69,7 @@ def test_market_radar_uses_owner_45_day_pace_line():
     assert market_pace_bucket(44.9)=="fast"
     assert market_pace_bucket(45)=="slow"
     assert market_pace_bucket(61)=="slow"
-    assert market_pace_bucket(None)=="slow"
+    assert market_pace_bucket(None)=="unknown"
 
 
 def test_chat_detects_exact_approved_watchlist_vehicle():

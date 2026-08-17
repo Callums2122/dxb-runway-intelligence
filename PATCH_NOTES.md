@@ -484,3 +484,12 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Added a dedicated Dealer Trust tab with owner-approved Direct, Consider and Do Not Consider lists.
 - Dubai comparisons receive priority; Direct dealers carry the strongest weight, Consider dealers support, and red dealers/locations are excluded.
 - Park Lane, Zeus Auto and Blackline Motors are promoted into the green Direct tier.
+
+# 2026-08-17 — Archive-based market speed
+
+- Corrected Market Radar speed: Fast/Slow is now based on Deal Drive sales-history time to archive, not the age of adverts still live.
+- The 45-day rule applies only to archive speed: under 45 is Fast; 45+ is Slow.
+- Live listing age remains visible as a separate market-pressure signal and never decides the lane.
+- Radar now separates live comparable count from archived sample count and confidence follows the archived sample.
+- Cohorts without archive evidence show `UNPROVEN` instead of being falsely labelled fast.
+- Legacy snapshots using live-ad age automatically bypass the cooldown for one corrective resync.

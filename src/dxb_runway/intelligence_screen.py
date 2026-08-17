@@ -41,9 +41,9 @@ def _money(value: object) -> str:
 
 
 def market_pace_bucket(median_days: object) -> str:
-    """The owner-defined 45-day market-speed line; unknown data is never labelled fast."""
+    """The owner-defined 45-day archive-speed line; unknown data is never labelled fast or slow."""
     try:return "fast" if float(median_days) < 45 else "slow"
-    except (TypeError,ValueError):return "slow"
+    except (TypeError,ValueError):return "unknown"
 
 
 def watchlist_match_from_question(question: str, items: list[dict[str, object]]) -> dict[str, object] | None:
@@ -557,11 +557,11 @@ class IntelligencePage(Page):
         return content
 
     def _radar_table(self) -> QTableWidget:
-        table=QTableWidget(0,8); table.setHorizontalHeaderLabels(["VEHICLE COHORT","PACE","MEDIAN AGE","MARKET SCORE","COMPARABLES","MEDIAN ASK","MOVEMENT","CONFIDENCE"])
+        table=QTableWidget(0,9); table.setHorizontalHeaderLabels(["VEHICLE COHORT","PACE","DAYS TO ARCHIVE","LIVE AD AGE","MARKET SCORE","COMPARABLES","MEDIAN ASK","MOVEMENT","CONFIDENCE"])
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.verticalHeader().hide(); table.setAlternatingRowColors(True); table.setMinimumHeight(175)
         header=table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); header.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(6,QHeaderView.ResizeMode.Stretch); return table
+        header.setSectionResizeMode(7,QHeaderView.ResizeMode.Stretch); return table
 
     def _dealer_trust_tab(self) -> QWidget:
         content=QWidget();root=QVBoxLayout(content);root.setContentsMargins(4,14,4,4);root.setSpacing(12)
@@ -849,19 +849,20 @@ class IntelligencePage(Page):
         if not hasattr(self,"velocity_fast"): return
         rows=radar_rows(self.db); self.velocity_status.setText("Waiting for the first 23:59 watchlist sync." if not rows else f"{len(rows)} active cohort{'s' if len(rows)!=1 else ''} scored · old snapshots retained")
         fast=sorted((row for row in rows if market_pace_bucket(row.get("median_listing_age_days"))=="fast"),key=lambda row:float(row.get("median_listing_age_days") or 999))
-        slow=sorted((row for row in rows if market_pace_bucket(row.get("median_listing_age_days"))=="slow"),key=lambda row:float(row.get("median_listing_age_days") or 0),reverse=True)
+        slow=sorted((row for row in rows if market_pace_bucket(row.get("median_listing_age_days"))!="fast"),key=lambda row:float(row.get("median_listing_age_days") or 0),reverse=True)
         ages=[float(row["median_listing_age_days"]) for row in rows if row.get("median_listing_age_days") is not None]
         self.radar_fast_metric.set_value(str(len(fast)),f"{len(fast)} cohort{'s' if len(fast)!=1 else ''} beating the 45-day line",COLORS["green"])
         self.radar_slow_metric.set_value(str(len(slow)),f"{len(slow)} cohort{'s' if len(slow)!=1 else ''} require extra caution",COLORS["red"])
         self.radar_age_metric.set_value(f"{statistics.median(ages):.0f} days" if ages else "—","Synced watchlist median",COLORS["cyan"])
-        for table,values,pace,color in ((self.velocity_fast,fast,"⚡ FAST",COLORS["green"]),(self.velocity_slow,slow,"⚠ SLOW",COLORS["red"])):
+        for table,values,default_pace,color in ((self.velocity_fast,fast,"⚡ FAST",COLORS["green"]),(self.velocity_slow,slow,"⚠ SLOW",COLORS["red"])):
             table.setRowCount(len(values))
             for index,row in enumerate(values):
                 change=row.get("change_30d"); trend=f"30d price {float(change):+.1f}%" if change is not None else "Building 30d history"
                 movement=f"{row['market_exits']} exits · +{row['new_listings']} new · {row['price_reductions']} cuts\n{trend}"
+                archive_days=row.get("median_listing_age_days");pace=default_pace if archive_days is not None else "? UNPROVEN"
                 cells=[f"{row['year_from']}–{row['year_to']}  {row['make']} {row['model']}\n{row['trim']}",pace,
-                       f"{float(row['median_listing_age_days'] or 0):.0f} DAYS",f"{float(row['score']):.0f}/100 · {row['label']}",
-                       f"{row['current_listings']} live\nSample {row['sample_size']}",_money(row["median_asking_aed"]),movement,str(row["confidence"]).upper()]
+                       f"{float(archive_days):.0f} DAYS" if archive_days is not None else "NO ARCHIVE DATA",f"{float(row['live_median_age_days']):.0f} days" if row.get("live_median_age_days") is not None else "—",
+                       f"{float(row['score']):.0f}/100 · {row['label']}",f"{row['current_listings']} live\n{row['sample_size']} archived",_money(row["median_asking_aed"]),movement,str(row["confidence"]).upper()]
                 for column,value in enumerate(cells):
                     item=QTableWidgetItem(str(value)); item.setForeground(QColor(color) if column in (1,2) else QColor(COLORS["text"])); table.setItem(index,column,item)
                 table.setRowHeight(index,62)
