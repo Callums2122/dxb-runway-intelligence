@@ -11,7 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
@@ -23,6 +23,10 @@ from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
     import_history, import_vehicle_history, intelligence_memories, learning_directive,
     recent_vehicle_grades, save_chat_attachments, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
+)
+from .market_watchlist import (
+    delete_watchlist_item, ignore_suggestion, matching_market_snapshot, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
+    watchlist_items, watchlist_suggestions,
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
@@ -47,6 +51,39 @@ class AgentAvatar(QWidget):
         path = QPainterPath(); path.addEllipse(QRectF(self.rect())); painter.setClipPath(path)
         if not self.pixmap.isNull(): painter.drawPixmap(self.rect(), self.pixmap)
         else: painter.fillPath(path, COLORS["cyan"])
+
+
+class WatchlistDialog(QDialog):
+    def __init__(self, parent: QWidget, item: dict[str, object] | None = None):
+        super().__init__(parent); self.item = item or {}; self.setWindowTitle("Edit watched vehicle" if item else "Add watched vehicle"); self.setMinimumWidth(480)
+        root = QVBoxLayout(self); form = QFormLayout(); form.setSpacing(10)
+        self.make = QLineEdit(str(self.item.get("make", ""))); self.model = QLineEdit(str(self.item.get("model", ""))); self.trim = QLineEdit(str(self.item.get("trim", "")))
+        self.year_from = QSpinBox(); self.year_from.setRange(2000, 2035); self.year_from.setValue(int(self.item.get("year_from", 2021)))
+        self.year_to = QSpinBox(); self.year_to.setRange(2000, 2035); self.year_to.setValue(int(self.item.get("year_to", 2022)))
+        self.mileage_min = QSpinBox(); self.mileage_min.setRange(0, 1000000); self.mileage_min.setSingleStep(5000); self.mileage_min.setSpecialValueText("Any")
+        self.mileage_max = QSpinBox(); self.mileage_max.setRange(0, 1000000); self.mileage_max.setSingleStep(5000); self.mileage_max.setSpecialValueText("Any")
+        self.mileage_min.setValue(int(self.item.get("mileage_min") or 0)); self.mileage_max.setValue(int(self.item.get("mileage_max") or 0))
+        self.gcc = QCheckBox("GCC only"); self.gcc.setChecked(bool(self.item.get("gcc_only", 1)))
+        self.dealer = QCheckBox("Dealer / commercial only"); self.dealer.setChecked(bool(self.item.get("dealer_only", 1)))
+        self.exclude = QCheckBox("Exclude Sharjah and Ajman"); self.exclude.setChecked(bool(self.item.get("exclude_sharjah_ajman", 1)))
+        for label, widget in (("Make",self.make),("Model",self.model),("Exact trim",self.trim),("Year from",self.year_from),("Year to",self.year_to),("Mileage min · optional",self.mileage_min),("Mileage max · optional",self.mileage_max)):
+            form.addRow(label, widget)
+        form.addRow("", self.gcc); form.addRow("", self.dealer); form.addRow("", self.exclude); root.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self._accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def _accept(self) -> None:
+        if not self.make.text().strip() or not self.model.text().strip() or not self.trim.text().strip():
+            QMessageBox.information(self,"Vehicle required","Enter the make, model and exact trim."); return
+        if self.year_from.value() > self.year_to.value():
+            QMessageBox.information(self,"Check years","Year from cannot be later than year to."); return
+        self.accept()
+
+    def payload(self) -> dict[str, object]:
+        return {"make":self.make.text().strip(),"model":self.model.text().strip(),"trim":self.trim.text().strip(),
+                "year_from":self.year_from.value(),"year_to":self.year_to.value(),"gcc_only":self.gcc.isChecked(),
+                "mileage_min":self.mileage_min.value() or None,"mileage_max":self.mileage_max.value() or None,
+                "dealer_only":self.dealer.isChecked(),"exclude_sharjah_ajman":self.exclude.isChecked(),
+                "active":bool(self.item.get("active",1))}
 
 
 def openclaw_answer(payload: object) -> str:
@@ -359,7 +396,8 @@ class IntelligencePage(Page):
         self.tabs.addTab(self._opportunity_tab(), "Opportunity check")
         self.tabs.addTab(self._data_tab(), "Historical data")
         self.tabs.addTab(self._grades_tab(), "Vehicle grades")
-        self.tabs.addTab(self._velocity_tab(), "Market velocity")
+        self.tabs.addTab(self._watchlist_tab(), "Market Watchlist")
+        self.tabs.addTab(self._velocity_tab(), "Market Radar")
         self.tabs.addTab(self._deal_drive_tab(), "Deal Drive")
         self.tabs.addTab(self._memory_tab(), "Memory")
         self.refresh()
@@ -422,19 +460,37 @@ class IntelligencePage(Page):
         root.addWidget(memory_card, 1)
         return content
 
+    def _watchlist_tab(self) -> QWidget:
+        content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
+        header=Card(); head=QHBoxLayout(header); head.setContentsMargins(18,16,18,16)
+        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Market Watchlist","Only these owner-approved vehicle cohorts are monitored through Deal Drive every night."))
+        note=QLabel("Simple and curated: Runway never adds suggestions without your approval."); note.setObjectName("muted"); copy.addWidget(note); head.addLayout(copy,1)
+        add=QPushButton("＋ Add vehicle"); add.setProperty("primary",True); add.clicked.connect(self._add_watchlist); head.addWidget(add); root.addWidget(header)
+        actions=QHBoxLayout(); edit=QPushButton("Edit selected"); edit.clicked.connect(self._edit_watchlist); actions.addWidget(edit)
+        self.watch_pause=QPushButton("Pause / resume"); self.watch_pause.clicked.connect(self._toggle_watchlist); actions.addWidget(self.watch_pause)
+        remove=QPushButton("Delete selected"); remove.clicked.connect(self._delete_watchlist); actions.addWidget(remove); actions.addStretch(); root.addLayout(actions)
+        self.watchlist_table=QTableWidget(0,7); self.watchlist_table.setHorizontalHeaderLabels(["VEHICLE","TRIM","YEARS","RULES","MILEAGE","STATUS","LAST SYNC"])
+        self.watchlist_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.watchlist_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.watchlist_table.verticalHeader().hide(); self.watchlist_table.horizontalHeader().setStretchLastSection(True); root.addWidget(self.watchlist_table,1)
+        suggestion=Card(); suggestion_layout=QVBoxLayout(suggestion); suggestion_layout.setContentsMargins(16,14,16,14)
+        suggestion_layout.addWidget(SectionHeader("Suggestions","Vehicles appearing at least three times in Alba's clean historical data."))
+        self.watch_suggestion=QLabel("No suggestion yet."); self.watch_suggestion.setWordWrap(True); suggestion_layout.addWidget(self.watch_suggestion)
+        suggestion_actions=QHBoxLayout(); self.watch_add_suggestion=QPushButton("Add to Watchlist"); self.watch_add_suggestion.clicked.connect(self._accept_watchlist_suggestion); suggestion_actions.addWidget(self.watch_add_suggestion)
+        self.watch_ignore_suggestion=QPushButton("Ignore"); self.watch_ignore_suggestion.clicked.connect(self._ignore_watchlist_suggestion); suggestion_actions.addWidget(self.watch_ignore_suggestion); suggestion_actions.addStretch(); suggestion_layout.addLayout(suggestion_actions); root.addWidget(suggestion)
+        return content
+
     def _velocity_tab(self) -> QWidget:
         content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
         header=Card(); header_layout=QHBoxLayout(header); header_layout.setContentsMargins(18,16,18,16)
-        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Daily market velocity", "The strongest fast/slow liquidity signals from retained Deal Drive snapshots."))
+        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Market Radar", "Transparent multi-factor scores for your active watchlist only."))
         self.velocity_status=QLabel("Building history"); self.velocity_status.setObjectName("muted"); self.velocity_status.setWordWrap(True); copy.addWidget(self.velocity_status); header_layout.addLayout(copy,1)
         schedule=QLabel("AUTOMATIC SYNC\nEvery day · 23:59 Dubai time"); schedule.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter); schedule.setStyleSheet(f"color:{COLORS['green']};font-weight:850"); header_layout.addWidget(schedule); root.addWidget(header)
         columns=QHBoxLayout(); columns.setSpacing(12)
-        fast_card=Card(); fast_layout=QVBoxLayout(fast_card); fast_layout.setContentsMargins(14,13,14,14); fast_layout.addWidget(SectionHeader("Fastest movers", "Listings disappearing quickest · minimum 3 observations"))
-        self.velocity_fast=QTableWidget(0,4); self.velocity_fast.setHorizontalHeaderLabels(["VEHICLE","TRIM","SIGNAL DAYS","SAMPLES"]); self.velocity_fast.horizontalHeader().setStretchLastSection(True); fast_layout.addWidget(self.velocity_fast); columns.addWidget(fast_card,1)
-        slow_card=Card(); slow_layout=QVBoxLayout(slow_card); slow_layout.setContentsMargins(14,13,14,14); slow_layout.addWidget(SectionHeader("Slowest movers", "Oldest active listing cohorts · minimum 3 listings"))
-        self.velocity_slow=QTableWidget(0,4); self.velocity_slow.setHorizontalHeaderLabels(["VEHICLE","TRIM","ACTIVE DAYS","SAMPLES"]); self.velocity_slow.horizontalHeader().setStretchLastSection(True); slow_layout.addWidget(self.velocity_slow); columns.addWidget(slow_card,1)
+        fast_card=Card(); fast_layout=QVBoxLayout(fast_card); fast_layout.setContentsMargins(14,13,14,14); fast_layout.addWidget(SectionHeader("Strong / fast moving", "Healthy or improving watchlist cohorts"))
+        self.velocity_fast=QTableWidget(0,6); self.velocity_fast.setHorizontalHeaderLabels(["VEHICLE","SCORE","SUPPLY","MEDIAN","AGE","SAMPLE / CONFIDENCE"]); self.velocity_fast.horizontalHeader().setStretchLastSection(True); fast_layout.addWidget(self.velocity_fast); columns.addWidget(fast_card,1)
+        slow_card=Card(); slow_layout=QVBoxLayout(slow_card); slow_layout.setContentsMargins(14,13,14,14); slow_layout.addWidget(SectionHeader("Weak / slow moving", "Neutral, weakening or slow watchlist cohorts"))
+        self.velocity_slow=QTableWidget(0,6); self.velocity_slow.setHorizontalHeaderLabels(["VEHICLE","SCORE","SUPPLY","MEDIAN","AGE","SAMPLE / CONFIDENCE"]); self.velocity_slow.horizontalHeader().setStretchLastSection(True); slow_layout.addWidget(self.velocity_slow); columns.addWidget(slow_card,1)
         root.addLayout(columns,1)
-        note=QLabel("Evidence rule: a disappeared advert is a liquidity signal, not a confirmed completed sale. Confirmed DXB Runway sales remain the stronger source."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
+        note=QLabel("Score uses market exits, listing age, supply, price stability, reductions and sample strength. A disappeared advert is a market exit—not a confirmed sale."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
         return content
 
     def _deal_drive_tab(self) -> QWidget:
@@ -554,6 +610,7 @@ class IntelligencePage(Page):
     def run_analysis(self) -> None:
         if not self.make.text().strip() or not self.model.text().strip():
             QMessageBox.information(self, "Vehicle required", "Enter at least the make and model."); return
+        record_market_interest(self.db,self.make.text(),self.model.text(),self.trim.text(),self.year.value() or None)
         result = analyse_opportunity(
             self.db, make=self.make.text(), model=self.model.text(), trim=self.trim.text(), model_year=self.year.value() or None,
             purchase_price_aed=self.buy_price.value() if self.buy_price.value() else None,
@@ -569,6 +626,9 @@ class IntelligencePage(Page):
             self.metrics.setText(f"Confidence {result['confidence'].upper()} · {result['identical_trim_samples']} identical trim / {result['sample_size']} comparable · Median {result['median_days']:.0f} days · Historical margin {_money(result['average_profit_aed'])} · ROI {result['average_roi_percent']:.1f}%{proposed}\n{result['trim_position']}")
         else:
             self.metrics.setText("Import matching sold history before committing capital.")
+        market=matching_market_snapshot(self.db,self.make.text(),self.model.text(),self.trim.text(),self.year.value() or None)
+        if market:
+            self.metrics.setText(self.metrics.text()+f"\n\nWATCHLIST MARKET · {market['year_from']}–{market['year_to']} · {float(market['score']):.0f}/100 {market['label']} · {market['current_listings']} comparables · median {_money(market['median_asking_aed'])} · median age {float(market['median_listing_age_days'] or 0):.0f} days · sample {market['sample_size']} · confidence {market['confidence']}")
         factors = result.get("factors", {}); weights = result.get("weights", {}); self.factor_table.setRowCount(len(factors))
         labels = {"time_to_sell": "Time to sell", "sample_confidence": "Sample confidence", "margin": "Margin", "return_on_capital": "Return on capital", "consistency": "Consistency", "seasonality": "Seasonality"}
         for row, (key, score) in enumerate(factors.items()):
@@ -611,9 +671,67 @@ class IntelligencePage(Page):
             learned = QTableWidgetItem(memory["memory_text"]); learned.setData(Qt.ItemDataRole.UserRole, memory["id"]); self.memory_table.setItem(row, 0, learned)
             self.memory_table.setItem(row, 1, QTableWidgetItem(memory["source"].title())); self.memory_table.setItem(row, 2, QTableWidgetItem(memory["updated_at"]))
 
+    def _selected_watchlist(self) -> dict[str, object] | None:
+        row=self.watchlist_table.currentRow() if hasattr(self,"watchlist_table") else -1
+        if row<0:return None
+        item=self.watchlist_table.item(row,0); item_id=item.data(Qt.ItemDataRole.UserRole) if item else None
+        return next((value for value in watchlist_items(self.db) if value["id"]==item_id),None)
+
+    def _add_watchlist(self) -> None:
+        dialog=WatchlistDialog(self)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            try: save_watchlist_item(self.db,dialog.payload()); self._refresh_watchlist(); self._refresh_velocity()
+            except Exception as error: QMessageBox.warning(self,"Could not save",str(error))
+
+    def _edit_watchlist(self) -> None:
+        item=self._selected_watchlist()
+        if not item: QMessageBox.information(self,"Select a vehicle","Select the watched vehicle to edit."); return
+        dialog=WatchlistDialog(self,item)
+        if dialog.exec()==QDialog.DialogCode.Accepted:
+            try: save_watchlist_item(self.db,dialog.payload(),int(item["id"])); self._refresh_watchlist()
+            except Exception as error: QMessageBox.warning(self,"Could not save",str(error))
+
+    def _toggle_watchlist(self) -> None:
+        item=self._selected_watchlist()
+        if not item: QMessageBox.information(self,"Select a vehicle","Select the watched vehicle to pause or resume."); return
+        set_watchlist_active(self.db,int(item["id"]),not bool(item["active"])); self._refresh_watchlist(); self._refresh_velocity()
+
+    def _delete_watchlist(self) -> None:
+        item=self._selected_watchlist()
+        if not item: QMessageBox.information(self,"Select a vehicle","Select the watched vehicle to delete."); return
+        if QMessageBox.question(self,"Delete watched vehicle",f"Delete {item['make']} {item['model']} {item['trim']} and its retained watchlist history?")!=QMessageBox.StandardButton.Yes:return
+        delete_watchlist_item(self.db,int(item["id"])); self._refresh_watchlist(); self._refresh_velocity()
+
+    def _accept_watchlist_suggestion(self) -> None:
+        suggestion=getattr(self,"_current_watchlist_suggestion",None)
+        if not suggestion:return
+        save_watchlist_item(self.db,{**suggestion,"gcc_only":True,"dealer_only":True,"exclude_sharjah_ajman":True,"mileage_min":None,"mileage_max":None,"active":True}); self._refresh_watchlist()
+
+    def _ignore_watchlist_suggestion(self) -> None:
+        suggestion=getattr(self,"_current_watchlist_suggestion",None)
+        if not suggestion:return
+        ignore_suggestion(self.db,suggestion); self._refresh_watchlist()
+
+    def _refresh_watchlist(self) -> None:
+        if not hasattr(self,"watchlist_table"):return
+        rows=watchlist_items(self.db); self.watchlist_table.setRowCount(len(rows))
+        for index,row in enumerate(rows):
+            vehicle=QTableWidgetItem(f"{row['make']} {row['model']}"); vehicle.setData(Qt.ItemDataRole.UserRole,row["id"]); self.watchlist_table.setItem(index,0,vehicle)
+            mileage="Any" if row["mileage_min"] is None and row["mileage_max"] is None else f"{int(row['mileage_min'] or 0):,}–{int(row['mileage_max'] or 1000000):,} km"
+            rules=("GCC" if row["gcc_only"] else "Imports allowed")+(" · Dealer" if row["dealer_only"] else " · All sellers")+(" · DXB/AUH" if row["exclude_sharjah_ajman"] else "")
+            values=[row["trim"],f"{row['year_from']}–{row['year_to']}",rules,mileage,"Active" if row["active"] else "Paused",row["last_synced"] or "Never"]
+            for column,value in enumerate(values,1):self.watchlist_table.setItem(index,column,QTableWidgetItem(str(value)))
+        suggestions=watchlist_suggestions(self.db,1); self._current_watchlist_suggestion=suggestions[0] if suggestions else None
+        if suggestions:
+            value=suggestions[0]; self.watch_suggestion.setText(f"Frequently seen vehicle · {value['year_from']}–{value['year_to']} {value['make']} {value['model']} {value['trim']} · {value['samples']} Alba records")
+            self.watch_add_suggestion.setEnabled(True); self.watch_ignore_suggestion.setEnabled(True)
+        else:
+            self.watch_suggestion.setText("No strong suggestion right now. Runway will only suggest vehicles supported by repeated clean evidence."); self.watch_add_suggestion.setEnabled(False); self.watch_ignore_suggestion.setEnabled(False)
+
     def refresh(self) -> None:
         self._refresh_memories()
         self._refresh_deal_drive()
+        self._refresh_watchlist()
         self._refresh_velocity()
         if hasattr(self, "batch_table"):
             batches = import_history(self.db); self.batch_table.setRowCount(len(batches))
@@ -628,14 +746,12 @@ class IntelligencePage(Page):
 
     def _refresh_velocity(self) -> None:
         if not hasattr(self,"velocity_fast"): return
-        result=velocity_rankings(self.db)
-        if result["status"]=="sync_failed": status=f"Nightly sync failed {result.get('last_sync','')} · {result.get('error','Unknown error')}"
-        elif result["status"]=="waiting_for_first_nightly_sync": status="Waiting for the first automatic 23:59 Deal Drive market snapshot."
-        elif result["status"]=="building_history": status=f"First snapshot saved {result.get('last_sync','')} · fast movers appear after the next nightly comparison."
-        else: status=f"Updated {result.get('last_sync','')} · {result.get('method','')}"
-        self.velocity_status.setText(status)
-        for table,key in ((self.velocity_fast,"fast"),(self.velocity_slow,"slow")):
-            rows=result.get(key,[]); table.setRowCount(len(rows))
-            for index,row in enumerate(rows):
-                values=[f"{row['brand']} {row['model']}",row["trim"] or "—",f"{float(row['average_days'] or 0):.0f}",row["samples"]]
-                for column,value in enumerate(values): table.setItem(index,column,QTableWidgetItem(str(value)))
+        rows=radar_rows(self.db); self.velocity_status.setText("Waiting for the first 23:59 watchlist sync." if not rows else f"{len(rows)} active cohort{'s' if len(rows)!=1 else ''} scored · old snapshots retained")
+        strong=[row for row in rows if float(row["score"])>=60]; weak=[row for row in reversed(rows) if float(row["score"])<60]
+        for table,values in ((self.velocity_fast,strong),(self.velocity_slow,weak)):
+            table.setRowCount(len(values))
+            for index,row in enumerate(values):
+                cells=[f"{row['year_from']}–{row['year_to']} {row['make']} {row['model']} {row['trim']}",f"{float(row['score']):.0f} · {row['label']}",
+                       f"{row['current_listings']} · +{row['new_listings']} new / {row['market_exits']} exits",_money(row["median_asking_aed"]),
+                       f"{float(row['median_listing_age_days'] or 0):.0f} days",f"{row['sample_size']} · {row['confidence']}"]
+                for column,value in enumerate(cells):table.setItem(index,column,QTableWidgetItem(str(value)))

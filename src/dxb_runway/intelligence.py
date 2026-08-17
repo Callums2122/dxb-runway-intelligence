@@ -586,6 +586,7 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
         "vehicles": stock,
     }
     from .deal_drive import comparison_summary, market_evidence
+    from .market_watchlist import radar_rows
     subject = None
     try:
         saved = json.loads(db.get_setting("deal_drive_last_subject", "null"))
@@ -596,5 +597,6 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
             "live_stock": live_stock,
             "deal_drive_market": market_evidence(db),
             "deal_drive_current_comparison": subject,
+            "market_watchlist_radar": radar_rows(db),
             "learned_preferences": [row["memory_text"] for row in intelligence_memories(db)],
             "recent_conversation": chat_conversation(db)}

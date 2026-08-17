@@ -136,14 +136,15 @@ class DealDriveClient:
         return exact[0]
 
     def evaluate_subject(self, *, make: str, model: str, trim: str, year: int, mileage_km: int,
-                         allow_imports: bool = False, progress: Callable[[str], None] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                         year_to: int | None = None, allow_imports: bool = False, dealer_only: bool = True,
+                         progress: Callable[[str], None] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if progress: progress(f"Resolving exact Deal Drive catalog IDs for {make} {model} {trim}…")
         brand = self._catalog_match("brands", "catalogBrands", make)
         model_node = self._catalog_match("models", "catalogModels", model, {"catalogBrandIds": [brand["id"]]})
         trim_node = self._catalog_match("trims", "catalogTrims", trim, {"catalogBrandIds": [brand["id"]], "catalogModelIds": [model_node["id"]]}) if trim.strip() else None
         gcc = None
         if not allow_imports:
-            for search in ("GCC", "Gulf", "Middle East"):
+            for search in ("GCC specs", "MENA specs", "GCC", "Gulf", "Middle East"):
                 try: gcc = self._catalog_match("regions", "catalogRegionalSpecs", search); break
                 except DealDriveError: pass
             if not gcc: raise DealDriveError("GCC regional specification could not be resolved; the comparison was stopped rather than widened.")
@@ -151,10 +152,11 @@ class DealDriveClient:
                    "year":year, "modelYear":year, "mileage":mileage_km, "catalogMileageUnitCode":"km", "countryCode":"ae"}
         product = {key:value for key,value in product.items() if value is not None}
         auto = self._run("autofilters", {"input":{"evaluationProductParams":product,"countryCode":"ae"}}).get("marketEvaluatorAutofiltersByParams") or {}
-        seller_types = [item for item in ((auto.get("liveMarketFilter") or {}).get("sellerTypes") or [])
-                        if not any(word in str(item.get("name","")).casefold() for word in ("private","individual"))]
-        if not seller_types: raise DealDriveError("No commercial/dealer seller type was returned; comparison stopped safely.")
-        common = {"catalogBrandId":brand["id"],"catalogModelId":model_node["id"],"yearFrom":year,"yearTo":year+1,"currencyCode":"AED"}
+        seller_types = [item for item in ((auto.get("liveMarketFilter") or {}).get("sellerTypes") or []) if item and item.get("id")]
+        if dealer_only:
+            seller_types = [item for item in seller_types if not any(word in str(item.get("name","")).casefold() for word in ("private","individual"))]
+        if not seller_types: raise DealDriveError("No permitted seller type was returned; comparison stopped safely.")
+        common = {"catalogBrandId":brand["id"],"catalogModelId":model_node["id"],"yearFrom":year,"yearTo":year_to or year+1,"currencyCode":"AED"}
         if trim_node: common["catalogTrimIds"]=[trim_node["id"]]
         if gcc: common["catalogRegionalSpecIds"]=[gcc["id"]]
         seller_ids=[item["id"] for item in seller_types]
@@ -215,12 +217,13 @@ def save_market_snapshot(db: Database, offers: list[dict[str, Any]], country_cod
     return run_id
 
 
-def comparison_exclusion(offer: dict[str, Any], *, allow_imports: bool = False) -> str:
+def comparison_exclusion(offer: dict[str, Any], *, allow_imports: bool = False, dealer_only: bool = True,
+                         exclude_sharjah_ajman: bool = True) -> str:
     seller_type = _name(offer.get("marketSellerType")).casefold()
-    if not seller_type or any(term in seller_type for term in ("private", "individual")): return "private or unknown seller"
+    if dealer_only and (not seller_type or any(term in seller_type for term in ("private", "individual"))): return "private or unknown seller"
     address = f"{offer.get('address','')} {offer.get('shortAddress','')}".casefold()
-    if "sharjah" in address: return "Sharjah excluded"
-    if "ajman" in address: return "Ajman excluded"
+    if exclude_sharjah_ajman and "sharjah" in address: return "Sharjah excluded"
+    if exclude_sharjah_ajman and "ajman" in address: return "Ajman excluded"
     regional = _name(offer.get("catalogRegionalSpecs")).casefold()
     if not allow_imports and not any(term in regional for term in ("gcc", "gulf", "middle east")): return "non-GCC or unknown specification"
     return ""
@@ -278,22 +281,9 @@ def sync_status(db: Database) -> dict[str, Any]:
 
 
 def nightly_sync(db: Database, progress: Callable[[str], None] | None = None) -> int:
-    email=db.get_setting("deal_drive_email").strip()
-    if not email: raise DealDriveError("Nightly sync skipped: no Deal Drive email is configured.")
-    password=KeychainCredentials().load(email)
-    if not password: raise DealDriveError("Nightly sync skipped: Deal Drive password is unavailable in macOS Keychain.")
-    workspace_id=db.get_setting("deal_drive_workspace_id").strip()
-    if not workspace_id: raise DealDriveError("Nightly sync skipped: no Deal Drive Workspace ID is configured.")
-    limit=min(1000,int(db.get_setting("deal_drive_nightly_limit","1000")))
-    try:
-        client=DealDriveClient(workspace_id=workspace_id); client.login(email,password); client.verify_market_access()
-        offers=client.fetch_market(limit=limit,progress=progress)
-        return save_market_snapshot(db,offers,"AE",limit,sync_mode="nightly_market")
-    except Exception as error:
-        with db.connect() as connection:
-            connection.execute("INSERT INTO deal_drive_sync_runs(started_at,completed_at,status,country_code,requested_limit,detail,sync_mode) VALUES (CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'failed','AE',?,?,?)",
-                               (limit,str(error),"nightly_market"))
-        raise
+    # The scheduler intentionally monitors only owner-curated cohorts. Broad whole-market sampling is not used.
+    from .market_watchlist import nightly_watchlist_sync
+    return nightly_watchlist_sync(db, progress)
 
 
 def velocity_rankings(db: Database, limit: int = 10) -> dict[str, Any]:

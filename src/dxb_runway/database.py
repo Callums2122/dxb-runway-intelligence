@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 28
+SCHEMA_VERSION = 29
 
 
 MIGRATIONS: dict[int, str] = {
@@ -445,6 +445,45 @@ MIGRATIONS: dict[int, str] = {
     28: """
     ALTER TABLE deal_drive_sync_runs ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'comparison';
     ALTER TABLE deal_drive_sync_runs ADD COLUMN subject_json TEXT NOT NULL DEFAULT '';
+    """,
+    29: """
+    CREATE TABLE IF NOT EXISTS market_watchlist (
+      id INTEGER PRIMARY KEY,
+      make TEXT NOT NULL, model TEXT NOT NULL, trim TEXT NOT NULL,
+      year_from INTEGER NOT NULL, year_to INTEGER NOT NULL,
+      gcc_only INTEGER NOT NULL DEFAULT 1,
+      mileage_min INTEGER, mileage_max INTEGER,
+      dealer_only INTEGER NOT NULL DEFAULT 1,
+      exclude_sharjah_ajman INTEGER NOT NULL DEFAULT 1,
+      active INTEGER NOT NULL DEFAULT 1,
+      ignored_suggestion INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(make,model,trim,year_from,year_to)
+    );
+    CREATE TABLE IF NOT EXISTS market_watchlist_snapshots (
+      id INTEGER PRIMARY KEY,
+      watchlist_id INTEGER NOT NULL REFERENCES market_watchlist(id) ON DELETE CASCADE,
+      captured_at TEXT NOT NULL,
+      current_listings INTEGER NOT NULL DEFAULT 0,
+      median_asking_aed REAL, weighted_market_price_aed REAL, median_listing_age_days REAL,
+      new_listings INTEGER NOT NULL DEFAULT 0, market_exits INTEGER NOT NULL DEFAULT 0,
+      price_reductions INTEGER NOT NULL DEFAULT 0, sample_size INTEGER NOT NULL DEFAULT 0,
+      confidence TEXT NOT NULL DEFAULT 'Low', score REAL NOT NULL DEFAULT 50, label TEXT NOT NULL DEFAULT 'Neutral',
+      change_7d REAL, change_30d REAL, change_90d REAL,
+      detail_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_watchlist_snapshots_vehicle ON market_watchlist_snapshots(watchlist_id,captured_at DESC);
+    CREATE TABLE IF NOT EXISTS market_watchlist_snapshot_offers (
+      snapshot_id INTEGER NOT NULL REFERENCES market_watchlist_snapshots(id) ON DELETE CASCADE,
+      offer_id TEXT NOT NULL, price_aed REAL, published_at TEXT,
+      PRIMARY KEY(snapshot_id,offer_id)
+    );
+    CREATE TABLE IF NOT EXISTS market_watchlist_interest (
+      make TEXT NOT NULL, model TEXT NOT NULL, trim TEXT NOT NULL, model_year INTEGER,
+      observations INTEGER NOT NULL DEFAULT 1, last_seen TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(make,model,trim,model_year)
+    );
     """,
 }
 

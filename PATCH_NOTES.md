@@ -432,3 +432,11 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Prevented connection and nightly-sync tests from claiming market access when no Workspace ID is configured.
 - Kept the Workspace ID separate from the password; passwords remain stored only in macOS Keychain.
 - Clamped broad nightly market snapshots to Deal Drive's documented maximum of 1,000 offer IDs per request.
+# 2026-08-17 — Curated Market Watchlist
+
+- Replaced random broad-market velocity sampling with owner-approved Deal Drive evaluator cohorts.
+- Added a simple Market Watchlist with add, edit, delete, pause/resume and last-sync visibility.
+- Added controlled suggestions from repeated opportunity checks and repeated clean Alba historical records; suggestions are never auto-added.
+- Added immutable daily cohort snapshots with supply, median asking price, weighted market price, listing age, new listings, market exits, reductions, confidence and 7/30/90-day price change.
+- Added a transparent 0–100 Market Radar and matching watchlist evidence inside Opportunity Check and Ask Runway context.
+- The 23:59 scheduler now refreshes only active watchlist vehicles.
