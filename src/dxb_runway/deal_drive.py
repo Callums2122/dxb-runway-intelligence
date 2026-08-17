@@ -127,13 +127,30 @@ class DealDriveClient:
             if progress: progress(f"Downloaded {min(start + 100, len(ids)):,} of {len(ids):,} offers…")
         return offers
 
-    def _catalog_match(self, operation: str, root: str, search: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    @staticmethod
+    def _catalog_key(value: str) -> str:
+        # Catalogue labels are semantically identical despite spaces, hyphens and punctuation (S-line / S line / SLine).
+        return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+    def _catalog_nodes(self, operation: str, root: str, search: str, extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         request = {"first": 100, "active": True, "search": search, "countryCode": "ae", **(extra or {})}
         edges = ((self._run(operation, {"input": request}).get(root) or {}).get("edges") or [])
-        nodes = [edge["node"] for edge in edges]
-        exact = [node for node in nodes if str(node.get("name", "")).strip().casefold() == search.strip().casefold()]
-        if not exact: raise DealDriveError(f"Deal Drive could not resolve the exact catalog value: {search}.")
-        return exact[0]
+        return [edge["node"] for edge in edges if edge.get("node")]
+
+    def _catalog_match(self, operation: str, root: str, search: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        wanted=self._catalog_key(search); nodes: list[dict[str, Any]]=[]; seen: set[str]=set()
+        variants=[search,re.sub(r"[-_/]+"," ",search),re.sub(r"[^A-Za-z0-9]+","",search),""]
+        for variant in dict.fromkeys(value.strip() for value in variants):
+            for node in self._catalog_nodes(operation,root,variant,extra):
+                node_id=str(node.get("id") or node.get("name") or "")
+                if node_id not in seen:seen.add(node_id);nodes.append(node)
+            matches=[node for node in nodes if self._catalog_key(str(node.get("name", "")))==wanted]
+            if len(matches)==1:return matches[0]
+        names=sorted({str(node.get("name","")).strip() for node in nodes if node.get("name")})
+        nearby=[name for name in names if wanted and (wanted in self._catalog_key(name) or self._catalog_key(name) in wanted)]
+        suggestions=nearby[:12] or names[:12]
+        detail=f" Available values: {', '.join(suggestions)}." if suggestions else ""
+        raise DealDriveError(f"Deal Drive could not resolve the exact catalog value: {search}.{detail}")
 
     def evaluate_subject(self, *, make: str, model: str, trim: str, year: int, mileage_km: int,
                          year_to: int | None = None, allow_imports: bool = False, dealer_only: bool = True,

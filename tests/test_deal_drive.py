@@ -1,5 +1,5 @@
 from dxb_runway.database import Database
-from dxb_runway.deal_drive import DealDriveClient, comparison_exclusion, comparison_summary, market_evidence, save_market_snapshot, sync_status, velocity_rankings
+from dxb_runway.deal_drive import DealDriveClient, DealDriveError, comparison_exclusion, comparison_summary, market_evidence, save_market_snapshot, sync_status, velocity_rankings
 
 
 def test_allowlisted_client_logs_in_and_chunks_market_details():
@@ -39,6 +39,27 @@ def test_broad_market_sync_clamps_to_documented_api_limit():
     client.login("owner@example.com", "password")
     client.fetch_market(limit=10_000)
     assert calls[1]["variables"]["input"]["limit"] == 1000
+
+
+def test_catalog_trim_matching_ignores_spacing_hyphens_and_case():
+    def transport(payload, token):
+        search=payload["variables"]["input"]["search"]
+        nodes=[{"id":"trim-1","name":"S line"}] if search in {"S-line","S line","Sline",""} else []
+        return {"catalogTrims":{"edges":[{"node":node} for node in nodes]}}
+    client=DealDriveClient(transport,workspace_id="workspace-123")
+    result=client._catalog_match("trims","catalogTrims","S-line",{"catalogModelIds":["q8"]})
+    assert result=={"id":"trim-1","name":"S line"}
+
+
+def test_unresolved_trim_error_lists_real_catalog_values():
+    def transport(payload, token):
+        nodes=[{"id":"one","name":"Premium Plus"},{"id":"two","name":"Black Edition"}] if payload["variables"]["input"]["search"]=="" else []
+        return {"catalogTrims":{"edges":[{"node":node} for node in nodes]}}
+    client=DealDriveClient(transport,workspace_id="workspace-123")
+    try:client._catalog_match("trims","catalogTrims","Unknown trim")
+    except DealDriveError as error:
+        assert "Available values:" in str(error) and "Black Edition" in str(error) and "Premium Plus" in str(error)
+    else:assert False,"Expected unresolved catalogue trim to fail safely"
 
 
 def test_snapshots_are_retained_and_latest_market_is_summarised(tmp_path):

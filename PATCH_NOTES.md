@@ -453,3 +453,9 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Manual sync refreshes every active cohort through the same read-only Deal Drive evaluator flow as the nightly job.
 - Live progress, clear failure messages and completion counts are shown without freezing the app.
 - Successful runs immediately update each vehicle's Last Sync value and refresh Market Radar while retaining all older snapshots.
+
+# 2026-08-17 — Reliable trim resolution
+
+- Deal Drive catalogue matching now treats harmless punctuation, spacing and capitalisation differences as the same exact trim.
+- Values such as `S-line`, `S line` and `SLine` resolve without widening the market cohort.
+- A genuinely unresolved trim still stops safely, but now displays available Deal Drive catalogue values for that make/model instead of a dead-end error.
