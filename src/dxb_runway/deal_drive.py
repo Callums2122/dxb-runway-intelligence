@@ -67,15 +67,18 @@ Transport = Callable[[dict[str, Any], Optional[str]], dict[str, Any]]
 
 class DealDriveClient:
     """Minimal allowlisted read-only client. Tokens exist only on this instance."""
-    def __init__(self, transport: Transport | None = None):
+    def __init__(self, transport: Transport | None = None, workspace_id: str = ""):
         self._transport = transport or self._http
+        self._workspace_id = workspace_id.strip()
         self._access_token: str | None = None
         self._refresh_token: str | None = None
 
     def _http(self, payload: dict[str, Any], token: str | None) -> dict[str, Any]:
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "X-DD-Lang": "en"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+            if self._workspace_id:
+                headers["X-DD-WorkspaceId"] = self._workspace_id
         request = urllib.request.Request(ENDPOINT, data=json.dumps(payload).encode(), headers=headers, method="POST")
         try:
             with urllib.request.urlopen(request, timeout=45) as response:
@@ -104,10 +107,12 @@ class DealDriveClient:
         self._refresh_token = auth.get("refreshToken")
 
     def verify_market_access(self) -> int:
-        data=self._run("count_offers", {"input":{"limit":1,"filters":{"countryCode":"AE"}}})
+        if not self._workspace_id:
+            raise DealDriveError("Deal Drive Workspace ID is required for market access.")
+        data=self._run("count_offers", {"input":{"limit":1,"filters":{"countryCode":"ae"}}})
         return int(data.get("countMarketOffers") or 0)
 
-    def fetch_market(self, *, country_code: str = "AE", limit: int = 5000,
+    def fetch_market(self, *, country_code: str = "ae", limit: int = 5000,
                      progress: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
         if not self._access_token:
             raise DealDriveError("Connect to Deal Drive before syncing.")
@@ -122,7 +127,7 @@ class DealDriveClient:
         return offers
 
     def _catalog_match(self, operation: str, root: str, search: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        request = {"first": 100, "active": True, "search": search, "countryCode": "AE", **(extra or {})}
+        request = {"first": 100, "active": True, "search": search, "countryCode": "ae", **(extra or {})}
         edges = ((self._run(operation, {"input": request}).get(root) or {}).get("edges") or [])
         nodes = [edge["node"] for edge in edges]
         exact = [node for node in nodes if str(node.get("name", "")).strip().casefold() == search.strip().casefold()]
@@ -142,9 +147,9 @@ class DealDriveClient:
                 except DealDriveError: pass
             if not gcc: raise DealDriveError("GCC regional specification could not be resolved; the comparison was stopped rather than widened.")
         product = {"catalogBrandId":brand["id"], "catalogModelId":model_node["id"], "catalogTrimId":trim_node["id"] if trim_node else None,
-                   "year":year, "modelYear":year, "mileage":mileage_km, "catalogMileageUnitCode":"km", "countryCode":"AE"}
+                   "year":year, "modelYear":year, "mileage":mileage_km, "catalogMileageUnitCode":"km", "countryCode":"ae"}
         product = {key:value for key,value in product.items() if value is not None}
-        auto = self._run("autofilters", {"input":{"evaluationProductParams":product,"countryCode":"AE"}}).get("marketEvaluatorAutofiltersByParams") or {}
+        auto = self._run("autofilters", {"input":{"evaluationProductParams":product,"countryCode":"ae"}}).get("marketEvaluatorAutofiltersByParams") or {}
         seller_types = [item for item in ((auto.get("liveMarketFilter") or {}).get("sellerTypes") or [])
                         if not any(word in str(item.get("name","")).casefold() for word in ("private","individual"))]
         if not seller_types: raise DealDriveError("No commercial/dealer seller type was returned; comparison stopped safely.")
@@ -154,7 +159,7 @@ class DealDriveClient:
         seller_ids=[item["id"] for item in seller_types]
         request={"evaluationProductParams":product,"commonFilter":common,"liveMarketFilter":{"sellerTypeIds":seller_ids,"maxOffersInSelection":500},
                  "salesHistoryFilter":{"sellerTypeIds":seller_ids,"depthDays":730,"maxOffersInSelection":1000},
-                 "countryCode":"AE","evaluationCurrencyCode":"AED","userCurrencyCode":"AED","orderBy":"weight","orderDirection":"desc"}
+                 "countryCode":"ae","evaluationCurrencyCode":"AED","userCurrencyCode":"AED","orderBy":"weight","orderDirection":"desc"}
         if progress: progress("Deal Drive is evaluating the exact year, trim, GCC and dealer cohort…")
         evaluation=self._run("evaluate", {"input":request}).get("marketEvaluatorEvaluateByParams") or {}
         evaluated=[row for row in evaluation.get("evaluatedMarketOffers") or [] if row.get("marketOfferId") and not row.get("ignored")]
@@ -276,9 +281,11 @@ def nightly_sync(db: Database, progress: Callable[[str], None] | None = None) ->
     if not email: raise DealDriveError("Nightly sync skipped: no Deal Drive email is configured.")
     password=KeychainCredentials().load(email)
     if not password: raise DealDriveError("Nightly sync skipped: Deal Drive password is unavailable in macOS Keychain.")
+    workspace_id=db.get_setting("deal_drive_workspace_id").strip()
+    if not workspace_id: raise DealDriveError("Nightly sync skipped: no Deal Drive Workspace ID is configured.")
     limit=int(db.get_setting("deal_drive_nightly_limit","10000"))
     try:
-        client=DealDriveClient(); client.login(email,password); client.verify_market_access()
+        client=DealDriveClient(workspace_id=workspace_id); client.login(email,password); client.verify_market_access()
         offers=client.fetch_market(limit=limit,progress=progress)
         return save_market_snapshot(db,offers,"AE",limit,sync_mode="nightly_market")
     except Exception as error:

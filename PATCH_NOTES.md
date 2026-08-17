@@ -425,3 +425,9 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 ## Verification
 
 The current codebase is covered by 43 automated tests plus packaged Windows and native macOS build checks. Detailed calculation and runtime evidence is maintained in [VERIFICATION.md](VERIFICATION.md).
+# 2026-08-17 — Deal Drive workspace authentication
+
+- Added the required Deal Drive Workspace ID setting and `X-DD-WorkspaceId` request header.
+- Added the documented `X-DD-Lang: en` header and normalized UAE Partner API requests to country code `ae`.
+- Prevented connection and nightly-sync tests from claiming market access when no Workspace ID is configured.
+- Kept the Workspace ID separate from the password; passwords remain stored only in macOS Keychain.

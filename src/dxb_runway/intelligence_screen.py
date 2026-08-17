@@ -92,14 +92,14 @@ class DealDriveSignals(QObject):
 
 
 class DealDriveJob(QRunnable):
-    def __init__(self, db: Database, email: str, password: str, limit: int, sync: bool, subject: dict[str, object] | None = None):
-        super().__init__(); self.db = db; self.email = email; self.password = password; self.limit = limit; self.sync = sync; self.subject = subject
+    def __init__(self, db: Database, email: str, password: str, workspace_id: str, limit: int, sync: bool, subject: dict[str, object] | None = None):
+        super().__init__(); self.db = db; self.email = email; self.password = password; self.workspace_id = workspace_id; self.limit = limit; self.sync = sync; self.subject = subject
         self.signals = DealDriveSignals()
 
     def run(self) -> None:
         try:
             self.signals.progress.emit("Signing in securely…")
-            client = DealDriveClient(); client.login(self.email, self.password)
+            client = DealDriveClient(workspace_id=self.workspace_id); client.login(self.email, self.password)
             if not self.sync:
                 count=client.verify_market_access()
                 self.signals.finished.emit(f"Connected. Market-offer access verified · {count:,} UAE offers available."); return
@@ -447,9 +447,10 @@ class IntelligencePage(Page):
         form = QGridLayout(); form.setHorizontalSpacing(12); form.setVerticalSpacing(8)
         self.dd_email = QLineEdit(self.db.get_setting("deal_drive_email")); self.dd_email.setPlaceholderText("Partner API email")
         self.dd_password = QLineEdit(); self.dd_password.setEchoMode(QLineEdit.EchoMode.Password); self.dd_password.setPlaceholderText("Stored in macOS Keychain after a successful test")
+        self.dd_workspace = QLineEdit(self.db.get_setting("deal_drive_workspace_id")); self.dd_workspace.setPlaceholderText("Provided by Deal Drive or visible as X-DD-WorkspaceId")
         self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 10000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(int(self.db.get_setting("deal_drive_limit", "5000")))
         form.addWidget(QLabel("Email"),0,0); form.addWidget(self.dd_email,1,0); form.addWidget(QLabel("Password"),0,1); form.addWidget(self.dd_password,1,1)
-        form.addWidget(QLabel("Emergency broad-sync limit"),2,0); form.addWidget(self.dd_limit,3,0); box.addLayout(form)
+        form.addWidget(QLabel("Workspace ID"),2,0); form.addWidget(self.dd_workspace,3,0); form.addWidget(QLabel("Emergency broad-sync limit"),2,1); form.addWidget(self.dd_limit,3,1); box.addLayout(form)
         try: saved_subject = json.loads(self.db.get_setting("deal_drive_last_subject", "{}"))
         except json.JSONDecodeError: saved_subject = {}
         subject_card = Card(); subject_layout = QGridLayout(subject_card); subject_layout.setContentsMargins(14,12,14,12); subject_layout.setHorizontalSpacing(10); subject_layout.setVerticalSpacing(7)
@@ -493,12 +494,14 @@ class IntelligencePage(Page):
         self.dd_mileage.setValue(self.mileage.value())
 
     def _run_deal_drive(self, sync: bool) -> None:
-        email = self.dd_email.text().strip(); password = self.dd_password.text()
+        email = self.dd_email.text().strip(); password = self.dd_password.text(); workspace_id = self.dd_workspace.text().strip()
         if not email:
             QMessageBox.information(self, "Email required", "Enter the Deal Drive Partner API email."); return
         if not password: password = KeychainCredentials().load(email) or ""
         if not password:
             QMessageBox.information(self, "Password required", "Enter the Partner API password once; it will be saved to macOS Keychain only after a successful connection."); return
+        if not workspace_id:
+            QMessageBox.information(self, "Workspace ID required", "Enter the Deal Drive Workspace ID. It is sent as the required X-DD-WorkspaceId header."); return
         self.dd_test.setEnabled(False); self.dd_sync.setEnabled(False); self._dd_message("Starting read-only connection test…" if not sync else "Starting read-only UAE market sync…")
         subject = None
         if sync:
@@ -508,7 +511,8 @@ class IntelligencePage(Page):
             subject = {"make":self.dd_make.text().strip(),"model":self.dd_model.text().strip(),"trim":self.dd_trim.text().strip(),"year":self.dd_year.value(),
                        "mileage_km":self.dd_mileage.value(),"allow_imports":self.dd_allow_imports.isChecked()}
         self.db.set_setting("deal_drive_allow_imports", int(self.dd_allow_imports.isChecked()))
-        job = DealDriveJob(self.db, email, password, self.dd_limit.value(), sync, subject)
+        self.db.set_setting("deal_drive_workspace_id", workspace_id)
+        job = DealDriveJob(self.db, email, password, workspace_id, self.dd_limit.value(), sync, subject)
         job.signals.progress.connect(self._dd_message)
         job.signals.failed.connect(self._deal_drive_failed)
         job.signals.finished.connect(lambda message, e=email, p=password: self._deal_drive_finished(message, e, p))
@@ -517,7 +521,7 @@ class IntelligencePage(Page):
     def _deal_drive_finished(self, message: str, email: str, password: str) -> None:
         try: KeychainCredentials().save(email, password)
         except DealDriveError as error: self._dd_message(str(error))
-        self.db.set_setting("deal_drive_email", email); self.db.set_setting("deal_drive_limit", self.dd_limit.value())
+        self.db.set_setting("deal_drive_email", email); self.db.set_setting("deal_drive_workspace_id", self.dd_workspace.text().strip()); self.db.set_setting("deal_drive_limit", self.dd_limit.value())
         if getattr(self, "_active_deal_drive_job", None) and self._active_deal_drive_job.subject:
             saved = dict(self._active_deal_drive_job.subject); saved.pop("allow_imports", None)
             self.db.set_setting("deal_drive_last_subject", json.dumps(saved))
@@ -537,7 +541,7 @@ class IntelligencePage(Page):
     def _forget_deal_drive(self) -> None:
         email = self.dd_email.text().strip() or self.db.get_setting("deal_drive_email")
         if email: KeychainCredentials().delete(email)
-        self.db.set_setting("deal_drive_email", ""); self.dd_email.clear(); self.dd_password.clear(); self.dd_connection.setText("NOT CONFIGURED"); self._dd_message("Saved Keychain login removed. Retained market snapshots were kept.")
+        self.db.set_setting("deal_drive_email", ""); self.db.set_setting("deal_drive_workspace_id", ""); self.dd_email.clear(); self.dd_password.clear(); self.dd_workspace.clear(); self.dd_connection.setText("NOT CONFIGURED"); self._dd_message("Saved Keychain login and Workspace ID removed. Retained market snapshots were kept.")
 
     def _refresh_deal_drive(self) -> None:
         if not hasattr(self, "dd_counts"): return

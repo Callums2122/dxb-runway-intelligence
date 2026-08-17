@@ -10,12 +10,22 @@ def test_allowlisted_client_logs_in_and_chunks_market_details():
         if "mutation Login" in query: return {"login": {"accessToken": "secret", "refreshToken": "refresh"}}
         if "UAEOfferIds" in query: return {"marketOffers": {"edges": [{"node": str(i)} for i in range(205)]}}
         return {"marketOffersData": [{"id": value} for value in payload["variables"]["input"]]}
-    client = DealDriveClient(transport); client.login("owner@example.com", "password")
+    client = DealDriveClient(transport, workspace_id="workspace-123"); client.login("owner@example.com", "password")
     offers = client.fetch_market(limit=500)
     assert len(offers) == 205
     assert len(calls) == 5
     assert calls[0][1] is None and calls[1][1] == "secret"
     assert "password" not in str(calls[1:])
+
+
+def test_market_access_requires_workspace_id():
+    client = DealDriveClient(lambda payload, token: {"login": {"accessToken": "secret"}})
+    client.login("owner@example.com", "password")
+    try:
+        client.verify_market_access()
+        assert False, "Expected missing Workspace ID to stop the request"
+    except Exception as error:
+        assert "Workspace ID" in str(error)
 
 
 def test_snapshots_are_retained_and_latest_market_is_summarised(tmp_path):
