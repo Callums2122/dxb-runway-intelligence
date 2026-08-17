@@ -12,7 +12,7 @@ from dxb_runway.database import Database, SCHEMA_VERSION
 from dxb_runway.app import place_on_secondary_display
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.intelligence_screen import openclaw_answer
+from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer
 from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
@@ -63,6 +63,13 @@ def test_market_watchlist_exposes_manual_sync(tmp_path: Path):
     assert intelligence.watch_sync.isEnabled()
     assert "Ready to sync" in intelligence.watch_sync_status.text()
     window.close()
+
+
+def test_market_radar_uses_owner_45_day_pace_line():
+    assert market_pace_bucket(44.9)=="fast"
+    assert market_pace_bucket(45)=="slow"
+    assert market_pace_bucket(61)=="slow"
+    assert market_pace_bucket(None)=="slow"
 
 
 def test_first_run_onboarding_constructs(tmp_path: Path):

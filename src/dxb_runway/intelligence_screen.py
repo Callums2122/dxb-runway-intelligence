@@ -3,15 +3,16 @@ from __future__ import annotations
 import base64
 import json
 import shlex
+import statistics
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
@@ -30,11 +31,17 @@ from .market_watchlist import (
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
-from .widgets import Card, SectionHeader
+from .widgets import Card, MetricCard, SectionHeader
 
 
 def _money(value: object) -> str:
     return f"AED {float(value or 0):,.0f}"
+
+
+def market_pace_bucket(median_days: object) -> str:
+    """The owner-defined 45-day market-speed line; unknown data is never labelled fast."""
+    try:return "fast" if float(median_days) < 45 else "slow"
+    except (TypeError,ValueError):return "slow"
 
 
 def _agent_avatar_path() -> Path:
@@ -495,17 +502,29 @@ class IntelligencePage(Page):
     def _velocity_tab(self) -> QWidget:
         content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
         header=Card(); header_layout=QHBoxLayout(header); header_layout.setContentsMargins(18,16,18,16)
-        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Market Radar", "Transparent multi-factor scores for your active watchlist only."))
+        copy=QVBoxLayout(); copy.addWidget(SectionHeader("Market Radar", "Your 45-day buying board · market age decides the lane; score explains the strength."))
         self.velocity_status=QLabel("Building history"); self.velocity_status.setObjectName("muted"); self.velocity_status.setWordWrap(True); copy.addWidget(self.velocity_status); header_layout.addLayout(copy,1)
         schedule=QLabel("AUTOMATIC SYNC\nEvery day · 23:59 Dubai time"); schedule.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignVCenter); schedule.setStyleSheet(f"color:{COLORS['green']};font-weight:850"); header_layout.addWidget(schedule); root.addWidget(header)
-        columns=QHBoxLayout(); columns.setSpacing(12)
-        fast_card=Card(); fast_layout=QVBoxLayout(fast_card); fast_layout.setContentsMargins(14,13,14,14); fast_layout.addWidget(SectionHeader("Strong / fast moving", "Healthy or improving watchlist cohorts"))
-        self.velocity_fast=QTableWidget(0,6); self.velocity_fast.setHorizontalHeaderLabels(["VEHICLE","SCORE","SUPPLY","MEDIAN","AGE","SAMPLE / CONFIDENCE"]); self.velocity_fast.horizontalHeader().setStretchLastSection(True); fast_layout.addWidget(self.velocity_fast); columns.addWidget(fast_card,1)
-        slow_card=Card(); slow_layout=QVBoxLayout(slow_card); slow_layout.setContentsMargins(14,13,14,14); slow_layout.addWidget(SectionHeader("Weak / slow moving", "Neutral, weakening or slow watchlist cohorts"))
-        self.velocity_slow=QTableWidget(0,6); self.velocity_slow.setHorizontalHeaderLabels(["VEHICLE","SCORE","SUPPLY","MEDIAN","AGE","SAMPLE / CONFIDENCE"]); self.velocity_slow.horizontalHeader().setStretchLastSection(True); slow_layout.addWidget(self.velocity_slow); columns.addWidget(slow_card,1)
-        root.addLayout(columns,1)
-        note=QLabel("Score uses market exits, listing age, supply, price stability, reductions and sample strength. A disappeared advert is a market exit—not a confirmed sale."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
+        scoreboard=QHBoxLayout(); scoreboard.setSpacing(10)
+        self.radar_fast_metric=MetricCard("Fast lane","0","Under 45 median days",COLORS["green"]); scoreboard.addWidget(self.radar_fast_metric)
+        self.radar_slow_metric=MetricCard("Risk zone","0","45+ median days",COLORS["red"]); scoreboard.addWidget(self.radar_slow_metric)
+        self.radar_age_metric=MetricCard("Watchlist pace","—","Median age across synced cohorts",COLORS["cyan"]); scoreboard.addWidget(self.radar_age_metric)
+        root.addLayout(scoreboard)
+        fast_card=Card(); fast_layout=QVBoxLayout(fast_card); fast_layout.setContentsMargins(14,13,14,14)
+        fast_title=SectionHeader("⚡ FAST LANE · UNDER 45 DAYS", "Priority hunting ground — verify price, margin and sample confidence before buying"); fast_layout.addWidget(fast_title)
+        self.velocity_fast=self._radar_table(); fast_layout.addWidget(self.velocity_fast); root.addWidget(fast_card,1)
+        slow_card=Card(); slow_layout=QVBoxLayout(slow_card); slow_layout.setContentsMargins(14,13,14,14)
+        slow_title=SectionHeader("⚠ RISK ZONE · 45+ DAYS", "Slower market — demand a stronger margin or walk away"); slow_layout.addWidget(slow_title)
+        self.velocity_slow=self._radar_table(); slow_layout.addWidget(self.velocity_slow); root.addWidget(slow_card,1)
+        note=QLabel("PACE RULE · Median listing age controls the lane. Market Score (0–100) adds context from exits, supply, price stability, reductions and sample strength. A market exit is not a confirmed sale."); note.setObjectName("muted"); note.setWordWrap(True); root.addWidget(note)
         return content
+
+    def _radar_table(self) -> QTableWidget:
+        table=QTableWidget(0,8); table.setHorizontalHeaderLabels(["VEHICLE COHORT","PACE","MEDIAN AGE","MARKET SCORE","COMPARABLES","MEDIAN ASK","MOVEMENT","CONFIDENCE"])
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.verticalHeader().hide(); table.setAlternatingRowColors(True); table.setMinimumHeight(175)
+        header=table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); header.setSectionResizeMode(0,QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6,QHeaderView.ResizeMode.Stretch); return table
 
     def _deal_drive_tab(self) -> QWidget:
         content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(4,14,4,4); root.setSpacing(12)
@@ -777,11 +796,20 @@ class IntelligencePage(Page):
     def _refresh_velocity(self) -> None:
         if not hasattr(self,"velocity_fast"): return
         rows=radar_rows(self.db); self.velocity_status.setText("Waiting for the first 23:59 watchlist sync." if not rows else f"{len(rows)} active cohort{'s' if len(rows)!=1 else ''} scored · old snapshots retained")
-        strong=[row for row in rows if float(row["score"])>=60]; weak=[row for row in reversed(rows) if float(row["score"])<60]
-        for table,values in ((self.velocity_fast,strong),(self.velocity_slow,weak)):
+        fast=sorted((row for row in rows if market_pace_bucket(row.get("median_listing_age_days"))=="fast"),key=lambda row:float(row.get("median_listing_age_days") or 999))
+        slow=sorted((row for row in rows if market_pace_bucket(row.get("median_listing_age_days"))=="slow"),key=lambda row:float(row.get("median_listing_age_days") or 0),reverse=True)
+        ages=[float(row["median_listing_age_days"]) for row in rows if row.get("median_listing_age_days") is not None]
+        self.radar_fast_metric.set_value(str(len(fast)),f"{len(fast)} cohort{'s' if len(fast)!=1 else ''} beating the 45-day line",COLORS["green"])
+        self.radar_slow_metric.set_value(str(len(slow)),f"{len(slow)} cohort{'s' if len(slow)!=1 else ''} require extra caution",COLORS["red"])
+        self.radar_age_metric.set_value(f"{statistics.median(ages):.0f} days" if ages else "—","Synced watchlist median",COLORS["cyan"])
+        for table,values,pace,color in ((self.velocity_fast,fast,"⚡ FAST",COLORS["green"]),(self.velocity_slow,slow,"⚠ SLOW",COLORS["red"])):
             table.setRowCount(len(values))
             for index,row in enumerate(values):
-                cells=[f"{row['year_from']}–{row['year_to']} {row['make']} {row['model']} {row['trim']}",f"{float(row['score']):.0f} · {row['label']}",
-                       f"{row['current_listings']} · +{row['new_listings']} new / {row['market_exits']} exits",_money(row["median_asking_aed"]),
-                       f"{float(row['median_listing_age_days'] or 0):.0f} days",f"{row['sample_size']} · {row['confidence']}"]
-                for column,value in enumerate(cells):table.setItem(index,column,QTableWidgetItem(str(value)))
+                change=row.get("change_30d"); trend=f"30d price {float(change):+.1f}%" if change is not None else "Building 30d history"
+                movement=f"{row['market_exits']} exits · +{row['new_listings']} new · {row['price_reductions']} cuts\n{trend}"
+                cells=[f"{row['year_from']}–{row['year_to']}  {row['make']} {row['model']}\n{row['trim']}",pace,
+                       f"{float(row['median_listing_age_days'] or 0):.0f} DAYS",f"{float(row['score']):.0f}/100 · {row['label']}",
+                       f"{row['current_listings']} live\nSample {row['sample_size']}",_money(row["median_asking_aed"]),movement,str(row["confidence"]).upper()]
+                for column,value in enumerate(cells):
+                    item=QTableWidgetItem(str(value)); item.setForeground(QColor(color) if column in (1,2) else QColor(COLORS["text"])); table.setItem(index,column,item)
+                table.setRowHeight(index,62)

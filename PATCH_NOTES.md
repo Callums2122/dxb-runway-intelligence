@@ -459,3 +459,11 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Deal Drive catalogue matching now treats harmless punctuation, spacing and capitalisation differences as the same exact trim.
 - Values such as `S-line`, `S line` and `SLine` resolve without widening the market cohort.
 - A genuinely unresolved trim still stops safely, but now displays available Deal Drive catalogue values for that make/model instead of a dead-end error.
+
+# 2026-08-17 — Gamified Market Radar
+
+- Replaced cramped side-by-side tables with two readable full-width lanes and larger rows.
+- Added Fast Lane, Risk Zone and overall watchlist-pace scorecards.
+- Market lane is now determined by the owner-defined speed rule: under 45 median days is Fast; 45+ days is Slow.
+- Kept the 0–100 multi-factor score as supporting evidence rather than allowing it to override actual market speed.
+- Expanded each cohort with median age, live comparables, sample size, asking median, exits, new supply, price cuts, 30-day trend and confidence.
