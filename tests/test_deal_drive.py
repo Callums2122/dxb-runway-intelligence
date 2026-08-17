@@ -28,6 +28,19 @@ def test_market_access_requires_workspace_id():
         assert "Workspace ID" in str(error)
 
 
+def test_broad_market_sync_clamps_to_documented_api_limit():
+    calls = []
+    def transport(payload, token):
+        calls.append(payload)
+        if "mutation Login" in payload["query"]: return {"login": {"accessToken": "secret"}}
+        if "UAEOfferIds" in payload["query"]: return {"marketOffers": {"edges": []}}
+        return {}
+    client = DealDriveClient(transport, workspace_id="workspace-123")
+    client.login("owner@example.com", "password")
+    client.fetch_market(limit=10_000)
+    assert calls[1]["variables"]["input"]["limit"] == 1000
+
+
 def test_snapshots_are_retained_and_latest_market_is_summarised(tmp_path):
     db = Database(tmp_path / "runway.db")
     offer = {"id": "one", "price": 250000, "catalogBrand": {"name": "Audi"}, "catalogModel": {"name": "Q8"},

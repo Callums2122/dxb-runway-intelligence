@@ -448,9 +448,9 @@ class IntelligencePage(Page):
         self.dd_email = QLineEdit(self.db.get_setting("deal_drive_email")); self.dd_email.setPlaceholderText("Partner API email")
         self.dd_password = QLineEdit(); self.dd_password.setEchoMode(QLineEdit.EchoMode.Password); self.dd_password.setPlaceholderText("Stored in macOS Keychain after a successful test")
         self.dd_workspace = QLineEdit(self.db.get_setting("deal_drive_workspace_id")); self.dd_workspace.setPlaceholderText("Provided by Deal Drive or visible as X-DD-WorkspaceId")
-        self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 10000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(int(self.db.get_setting("deal_drive_limit", "5000")))
+        self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 1000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(min(1000, int(self.db.get_setting("deal_drive_limit", "1000"))))
         form.addWidget(QLabel("Email"),0,0); form.addWidget(self.dd_email,1,0); form.addWidget(QLabel("Password"),0,1); form.addWidget(self.dd_password,1,1)
-        form.addWidget(QLabel("Workspace ID"),2,0); form.addWidget(self.dd_workspace,3,0); form.addWidget(QLabel("Emergency broad-sync limit"),2,1); form.addWidget(self.dd_limit,3,1); box.addLayout(form)
+        form.addWidget(QLabel("Workspace ID"),2,0); form.addWidget(self.dd_workspace,3,0); form.addWidget(QLabel("Nightly market sample · API max 1,000"),2,1); form.addWidget(self.dd_limit,3,1); box.addLayout(form)
         try: saved_subject = json.loads(self.db.get_setting("deal_drive_last_subject", "{}"))
         except json.JSONDecodeError: saved_subject = {}
         subject_card = Card(); subject_layout = QGridLayout(subject_card); subject_layout.setContentsMargins(14,12,14,12); subject_layout.setHorizontalSpacing(10); subject_layout.setVerticalSpacing(7)

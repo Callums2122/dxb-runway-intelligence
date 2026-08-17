@@ -112,10 +112,11 @@ class DealDriveClient:
         data=self._run("count_offers", {"input":{"limit":1,"filters":{"countryCode":"ae"}}})
         return int(data.get("countMarketOffers") or 0)
 
-    def fetch_market(self, *, country_code: str = "ae", limit: int = 5000,
+    def fetch_market(self, *, country_code: str = "ae", limit: int = 1000,
                      progress: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
         if not self._access_token:
             raise DealDriveError("Connect to Deal Drive before syncing.")
+        limit = max(1, min(int(limit), 1000))  # Deal Drive documents a hard maximum of 1,000 IDs per request.
         data = self._run("offer_ids", {"input": {"limit": limit, "filters": {"countryCode": country_code}}})
         ids = [str(edge["node"]) for edge in ((data.get("marketOffers") or {}).get("edges") or []) if edge.get("node")]
         if progress: progress(f"Found {len(ids):,} UAE market offers. Downloading details…")
@@ -283,7 +284,7 @@ def nightly_sync(db: Database, progress: Callable[[str], None] | None = None) ->
     if not password: raise DealDriveError("Nightly sync skipped: Deal Drive password is unavailable in macOS Keychain.")
     workspace_id=db.get_setting("deal_drive_workspace_id").strip()
     if not workspace_id: raise DealDriveError("Nightly sync skipped: no Deal Drive Workspace ID is configured.")
-    limit=int(db.get_setting("deal_drive_nightly_limit","10000"))
+    limit=min(1000,int(db.get_setting("deal_drive_nightly_limit","1000")))
     try:
         client=DealDriveClient(workspace_id=workspace_id); client.login(email,password); client.verify_market_access()
         offers=client.fetch_market(limit=limit,progress=progress)

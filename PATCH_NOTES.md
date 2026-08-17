@@ -431,3 +431,4 @@ The current codebase is covered by 43 automated tests plus packaged Windows and 
 - Added the documented `X-DD-Lang: en` header and normalized UAE Partner API requests to country code `ae`.
 - Prevented connection and nightly-sync tests from claiming market access when no Workspace ID is configured.
 - Kept the Workspace ID separate from the password; passwords remain stored only in macOS Keychain.
+- Clamped broad nightly market snapshots to Deal Drive's documented maximum of 1,000 offer IDs per request.
