@@ -4,6 +4,8 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 
 ## Current release — 2.2.0
 
+- Market Watchlist now recognises variants that Deal Drive stores as model versions/modifications rather than trims (including Maserati Grecale Trofeo), while preserving strict exact-variant filtering.
+
 - Mobile Stock Level now mirrors live Mac cash and consignment vehicles.
 - Mobile navigation replaces Leads with a compact Vehicle Desk and month view.
 - The Mac remains the source of truth and privately refreshes the phone mirror after edits and every two minutes.

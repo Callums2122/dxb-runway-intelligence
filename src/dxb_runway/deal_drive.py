@@ -158,7 +158,16 @@ class DealDriveClient:
         if progress: progress(f"Resolving exact Deal Drive catalog IDs for {make} {model} {trim}…")
         brand = self._catalog_match("brands", "catalogBrands", make)
         model_node = self._catalog_match("models", "catalogModels", model, {"catalogBrandIds": [brand["id"]]})
-        trim_node = self._catalog_match("trims", "catalogTrims", trim, {"catalogBrandIds": [brand["id"]], "catalogModelIds": [model_node["id"]]}) if trim.strip() else None
+        trim_node = None
+        variant_fallback = False
+        if trim.strip():
+            try:
+                trim_node = self._catalog_match("trims", "catalogTrims", trim, {"catalogBrandIds": [brand["id"]], "catalogModelIds": [model_node["id"]]})
+            except DealDriveError:
+                # Some Deal Drive families (for example Grecale) expose GT/Modena/Trofeo as
+                # model versions on offers and have no catalogTrim rows. Fetch the tightly
+                # scoped make/model/year cohort, then enforce the requested variant locally.
+                variant_fallback = True
         gcc = None
         if not allow_imports:
             for search in ("GCC specs", "MENA specs", "GCC", "Gulf", "Middle East"):
@@ -189,10 +198,37 @@ class DealDriveClient:
         if progress: progress(f"Fetching {len(ids):,} evaluated comparables for local mileage, city and duplicate checks…")
         offers=[]
         for start in range(0,len(ids),100): offers.extend(self._run("offer_data", {"input":ids[start:start+100]}).get("marketOffersData") or [])
+        if variant_fallback:
+            wanted=self._catalog_key(trim)
+            available=sorted({name for offer in offers for name in self._offer_variant_names(offer)})
+            offers=[offer for offer in offers if wanted in self._offer_variant_keys(offer)]
+            if not offers:
+                detail=f" Available variants: {', '.join(available[:12])}." if available else ""
+                raise DealDriveError(f"Deal Drive returned no exact {trim} comparables for {make} {model}.{detail}")
+            # Evaluator headline history describes the broad model cohort in fallback mode.
+            # Do not mislabel that aggregate as exact-variant evidence; snapshot code derives
+            # price and archive speed from the exact filtered offers above.
+            evaluation={**evaluation,"salesHistory":{**(evaluation.get("salesHistory") or {}),"weightedAvgDaysInSale":None,"usefulOffersCount":0}}
         for offer in offers:
             offer["_active_market"]=active.get(str(offer.get("id")),not bool(offer.get("deleted")))
             offer["_comparison_weight"]=weights.get(str(offer.get("id")),1)
-        return offers, {"brand":brand,"model":model_node,"trim":trim_node,"gcc":gcc,"seller_types":seller_types,"evaluation":evaluation}
+        return offers, {"brand":brand,"model":model_node,"trim":trim_node,"gcc":gcc,"seller_types":seller_types,"evaluation":evaluation,
+                        "variant_fallback":variant_fallback,"variant":trim.strip()}
+
+    @classmethod
+    def _offer_variant_names(cls, offer: dict[str, Any]) -> list[str]:
+        values=[]
+        for field in ("catalogTrim","catalogModification","catalogModelVersion","catalogGeneration"):
+            node=offer.get(field) or {}
+            if isinstance(node,dict):
+                for key in ("name","shortName"):
+                    value=str(node.get(key) or "").strip()
+                    if value and value not in values:values.append(value)
+        return values
+
+    @classmethod
+    def _offer_variant_keys(cls, offer: dict[str, Any]) -> set[str]:
+        return {cls._catalog_key(value) for value in cls._offer_variant_names(offer)}
 
 
 def _name(value: Any) -> str:

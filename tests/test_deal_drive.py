@@ -62,6 +62,14 @@ def test_unresolved_trim_error_lists_real_catalog_values():
     else:assert False,"Expected unresolved catalogue trim to fail safely"
 
 
+def test_offer_variant_matching_reads_model_version_when_trim_is_empty():
+    trofeo={"catalogTrim":None,"catalogModification":None,"catalogModelVersion":{"name":"Trofeo","shortName":"Trofeo"}}
+    modena={"catalogTrim":None,"catalogModification":None,"catalogModelVersion":{"name":"Modena"}}
+    assert DealDriveClient._catalog_key("trofeo") in DealDriveClient._offer_variant_keys(trofeo)
+    assert DealDriveClient._catalog_key("trofeo") not in DealDriveClient._offer_variant_keys(modena)
+    assert DealDriveClient._offer_variant_names(trofeo)==["Trofeo"]
+
+
 def test_snapshots_are_retained_and_latest_market_is_summarised(tmp_path):
     db = Database(tmp_path / "runway.db")
     offer = {"id": "one", "price": 250000, "catalogBrand": {"name": "Audi"}, "catalogModel": {"name": "Q8"},
