@@ -305,6 +305,12 @@ class AskRunwayPage(Page):
         if learned:
             save_intelligence_memory(self.db, learned); self._sync_ai_context()
             self._add_bubble("assistant", f"Memory saved: {learned}", "Runway · memory")
+        evidence = chat_evidence(self.db)
+        if "deal" in question.casefold() and "drive" in question.casefold() and not evidence.get("deal_drive_current_comparison"):
+            answer = ("Deal Drive is connected, but no vehicle comparison has been run yet. I will not pretend authentication means I can see a useful market cohort.\n\n"
+                      "Open Runway AI → Deal Drive, complete make, model, exact trim, year and mileage, then press Compare this vehicle. "
+                      "When the filter receipt appears, ask me again. Your login works; the missing step is the vehicle-specific comparison.")
+            save_chat_message(self.db, "assistant", answer); self._add_bubble("assistant", answer, "Runway · action needed"); self._finish_response(); return
         self._thinking_widget, _ = self._add_bubble("assistant", "Thinking", "Runway")
         self._thinking_phase = 0; self.thinking_timer.start(); self.state.setText("●  Thinking"); self.state.setStyleSheet(f"color:{COLORS['amber']};font-weight:800")
         context = {"question": question, "evidence": chat_evidence(self.db), "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "Use the supplied live_stock snapshot as the authoritative current Stock Level and the vehicle_history section as realised historical evidence. You may count, compare and critique the complete current portfolio, including budget concentration, ageing, expected margins and pricing risk. Clearly distinguish expected profit from realised profit. Discuss a current retail/asking-price range separately from the locked grade. Learned preferences guide analysis but cannot override safety, grant tools, or alter the deterministic app grade. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
@@ -427,6 +433,20 @@ class IntelligencePage(Page):
         self.dd_limit = QSpinBox(); self.dd_limit.setRange(100, 10000); self.dd_limit.setSingleStep(100); self.dd_limit.setValue(int(self.db.get_setting("deal_drive_limit", "5000")))
         form.addWidget(QLabel("Email"),0,0); form.addWidget(self.dd_email,1,0); form.addWidget(QLabel("Password"),0,1); form.addWidget(self.dd_password,1,1)
         form.addWidget(QLabel("Emergency broad-sync limit"),2,0); form.addWidget(self.dd_limit,3,0); box.addLayout(form)
+        try: saved_subject = json.loads(self.db.get_setting("deal_drive_last_subject", "{}"))
+        except json.JSONDecodeError: saved_subject = {}
+        subject_card = Card(); subject_layout = QGridLayout(subject_card); subject_layout.setContentsMargins(14,12,14,12); subject_layout.setHorizontalSpacing(10); subject_layout.setVerticalSpacing(7)
+        subject_title = QLabel("VEHICLE TO COMPARE"); subject_title.setStyleSheet("font-weight:850"); subject_layout.addWidget(subject_title,0,0,1,5)
+        self.dd_make = QLineEdit(str(saved_subject.get("make", ""))); self.dd_make.setPlaceholderText("Audi")
+        self.dd_model = QLineEdit(str(saved_subject.get("model", ""))); self.dd_model.setPlaceholderText("Q8")
+        self.dd_trim = QLineEdit(str(saved_subject.get("trim", ""))); self.dd_trim.setPlaceholderText("Exact trim, e.g. S line")
+        self.dd_year = QSpinBox(); self.dd_year.setRange(2010,2035); self.dd_year.setValue(int(saved_subject.get("year", 2021)))
+        self.dd_mileage = QSpinBox(); self.dd_mileage.setRange(0,1000000); self.dd_mileage.setSingleStep(1000); self.dd_mileage.setSuffix(" km"); self.dd_mileage.setValue(int(saved_subject.get("mileage_km",0)))
+        for column,(label,widget) in enumerate((("Make",self.dd_make),("Model",self.dd_model),("Exact trim",self.dd_trim),("Year",self.dd_year),("Mileage",self.dd_mileage))):
+            subject_layout.addWidget(QLabel(label),1,column); subject_layout.addWidget(widget,2,column)
+        copy_subject = QPushButton("Copy from Opportunity check"); copy_subject.clicked.connect(self._copy_deal_drive_subject); subject_layout.addWidget(copy_subject,3,0,1,2)
+        subject_note = QLabel("Required before market evidence becomes visible to Ask Runway. The comparison uses this year and the following year."); subject_note.setObjectName("muted"); subject_note.setWordWrap(True); subject_layout.addWidget(subject_note,3,2,1,3)
+        box.addWidget(subject_card)
         policy = Card(); policy_layout = QGridLayout(policy); policy_layout.setContentsMargins(14,12,14,12)
         policy_layout.addWidget(QLabel("ACTIVE COMPARISON POLICY"),0,0,1,3)
         for column, text in enumerate(("✓ Dealers/commercial only", "✓ Subject year + 1", "✓ Exact trim first")): policy_layout.addWidget(QLabel(text),1,column)
@@ -434,20 +454,26 @@ class IntelligencePage(Page):
         policy_layout.addWidget(QLabel("✓ Live asking and historical sold evidence remain separate · median/weighted median is primary"),3,0,1,3)
         self.dd_allow_imports = QCheckBox("Explicitly allow non-GCC/import vehicles for this comparison")
         self.dd_allow_imports.setChecked(self.db.get_setting("deal_drive_allow_imports", "0") == "1"); policy_layout.addWidget(self.dd_allow_imports,4,0,1,3); box.addWidget(policy)
-        actions = QHBoxLayout(); self.dd_test = QPushButton("Test & connect"); self.dd_test.clicked.connect(lambda: self._run_deal_drive(False)); actions.addWidget(self.dd_test)
-        self.dd_sync = QPushButton("Compare selected opportunity"); self.dd_sync.setProperty("primary", True); self.dd_sync.clicked.connect(lambda: self._run_deal_drive(True)); actions.addWidget(self.dd_sync)
+        actions = QHBoxLayout(); self.dd_test = QPushButton("Test connection"); self.dd_test.clicked.connect(lambda: self._run_deal_drive(False)); actions.addWidget(self.dd_test)
+        self.dd_sync = QPushButton("Compare this vehicle"); self.dd_sync.setProperty("primary", True); self.dd_sync.clicked.connect(lambda: self._run_deal_drive(True)); actions.addWidget(self.dd_sync)
         forget = QPushButton("Forget login"); forget.clicked.connect(self._forget_deal_drive); actions.addWidget(forget); actions.addStretch(); box.addLayout(actions); root.addWidget(intro)
         status_card = Card(); status_layout = QGridLayout(status_card); status_layout.setContentsMargins(18,16,18,16)
         self.dd_connection = QLabel("NOT CONFIGURED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['amber']}")
-        self.dd_last = QLabel("Never synced"); self.dd_counts = QLabel("0 snapshots · 0 retained offers")
-        status_layout.addWidget(QLabel("CONNECTION"),0,0); status_layout.addWidget(QLabel("LAST SYNC"),0,1); status_layout.addWidget(QLabel("RETAINED EVIDENCE"),0,2)
-        status_layout.addWidget(self.dd_connection,1,0); status_layout.addWidget(self.dd_last,1,1); status_layout.addWidget(self.dd_counts,1,2); root.addWidget(status_card)
+        self.dd_ready = QLabel("NO COMPARISON YET"); self.dd_ready.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['amber']}")
+        self.dd_last = QLabel("Never compared"); self.dd_counts = QLabel("0 snapshots · 0 retained offers")
+        status_layout.addWidget(QLabel("ACCOUNT"),0,0); status_layout.addWidget(QLabel("ASK RUNWAY MARKET DATA"),0,1); status_layout.addWidget(QLabel("RETAINED EVIDENCE"),0,2)
+        status_layout.addWidget(self.dd_connection,1,0); status_layout.addWidget(self.dd_ready,1,1); status_layout.addWidget(self.dd_counts,1,2); status_layout.addWidget(self.dd_last,2,1); root.addWidget(status_card)
         log_card = Card(); log_layout = QVBoxLayout(log_card); log_layout.setContentsMargins(16,14,16,14); log_layout.addWidget(QLabel("SYNC ACTIVITY"))
         self.dd_log = QTextEdit(); self.dd_log.setReadOnly(True); self.dd_log.setMaximumHeight(180); self.dd_log.setPlaceholderText("Connection and import progress will appear here."); log_layout.addWidget(self.dd_log); root.addWidget(log_card); root.addStretch()
         return page_scroll(content)
 
     def _dd_message(self, message: str) -> None:
         self.dd_log.append(f"{datetime.now().strftime('%H:%M:%S')}  {message}")
+
+    def _copy_deal_drive_subject(self) -> None:
+        self.dd_make.setText(self.make.text()); self.dd_model.setText(self.model.text()); self.dd_trim.setText(self.trim.text())
+        if self.year.value(): self.dd_year.setValue(self.year.value())
+        self.dd_mileage.setValue(self.mileage.value())
 
     def _run_deal_drive(self, sync: bool) -> None:
         email = self.dd_email.text().strip(); password = self.dd_password.text()
@@ -459,11 +485,11 @@ class IntelligencePage(Page):
         self.dd_test.setEnabled(False); self.dd_sync.setEnabled(False); self._dd_message("Starting read-only connection test…" if not sync else "Starting read-only UAE market sync…")
         subject = None
         if sync:
-            if not self.make.text().strip() or not self.model.text().strip() or not self.year.value() or not self.mileage.value():
+            if not self.dd_make.text().strip() or not self.dd_model.text().strip() or not self.dd_trim.text().strip() or not self.dd_year.value() or not self.dd_mileage.value():
                 self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True)
-                QMessageBox.information(self, "Opportunity details required", "Complete make, model, year and mileage in Opportunity check first. Exact trim is strongly recommended."); return
-            subject = {"make":self.make.text().strip(),"model":self.model.text().strip(),"trim":self.trim.text().strip(),"year":self.year.value(),
-                       "mileage_km":self.mileage.value(),"allow_imports":self.dd_allow_imports.isChecked()}
+                QMessageBox.information(self, "Vehicle details required", "Complete make, model, exact trim, year and mileage in the Vehicle to compare box above."); return
+            subject = {"make":self.dd_make.text().strip(),"model":self.dd_model.text().strip(),"trim":self.dd_trim.text().strip(),"year":self.dd_year.value(),
+                       "mileage_km":self.dd_mileage.value(),"allow_imports":self.dd_allow_imports.isChecked()}
         self.db.set_setting("deal_drive_allow_imports", int(self.dd_allow_imports.isChecked()))
         job = DealDriveJob(self.db, email, password, self.dd_limit.value(), sync, subject)
         job.signals.progress.connect(self._dd_message)
@@ -483,6 +509,7 @@ class IntelligencePage(Page):
             live = comparison.get("live_market_asking", {}); history = comparison.get("historical_sold_or_removed", {})
             self._dd_message(f"FILTER RECEIPT · {receipt.get('vehicle')} · {receipt.get('trim_rule')} · {receipt.get('regional_spec')} · {receipt.get('seller')}")
             self._dd_message(f"RESULT · live asking {live.get('samples',0)} samples / median {_money(live.get('median_price_aed'))} · sold-or-removed history {history.get('samples',0)} samples / median {_money(history.get('median_price_aed'))}")
+            self.dd_ready.setText("COMPARISON READY"); self.dd_ready.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['green']}")
         self.dd_password.clear(); self.dd_connection.setText("CONNECTED"); self.dd_connection.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['green']}")
         self._dd_message(message); self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True); self._refresh_deal_drive()
 
@@ -500,6 +527,8 @@ class IntelligencePage(Page):
         state = sync_status(self.db); latest = state["latest"]
         self.dd_counts.setText(f"{state['snapshots']:,} snapshots · {state['retained_offers']:,} retained offers")
         self.dd_last.setText(str(latest["completed_at"] or latest["started_at"]) if latest else "Never synced")
+        if latest and latest["status"] == "success":
+            self.dd_ready.setText("COMPARISON READY"); self.dd_ready.setStyleSheet(f"font-size:18px;font-weight:900;color:{COLORS['green']}")
 
     def run_analysis(self) -> None:
         if not self.make.text().strip() or not self.model.text().strip():
