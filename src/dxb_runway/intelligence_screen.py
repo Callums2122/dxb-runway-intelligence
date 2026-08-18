@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import re
-import shlex
 import statistics
 import subprocess
 import sys
@@ -134,6 +133,15 @@ def openclaw_answer(payload: object) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def openclaw_request(prompt: str, attachments: list[dict[str, object]] | None = None) -> str:
+    """Build the gateway body; callers send it over stdin so large evidence never becomes a shell argument."""
+    content: list[dict[str, object]] = [{"type": "input_text", "text": prompt}]
+    for attachment in attachments or []:
+        path = Path(str(attachment["stored_path"]))
+        content.append({"type": "input_image", "source": {"type": "base64", "media_type": attachment["mime_type"], "data": base64.b64encode(path.read_bytes()).decode("ascii")}})
+    return json.dumps({"model":"openclaw/dxb-runway","input":[{"type":"message","role":"user","content":content}],"reasoning":{"effort":"medium"},"max_output_tokens":1800})
+
+
 class WorkerSignals(QObject):
     finished = Signal(str)
     failed = Signal(str)
@@ -226,22 +234,9 @@ class OpenClawChatJob(QRunnable):
             return
         try:
             ssh = ["ssh", "-i", str(key), "-o", "BatchMode=yes", "-o", "ConnectTimeout=12", "callumadmin@157.180.75.235"]
-            if self.attachments:
-                content: list[dict[str, object]] = [{"type": "input_text", "text": self.prompt}]
-                for attachment in self.attachments:
-                    path = Path(str(attachment["stored_path"]))
-                    content.append({"type": "input_image", "source": {"type": "base64", "media_type": attachment["mime_type"], "data": base64.b64encode(path.read_bytes()).decode("ascii")}})
-                request = json.dumps({
-                    "model": "openclaw/dxb-runway",
-                    "input": [{"type": "message", "role": "user", "content": content}],
-                    "reasoning": {"effort": "medium"},
-                    "max_output_tokens": 1800,
-                })
-                remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; curl -sS --fail-with-body --max-time 150 -H \"Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN\" -H \"Content-Type: application/json\" -H \"x-openclaw-agent-id: dxb-runway\" http://127.0.0.1:18789/v1/responses --data-binary @-"
-                result = subprocess.run(ssh + [remote], input=request, capture_output=True, text=True, timeout=165, check=False)
-            else:
-                remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; openclaw agent --agent dxb-runway --thinking medium --json --message " + shlex.quote(self.prompt)
-                result = subprocess.run(ssh + [remote], capture_output=True, text=True, timeout=150, check=False)
+            request=openclaw_request(self.prompt,self.attachments)
+            remote = "set -a; . ~/.openclaw/gateway.systemd.env >/dev/null 2>&1; set +a; curl -sS --fail-with-body --max-time 150 -H \"Authorization: Bearer $OPENCLAW_GATEWAY_TOKEN\" -H \"Content-Type: application/json\" -H \"x-openclaw-agent-id: dxb-runway\" http://127.0.0.1:18789/v1/responses --data-binary @-"
+            result = subprocess.run(ssh + [remote], input=request, capture_output=True, text=True, timeout=165, check=False)
             if result.returncode:
                 raise RuntimeError(result.stderr.strip() or "OpenClaw did not answer")
             answer = result.stdout.strip()

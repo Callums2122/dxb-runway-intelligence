@@ -592,12 +592,17 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
         saved = json.loads(db.get_setting("deal_drive_last_subject", "null"))
         if saved: subject = comparison_summary(db, **saved)
     except (ValueError, TypeError, json.JSONDecodeError): pass
+    radar=[]
+    for item in radar_rows(db):
+        radar.append({key:item.get(key) for key in ("make","model","trim","trim_mode","year_from","year_to","current_listings","median_asking_aed",
+                     "weighted_market_price_aed","median_listing_age_days","live_median_age_days","sample_size","confidence","score","label",
+                     "new_listings","market_exits","price_reductions","change_7d","change_30d","change_90d","speed_source","trim_evidence","captured_at")})
     return {"usable_rows": db.query("SELECT COUNT(*) n FROM intelligence_records WHERE duplicate_of IS NULL AND review_reason='' ")[0]["n"],
             "vehicle_history": [dict(row) for row in rows],
             "live_stock": live_stock,
-            "deal_drive_market": market_evidence(db),
+            "deal_drive_market": market_evidence(db,60),
             "deal_drive_current_comparison": subject,
-            "market_watchlist_radar": radar_rows(db),
+            "market_watchlist_radar": radar,
             "learned_preferences": [row["memory_text"] for row in intelligence_memories(db)],
             "recent_conversation": chat_conversation(db)}
 

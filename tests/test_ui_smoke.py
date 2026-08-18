@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import date
 from decimal import Decimal
@@ -12,7 +13,7 @@ from dxb_runway.database import Database, SCHEMA_VERSION
 from dxb_runway.app import place_on_secondary_display
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
-from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer, watchlist_match_from_question
+from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer, openclaw_request, watchlist_match_from_question
 from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
@@ -297,6 +298,13 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
 def test_openclaw_json_envelope_displays_only_assistant_text():
     payload={"status":"ok","result":{"payloads":[{"text":"BUY — the evidence is strong."}],"meta":{"finalAssistantVisibleText":"BUY — the evidence is strong."}}}
     assert openclaw_answer(payload)=="BUY — the evidence is strong."
+
+
+def test_large_openclaw_evidence_is_serialised_for_stdin_not_shell_arguments():
+    prompt="stock evidence "*100_000
+    request=json.loads(openclaw_request(prompt))
+    assert request["input"][0]["content"][0]["text"]==prompt
+    assert request["model"]=="openclaw/dxb-runway"
 
 
 def test_intelligence_page_can_store_and_forget_manual_memory(tmp_path: Path):
