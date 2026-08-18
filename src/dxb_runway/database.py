@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 30
+SCHEMA_VERSION = 31
 
 
 MIGRATIONS: dict[int, str] = {
@@ -489,6 +489,18 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE market_watchlist ADD COLUMN trim_mode TEXT NOT NULL DEFAULT 'smart'
       CHECK(trim_mode IN ('smart','exact','model'));
     """,
+    31: """
+    ALTER TABLE vehicles ADD COLUMN market_model_year INTEGER;
+    ALTER TABLE vehicles ADD COLUMN market_trim TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vehicles ADD COLUMN mileage_km INTEGER;
+    ALTER TABLE vehicles ADD COLUMN deal_drive_research_status TEXT NOT NULL DEFAULT 'not_requested';
+    ALTER TABLE vehicles ADD COLUMN deal_drive_estimated_days REAL;
+    ALTER TABLE vehicles ADD COLUMN deal_drive_archive_samples INTEGER;
+    ALTER TABLE vehicles ADD COLUMN deal_drive_confidence TEXT;
+    ALTER TABLE vehicles ADD COLUMN deal_drive_median_asking_aed REAL;
+    ALTER TABLE vehicles ADD COLUMN deal_drive_research_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE vehicles ADD COLUMN deal_drive_researched_at TEXT;
+    """,
 }
 
 
@@ -611,6 +623,14 @@ class Database:
                 elif version == 30:
                     columns={row[1] for row in connection.execute("PRAGMA table_info(market_watchlist)").fetchall()}
                     if "trim_mode" not in columns:connection.executescript(MIGRATIONS[version])
+                elif version == 31:
+                    columns={row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
+                    definitions={"market_model_year":"INTEGER","market_trim":"TEXT NOT NULL DEFAULT ''","mileage_km":"INTEGER",
+                                 "deal_drive_research_status":"TEXT NOT NULL DEFAULT 'not_requested'","deal_drive_estimated_days":"REAL",
+                                 "deal_drive_archive_samples":"INTEGER","deal_drive_confidence":"TEXT","deal_drive_median_asking_aed":"REAL",
+                                 "deal_drive_research_json":"TEXT NOT NULL DEFAULT '{}'","deal_drive_researched_at":"TEXT"}
+                    for column,definition in definitions.items():
+                        if column not in columns:connection.execute(f"ALTER TABLE vehicles ADD COLUMN {column} {definition}")
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -970,7 +990,8 @@ class Database:
                           (amount, day, merchant))
 
     def add_vehicle(self, *, vehicle_name: str, purchase_price_aed: float, expected_sale_price_aed: float,
-                    purchased_date: str, notes: str = "", purchase_type: str = "cash") -> int:
+                    purchased_date: str, notes: str = "", purchase_type: str = "cash", market_model_year: int | None = None,
+                    market_trim: str = "", mileage_km: int | None = None) -> int:
         name = vehicle_name.strip()
         if not name:
             raise ValueError("Vehicle name is required")
@@ -979,8 +1000,9 @@ class Database:
         if purchase_type not in {"cash", "consignment"}:
             raise ValueError("Purchase type must be cash or consignment")
         return self.execute(
-            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed) VALUES (?,?,?,?,?,?,?)",
-            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type, purchase_price_aed if purchase_type=="consignment" else None),
+            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed,market_model_year,market_trim,mileage_km,deal_drive_research_status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type, purchase_price_aed if purchase_type=="consignment" else None,
+             market_model_year,market_trim.strip(),mileage_km,"pending"),
         )
 
     def mark_vehicle_consignment(self,vehicle_id:int,owner_payout_aed:float)->None:
@@ -998,7 +1020,7 @@ class Database:
         with self.connect() as connection:
             customer=connection.execute("SELECT id FROM customer_contacts WHERE id=? AND status='active' AND pipeline_stage='inspection'",(customer_id,)).fetchone()
             if not customer: raise ValueError("Customer is no longer awaiting inspection")
-            cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed) VALUES (?,?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type,purchase if purchase_type=="consignment" else None))
+            cursor=connection.execute("INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed,market_model_year,market_trim,mileage_km,deal_drive_research_status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",(name,purchase,expected,purchased_date,notes,purchase_type,purchase if purchase_type=="consignment" else None,values.get("market_model_year"),str(values.get("market_trim") or "").strip(),values.get("mileage_km"),"pending"))
             connection.execute("UPDATE customer_contacts SET status='sold',sold_date=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(purchased_date,customer_id))
             return int(cursor.lastrowid)
 

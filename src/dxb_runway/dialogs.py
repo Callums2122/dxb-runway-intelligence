@@ -209,17 +209,20 @@ class VehicleDialog(QDialog):
         super().__init__(parent); self.db=db; self.setWindowTitle("Add vehicle to stock"); self.setMinimumWidth(520)
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("ADD TO CURRENT STOCK"); title.setObjectName("pageTitle"); root.addWidget(title)
-        copy=QLabel("Track whether the vehicle is a cash purchase or held on consignment."); copy.setObjectName("muted"); root.addWidget(copy)
+        copy=QLabel("Save the vehicle immediately. Runway then researches Deal Drive in the background and estimates its likely selling time."); copy.setObjectName("muted"); copy.setWordWrap(True); root.addWidget(copy)
         form=QFormLayout(); form.setSpacing(11); self.name=QLineEdit(); self.name.setPlaceholderText("e.g. BMW M3")
+        self.market_year=QSpinBox(); self.market_year.setRange(0,2035); self.market_year.setSpecialValueText("Unknown"); self.market_year.setValue(0)
+        self.market_trim=QLineEdit(); self.market_trim.setPlaceholderText("Optional · e.g. Competition")
+        self.mileage=QSpinBox(); self.mileage.setRange(0,1_000_000); self.mileage.setSpecialValueText("Unknown"); self.mileage.setSuffix(" km"); self.mileage.setSingleStep(1_000)
         self.purchase_type=QComboBox(); self.purchase_type.addItem("Cash purchase","cash"); self.purchase_type.addItem("Consignment","consignment")
         self.purchase=MoneyBox(); self.expected=MoneyBox(); self.purchased=QDateEdit(QDate.currentDate()); self.purchased.setCalendarPopup(True); self.purchased.setDisplayFormat("dd MMM yyyy")
         self.notes=QLineEdit(); self.notes.setPlaceholderText("Optional note")
         self.profit=QLabel("Expected profit · AED 0"); self.profit.setStyleSheet(f"color:{COLORS['green']};font-weight:700")
         self.purchase.valueChanged.connect(self.update_profit); self.expected.valueChanged.connect(self.update_profit)
-        form.addRow("Vehicle",self.name); form.addRow("Stock type",self.purchase_type); form.addRow("Cost / owner payout · AED",self.purchase); form.addRow("Expected sale price · AED",self.expected); form.addRow("Stocked",self.purchased); form.addRow("Notes",self.notes); form.addRow("",self.profit); root.addLayout(form)
+        form.addRow("Vehicle",self.name); form.addRow("Model year",self.market_year); form.addRow("Trim",self.market_trim); form.addRow("Mileage",self.mileage); form.addRow("Stock type",self.purchase_type); form.addRow("Cost / owner payout · AED",self.purchase); form.addRow("Expected sale price · AED",self.expected); form.addRow("Stocked",self.purchased); form.addRow("Notes",self.notes); form.addRow("",self.profit); root.addLayout(form)
         if source_customer:
             self.setWindowTitle("Confirm inspected vehicle purchase"); title.setText("CONFIRM PURCHASE & MOVE TO STOCK"); copy.setText("Verify what we bought or agreed the vehicle for and what we expect to sell it for. Saving adds it to Stock Level.")
-            self.name.setText(f"{customer_model_year(source_customer['vehicle_age_years'])} {source_customer['vehicle_name']}"); self.purchase.setValue(float(source_customer["cash_offer_aed"])); self.expected.setValue(float(source_customer["vehicle_price_aed"])); self.notes.setText(f"Purchased after inspection · {source_customer['customer_name']}")
+            model_year=customer_model_year(source_customer['vehicle_age_years']); self.name.setText(f"{model_year} {source_customer['vehicle_name']}"); self.market_year.setValue(model_year); self.mileage.setValue(int(source_customer["mileage"] or 0)); self.purchase.setValue(float(source_customer["cash_offer_aed"])); self.expected.setValue(float(source_customer["vehicle_price_aed"])); self.notes.setText(f"Purchased after inspection · {source_customer['customer_name']}")
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def update_profit(self)->None:
@@ -231,7 +234,7 @@ class VehicleDialog(QDialog):
         self.accept()
 
     def values(self)->dict:
-        return {"vehicle_name":self.name.text().strip(),"purchase_type":self.purchase_type.currentData(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
+        return {"vehicle_name":self.name.text().strip(),"market_model_year":self.market_year.value() or None,"market_trim":self.market_trim.text().strip(),"mileage_km":self.mileage.value() or None,"purchase_type":self.purchase_type.currentData(),"purchase_price_aed":self.purchase.value(),"expected_sale_price_aed":self.expected.value(),"purchased_date":self.purchased.date().toString("yyyy-MM-dd"),"notes":self.notes.text().strip()}
 
 
 def customer_model_year(stored_value:int)->int:

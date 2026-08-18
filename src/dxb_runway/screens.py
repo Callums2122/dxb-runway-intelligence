@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import math
 import re
 import time
@@ -9,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QDate, QEvent, QFile, QStandardPaths, QTimer, Qt, Signal, QUrl
+from PySide6.QtCore import QDate, QEvent, QFile, QObject, QRunnable, QStandardPaths, QThreadPool, QTimer, Qt, Signal, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCalendarWidget, QCheckBox, QComboBox, QDateEdit, QDialog, QDoubleSpinBox,
@@ -20,7 +21,9 @@ from PySide6.QtWidgets import (
 
 from .database import Database
 from .contact_import import import_downloaded_contacts
-from .intelligence import analyse_opportunity, split_vehicle
+from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials
+from .intelligence import analyse_opportunity, split_vehicle, stock_research_subject
+from .market_watchlist import research_vehicle_now
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
@@ -859,9 +862,46 @@ class SuccessChecklistPage(Page):
         self.metrics["gap"].set_value("COVERED" if gap==0 else f"AED {gap:,.0f}","Projected profit remaining" if gap else "Current pipeline covers Tier 1",COLORS["green"] if gap==0 else COLORS["amber"])
 
 
+class StockResearchSignals(QObject):
+    finished=Signal(int)
+
+
+class StockResearchJob(QRunnable):
+    """Fetch a single stock forecast without blocking the stock-save flow."""
+    def __init__(self,db:Database,vehicle_id:int):
+        super().__init__(); self.db=db; self.vehicle_id=vehicle_id; self.signals=StockResearchSignals()
+
+    def run(self)->None:
+        try:
+            rows=self.db.query("SELECT * FROM vehicles WHERE id=? AND status='stock'",(self.vehicle_id,))
+            if not rows:return
+            row=rows[0]; subject=stock_research_subject(self.db,f"Research {row['vehicle_name']} in stock")
+            if not subject:
+                make,model,trim,parsed_year=split_vehicle(str(row["vehicle_name"] or ""))
+                if not make or not model:raise DealDriveError("Add a recognisable make and model to run Deal Drive research.")
+                year=int(row["market_model_year"] or parsed_year or date.today().year)
+                subject={"make":make,"model":model,"trim":str(row["market_trim"] or trim or ""),"year":year,"year_to":year+1,"mileage_km":int(row["mileage_km"] or 50_000),"trim_mode":"smart"}
+            else:
+                year=int(row["market_model_year"] or subject.get("year") or date.today().year)
+                subject.update({"year":year,"year_to":year+1,"mileage_km":int(row["mileage_km"] or subject.get("mileage_km") or 50_000),"trim":str(row["market_trim"] or subject.get("trim") or ""),"trim_mode":"smart"})
+            email=self.db.get_setting("deal_drive_email").strip(); workspace=self.db.get_setting("deal_drive_workspace_id").strip(); password=KeychainCredentials().load(email) if email else None
+            if not email or not password or not workspace:raise DealDriveError("Connect Deal Drive under Runway AI before automatic stock research can run.")
+            client=DealDriveClient(workspace_id=workspace); client.login(email,password); client.verify_market_access()
+            result=research_vehicle_now(client,subject)
+            self.db.execute("""UPDATE vehicles SET deal_drive_research_status='ready',deal_drive_estimated_days=?,
+                deal_drive_archive_samples=?,deal_drive_confidence=?,deal_drive_median_asking_aed=?,
+                deal_drive_research_json=?,deal_drive_researched_at=CURRENT_TIMESTAMP WHERE id=?""",
+                (result.get("estimated_days_to_sell"),result.get("archive_samples"),result.get("confidence"),result.get("median_asking_aed"),json.dumps(result,default=str),self.vehicle_id))
+        except Exception as error:
+            self.db.execute("""UPDATE vehicles SET deal_drive_research_status='failed',deal_drive_research_json=?,
+                deal_drive_researched_at=CURRENT_TIMESTAMP WHERE id=?""",(json.dumps({"error":str(error)}),self.vehicle_id))
+        finally:self.signals.finished.emit(self.vehicle_id)
+
+
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
+        self._research_jobs:dict[int,StockResearchJob]={}; self._researching_ids:set[int]=set(); self.db.execute("UPDATE vehicles SET deal_drive_research_status='pending' WHERE status='stock' AND deal_drive_research_status='researching'")
         outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0)
         content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Stock level","Every vehicle currently held, including cash purchases and consignments.")); top.addStretch()
@@ -884,8 +924,8 @@ class StockLevelPage(Page):
         potential.addWidget(self.metrics["realistic_potential"],0,0); potential.addWidget(self.metrics["maximum_potential"],0,1)
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
-        note=QLabel("Consignment cost is the agreed owner payout. It contributes to expected and realised profit, but does not use the cash purchasing budget. Margin is profit as a percentage of cost; speed grade uses days held: A+ <10 · A ≤20 · B ≤30 · C ≤60 · C- >60."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","INTELLIGENCE GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
+        note=QLabel("New stock is saved instantly, then researched against Deal Drive in the background. The forecast uses archived market-exit time, sample size and confidence; it does not treat current listing age as selling time."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
+        self.table=QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -922,18 +962,43 @@ class StockLevelPage(Page):
         self.metrics["realistic_potential"].set_value(realistic_result.tier.value,f"{realistic_profit_aed} profit · {realistic_total_aed} total ({realistic_total_gbp})",COLORS["green"] if realistic_result.tier!=CommissionTier.BASELINE else COLORS["cyan"])
         self.metrics["maximum_potential"].set_value(maximum_result.tier.value,f"{maximum_profit_aed} profit · {maximum_total_aed} total ({maximum_total_gbp})",COLORS["green"] if maximum_result.tier!=CommissionTier.BASELINE else COLORS["cyan"])
         self.table.setRowCount(len(rows))
+        pending_ids=[]
         for i,row in enumerate(rows):
-            self.table.setRowHeight(i,58); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or f"Expected sale · AED {row['expected_sale_price_aed']:,.0f}"); self.table.setItem(i,0,first)
+            self.table.setRowHeight(i,64); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or f"Expected sale · AED {row['expected_sale_price_aed']:,.0f}"); self.table.setItem(i,0,first)
             cost=Decimal(str(row["purchase_price_aed"])); sale=Decimal(str(row["expected_sale_price_aed"])); profit=Decimal(str(row["expected_profit_aed"]))
             margin=vehicle_margin_percent(profit,cost); days_held=max(0,(date.today()-date.fromisoformat(str(row["purchased_date"])[:10])).days); grade=vehicle_speed_grade(days_held)
             make,model,trim,model_year=split_vehicle(row["vehicle_name"])
             intelligence=analyse_opportunity(self.db,make=make,model=model,trim=trim,model_year=model_year,purchase_price_aed=float(cost),expected_sale_price_aed=float(sale)) if make and model else {"grade":"NO GRADE","decision":"INSUFFICIENT DATA","confidence":"none","sample_size":0}
             intelligence_text=f"{intelligence['grade']} · {intelligence['decision']}\n{intelligence['confidence']} confidence · {intelligence.get('sample_size',0)} comps"
-            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held",intelligence_text]
+            research_status=str(row["deal_drive_research_status"] or "not_requested")
+            if research_status in {"pending","researching"}:
+                forecast="RESEARCHING…\nDeal Drive background check"; forecast_color=COLORS["cyan"]
+                if research_status=="pending":pending_ids.append(int(row["id"]))
+            elif research_status=="ready" and row["deal_drive_estimated_days"] is not None:
+                forecast=f"≈ {float(row['deal_drive_estimated_days']):.0f} days\n{row['deal_drive_confidence'] or 'Low'} · {int(row['deal_drive_archive_samples'] or 0)} archive"; forecast_color=COLORS["green"] if float(row["deal_drive_estimated_days"])<45 else COLORS["amber"]
+            elif research_status=="failed":
+                try:error=str(json.loads(row["deal_drive_research_json"] or "{}").get("error") or "Research unavailable")
+                except (ValueError,TypeError):error="Research unavailable"
+                forecast=f"UNAVAILABLE\n{error[:42]}"; forecast_color=COLORS["red"]
+            else:forecast="NOT RESEARCHED\nAdded before auto research";forecast_color=COLORS["muted"]
+            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held",forecast,intelligence_text]
             for j,value in enumerate(values,1):
-                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else COLORS["green"] if j==7 and intelligence["decision"]=="BUY" else COLORS["amber"] if j==7 and intelligence["decision"]=="NEGOTIATE" else COLORS["red"] if j==7 and intelligence["decision"]=="AVOID" else COLORS["muted"] if j==7 else None
-                self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j>=3 else Qt.AlignmentFlag.AlignVCenter,color))
-        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,120); self.table.setColumnWidth(2,100); self.table.setColumnWidth(3,130); self.table.setColumnWidth(4,130); self.table.setColumnWidth(5,155)
+                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else forecast_color if j==7 else COLORS["green"] if j==8 and intelligence["decision"]=="BUY" else COLORS["amber"] if j==8 and intelligence["decision"]=="NEGOTIATE" else COLORS["red"] if j==8 and intelligence["decision"]=="AVOID" else COLORS["muted"] if j==8 else None
+                item=table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j>=3 else Qt.AlignmentFlag.AlignVCenter,color)
+                if j==7:item.setToolTip(str(row["deal_drive_research_json"] or ""))
+                self.table.setItem(i,j,item)
+        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,115); self.table.setColumnWidth(2,95); self.table.setColumnWidth(3,125); self.table.setColumnWidth(4,125); self.table.setColumnWidth(5,150); self.table.setColumnWidth(6,105); self.table.setColumnWidth(7,190)
+        for vehicle_id in pending_ids:QTimer.singleShot(0,lambda value=vehicle_id:self._start_stock_research(value))
+
+    def _start_stock_research(self,vehicle_id:int)->None:
+        if vehicle_id in self._researching_ids:return
+        rows=self.db.query("SELECT deal_drive_research_status FROM vehicles WHERE id=? AND status='stock'",(vehicle_id,))
+        if not rows or rows[0]["deal_drive_research_status"]!="pending":return
+        self._researching_ids.add(vehicle_id); self.db.execute("UPDATE vehicles SET deal_drive_research_status='researching' WHERE id=?",(vehicle_id,))
+        job=StockResearchJob(self.db,vehicle_id); self._research_jobs[vehicle_id]=job; job.signals.finished.connect(self._stock_research_finished); QThreadPool.globalInstance().start(job); self.refresh()
+
+    def _stock_research_finished(self,vehicle_id:int)->None:
+        self._researching_ids.discard(vehicle_id); self._research_jobs.pop(vehicle_id,None); self.refresh()
 
     def add_vehicle(self)->None:
         dialog=VehicleDialog(self.db,self)

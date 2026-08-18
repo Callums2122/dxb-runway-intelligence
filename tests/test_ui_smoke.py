@@ -268,7 +268,7 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
-    assert stock.table.columnCount()==8 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text() and "INTELLIGENCE" in stock.table.horizontalHeaderItem(7).text()
+    assert stock.table.columnCount()==9 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text() and "DEAL DRIVE" in stock.table.horizontalHeaderItem(7).text() and "INTELLIGENCE" in stock.table.horizontalHeaderItem(8).text()
     assert success.table.rowCount()==10 and success.table.item(0,1).text()=="Keep cash budget deployed"
     assert "AED" in success.metrics["target"].value.text() and "sold" in success.metrics["projected"].detail.text()
     assert set(stock.spend_targets)=={"tier3","tier2","tier1"} and "budget" in stock.spend_targets["tier3"].detail.text()

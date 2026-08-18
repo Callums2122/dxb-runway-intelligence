@@ -111,8 +111,10 @@ def test_receipt_is_copied_into_local_receipt_store(tmp_path: Path):
 
 def test_vehicle_moves_atomically_from_stock_to_monthly_sold_history(tmp_path: Path):
     db=Database(tmp_path/"runway.db")
-    vehicle_id=db.add_vehicle(vehicle_name="BMW M4",purchase_price_aed=200000,expected_sale_price_aed=225000,purchased_date="2026-07-04")
+    vehicle_id=db.add_vehicle(vehicle_name="BMW M4",purchase_price_aed=200000,expected_sale_price_aed=225000,purchased_date="2026-07-04",market_model_year=2024,market_trim="Competition",mileage_km=12000)
     assert [row["id"] for row in db.stock_vehicles("2026-07")]==[vehicle_id]
+    added=db.stock_vehicles("2026-07")[0]
+    assert (added["market_model_year"],added["market_trim"],added["mileage_km"],added["deal_drive_research_status"])==(2024,"Competition",12000,"pending")
     assert db.sold_vehicles("2026-07")==[]
     db.sell_vehicle(vehicle_id,sold_price_aed=230000,sold_date="2026-07-18")
     assert db.stock_vehicles()==[]
