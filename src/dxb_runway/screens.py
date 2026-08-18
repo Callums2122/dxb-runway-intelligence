@@ -925,7 +925,7 @@ class StockLevelPage(Page):
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
         note=QLabel("New stock is saved instantly, then researched against Deal Drive in the background. The forecast uses archived market-exit time, sample size and confidence; it does not treat current listing age as selling time."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card,1); outer.addWidget(page_scroll(content))
+        self.table=QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.table.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -988,6 +988,8 @@ class StockLevelPage(Page):
                 if j==7:item.setToolTip(str(row["deal_drive_research_json"] or ""))
                 self.table.setItem(i,j,item)
         self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,115); self.table.setColumnWidth(2,95); self.table.setColumnWidth(3,125); self.table.setColumnWidth(4,125); self.table.setColumnWidth(5,150); self.table.setColumnWidth(6,105); self.table.setColumnWidth(7,190)
+        visible_height=self.table.horizontalHeader().height()+sum(self.table.rowHeight(index) for index in range(self.table.rowCount()))+self.table.frameWidth()*2+8
+        self.table.setFixedHeight(max(420,visible_height))
         for vehicle_id in pending_ids:QTimer.singleShot(0,lambda value=vehicle_id:self._start_stock_research(value))
 
     def _start_stock_research(self,vehicle_id:int)->None:
