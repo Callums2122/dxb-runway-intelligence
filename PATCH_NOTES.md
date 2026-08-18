@@ -4,6 +4,8 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 
 ## Current release — 2.2.0
 
+- Added Smart blend, Exact trim only and Make/model only market modes. Smart blend separates confirmed, unspecified and related trims, weights confirmed trims most heavily for price, and uses broader evidence to strengthen market-speed analysis.
+- Ask Runway now opens at the latest message and follows new typing at the bottom, but stops auto-scrolling when the owner deliberately scrolls upward.
 - Deal Drive evidence is now Dubai-only, except for manufacturer-matched official UAE agencies; Dealer Trust has a separate searchable reference-style agency section.
 - Market Watchlist now recognises variants that Deal Drive stores as model versions/modifications rather than trims (including Maserati Grecale Trofeo), while preserving strict exact-variant filtering.
 

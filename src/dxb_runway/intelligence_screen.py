@@ -10,10 +10,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QRunnable, QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget,
 )
@@ -73,6 +73,8 @@ class WatchlistDialog(QDialog):
         super().__init__(parent); self.item = item or {}; self.setWindowTitle("Edit watched vehicle" if item else "Add watched vehicle"); self.setMinimumWidth(480)
         root = QVBoxLayout(self); form = QFormLayout(); form.setSpacing(10)
         self.make = QLineEdit(str(self.item.get("make", ""))); self.model = QLineEdit(str(self.item.get("model", ""))); self.trim = QLineEdit(str(self.item.get("trim", "")))
+        self.trim_mode=QComboBox();self.trim_mode.addItem("Smart blend · recommended","smart");self.trim_mode.addItem("Exact trim only","exact");self.trim_mode.addItem("Make / model only","model")
+        mode_index=self.trim_mode.findData(str(self.item.get("trim_mode","smart")));self.trim_mode.setCurrentIndex(max(0,mode_index))
         self.year_from = QSpinBox(); self.year_from.setRange(2000, 2035); self.year_from.setValue(int(self.item.get("year_from", 2021)))
         self.year_to = QSpinBox(); self.year_to.setRange(2000, 2035); self.year_to.setValue(int(self.item.get("year_to", 2022)))
         self.mileage_min = QSpinBox(); self.mileage_min.setRange(0, 1000000); self.mileage_min.setSingleStep(5000); self.mileage_min.setSpecialValueText("Any")
@@ -81,7 +83,7 @@ class WatchlistDialog(QDialog):
         self.gcc = QCheckBox("GCC only"); self.gcc.setChecked(bool(self.item.get("gcc_only", 1)))
         self.dealer = QCheckBox("Dealer / commercial only"); self.dealer.setChecked(bool(self.item.get("dealer_only", 1)))
         self.exclude = QCheckBox("Exclude Sharjah and Ajman"); self.exclude.setChecked(bool(self.item.get("exclude_sharjah_ajman", 1)))
-        for label, widget in (("Make",self.make),("Model",self.model),("Exact trim",self.trim),("Year from",self.year_from),("Year to",self.year_to),("Mileage min · optional",self.mileage_min),("Mileage max · optional",self.mileage_max)):
+        for label, widget in (("Make",self.make),("Model",self.model),("Target trim",self.trim),("Trim matching",self.trim_mode),("Year from",self.year_from),("Year to",self.year_to),("Mileage min · optional",self.mileage_min),("Mileage max · optional",self.mileage_max)):
             form.addRow(label, widget)
         form.addRow("", self.gcc); form.addRow("", self.dealer); form.addRow("", self.exclude); root.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self._accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
@@ -98,7 +100,7 @@ class WatchlistDialog(QDialog):
                 "year_from":self.year_from.value(),"year_to":self.year_to.value(),"gcc_only":self.gcc.isChecked(),
                 "mileage_min":self.mileage_min.value() or None,"mileage_max":self.mileage_max.value() or None,
                 "dealer_only":self.dealer.isChecked(),"exclude_sharjah_ajman":self.exclude.isChecked(),
-                "active":bool(self.item.get("active",1))}
+                "active":bool(self.item.get("active",1)),"trim_mode":str(self.trim_mode.currentData())}
 
 
 def openclaw_answer(payload: object) -> str:
@@ -280,6 +282,7 @@ class AskRunwayPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
         self._busy = False; self._thinking_phase = 0; self._thinking_widget = None; self._pending_images: list[Path] = []
+        self._follow_latest = True
         self._typing_answer = ""; self._typing_index = 0; self._typing_label = None
         self.thinking_timer = QTimer(self); self.thinking_timer.setInterval(360); self.thinking_timer.timeout.connect(self._animate_thinking)
         self.typing_timer = QTimer(self); self.typing_timer.setInterval(12); self.typing_timer.timeout.connect(self._typing_step)
@@ -293,6 +296,8 @@ class AskRunwayPage(Page):
         self.chat_scroll.setStyleSheet("QScrollArea{background:#080e16;border:1px solid #1c2938;border-radius:16px} QScrollArea > QWidget > QWidget{background:#080e16}")
         self.chat_host = QWidget(); self.chat_layout = QVBoxLayout(self.chat_host); self.chat_layout.setContentsMargins(26,26,26,26); self.chat_layout.setSpacing(18); self.chat_layout.addStretch()
         self.chat_scroll.setWidget(self.chat_host); outer.addWidget(self.chat_scroll, 1)
+        self.chat_scroll.viewport().installEventFilter(self)
+        bar=self.chat_scroll.verticalScrollBar();bar.sliderPressed.connect(lambda:setattr(self,"_follow_latest",False));bar.valueChanged.connect(self._chat_scroll_changed);bar.rangeChanged.connect(self._chat_range_changed)
         composer = QFrame(); composer.setProperty("card", True); composer_outer = QVBoxLayout(composer); composer_outer.setContentsMargins(12,10,10,10); composer_outer.setSpacing(8)
         self.preview_frame = QFrame(); self.preview_layout = QHBoxLayout(self.preview_frame); self.preview_layout.setContentsMargins(0,0,0,0); self.preview_layout.setSpacing(8); self.preview_frame.hide(); composer_outer.addWidget(self.preview_frame)
         composer_layout = QHBoxLayout(); composer_layout.setContentsMargins(0,0,0,0); composer_layout.setSpacing(10)
@@ -333,16 +338,32 @@ class AskRunwayPage(Page):
             bubble.setObjectName("assistantBubble"); bubble.setStyleSheet("QFrame#assistantBubble{background:#101925;border:1px solid #27384c;border-radius:16px}"); row_layout.addWidget(avatar, 0, Qt.AlignmentFlag.AlignTop); row_layout.addWidget(bubble); row_layout.addStretch()
         self.chat_layout.insertWidget(self.chat_layout.count()-1, row); self._scroll_bottom(); return row, body
 
-    def _scroll_bottom(self) -> None:
+    def _scroll_bottom(self, force: bool = False) -> None:
+        if force:self._follow_latest=True
+        if not self._follow_latest:return
         QTimer.singleShot(0, lambda: self.chat_scroll.verticalScrollBar().setValue(self.chat_scroll.verticalScrollBar().maximum()))
+
+    def _chat_scroll_changed(self,value: int) -> None:
+        bar=self.chat_scroll.verticalScrollBar()
+        if bar.maximum()-value<=6:self._follow_latest=True
+
+    def _chat_range_changed(self,minimum: int,maximum: int) -> None:
+        if self._follow_latest:QTimer.singleShot(0,lambda:self.chat_scroll.verticalScrollBar().setValue(maximum))
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.chat_scroll.viewport() and event.type()==QEvent.Type.Wheel:
+            if event.angleDelta().y()>0:self._follow_latest=False
+        return super().eventFilter(watched,event)
 
     def refresh(self) -> None:
         if self._busy: return
+        self._follow_latest=True
         self._clear_messages(); messages = chat_conversation(self.db, 60)
         if not messages:
             self._add_bubble("assistant", "Tell me the make, model, trim, year, buying price and expected retail. I’ll give you the evidence, the risk and the brutal answer.", "Runway · ready")
         else:
             for message in messages: self._add_bubble(message["role"] if message["role"] in {"user", "assistant"} else "assistant", message["message"], attachments=message.get("attachments"))
+        self._scroll_bottom(True);QTimer.singleShot(80,lambda:self._scroll_bottom(True))
 
     def choose_images(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, "Attach market screenshots", str(Path.home() / "Desktop"), "Images (*.png *.jpg *.jpeg *.webp)")
@@ -404,7 +425,7 @@ class AskRunwayPage(Page):
             estimate=None
             if market:
                 centre=float(market.get("weighted_market_price_aed") or market.get("median_asking_aed") or 0)
-                estimate={"weighted_dealer_price_aed":market.get("weighted_market_price_aed"),"median_asking_aed":market.get("median_asking_aed"),"rough_retail_range_aed":[round(centre*.95,-3),round(centre*1.05,-3)] if centre else None,"median_market_age_days":market.get("median_listing_age_days"),"sample_size":market.get("sample_size"),"confidence":market.get("confidence"),"market_score":market.get("score")}
+                estimate={"weighted_dealer_price_aed":market.get("weighted_market_price_aed"),"median_asking_aed":market.get("median_asking_aed"),"rough_retail_range_aed":[round(centre*.95,-3),round(centre*1.05,-3)] if centre else None,"median_market_age_days":market.get("median_listing_age_days"),"sample_size":market.get("sample_size"),"confidence":market.get("confidence"),"market_score":market.get("score"),"trim_evidence":market.get("trim_evidence")}
             evidence["requested_vehicle"]={"watchlist":matched,"locked_historical_grade":grade,"dealer_weighted_market_estimate":estimate,"refresh_warning":market_warning or None}
         context = {"question": question, "evidence": evidence, "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "For requested_vehicle, state the locked historical grade separately from the current Deal Drive estimate. Give the rough retail range only when supplied, and state sample and confidence. Dubai and owner-approved direct dealers have greater weight; consider-tier and unrated dealers are supporting evidence. Never invent a purchase ceiling. Use live_stock as authoritative current Stock Level. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
         job = OpenClawChatJob(json.dumps(context), attachments); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
@@ -608,16 +629,19 @@ class IntelligencePage(Page):
         self.dd_make = QLineEdit(str(saved_subject.get("make", ""))); self.dd_make.setPlaceholderText("Audi")
         self.dd_model = QLineEdit(str(saved_subject.get("model", ""))); self.dd_model.setPlaceholderText("Q8")
         self.dd_trim = QLineEdit(str(saved_subject.get("trim", ""))); self.dd_trim.setPlaceholderText("Exact trim, e.g. S line")
+        self.dd_trim_mode=QComboBox();self.dd_trim_mode.addItem("Smart blend · recommended","smart");self.dd_trim_mode.addItem("Exact trim only","exact");self.dd_trim_mode.addItem("Make / model only","model")
+        self.dd_trim_mode.setCurrentIndex(max(0,self.dd_trim_mode.findData(str(saved_subject.get("trim_mode","smart")))))
         self.dd_year = QSpinBox(); self.dd_year.setRange(2010,2035); self.dd_year.setValue(int(saved_subject.get("year", 2021)))
         self.dd_mileage = QSpinBox(); self.dd_mileage.setRange(0,1000000); self.dd_mileage.setSingleStep(1000); self.dd_mileage.setSuffix(" km"); self.dd_mileage.setValue(int(saved_subject.get("mileage_km",0)))
         for column,(label,widget) in enumerate((("Make",self.dd_make),("Model",self.dd_model),("Exact trim",self.dd_trim),("Year",self.dd_year),("Mileage",self.dd_mileage))):
             subject_layout.addWidget(QLabel(label),1,column); subject_layout.addWidget(widget,2,column)
-        copy_subject = QPushButton("Copy from Opportunity check"); copy_subject.clicked.connect(self._copy_deal_drive_subject); subject_layout.addWidget(copy_subject,3,0,1,2)
-        subject_note = QLabel("Required before market evidence becomes visible to Ask Runway. The comparison uses this year and the following year."); subject_note.setObjectName("muted"); subject_note.setWordWrap(True); subject_layout.addWidget(subject_note,3,2,1,3)
+        subject_layout.addWidget(QLabel("Trim matching"),3,0);subject_layout.addWidget(self.dd_trim_mode,4,0,1,2)
+        copy_subject = QPushButton("Copy from Opportunity check"); copy_subject.clicked.connect(self._copy_deal_drive_subject); subject_layout.addWidget(copy_subject,5,0,1,2)
+        subject_note = QLabel("Smart blend separates confirmed, unspecified and related trims. Exact evidence dominates valuation; the broader model supports market-speed confidence."); subject_note.setObjectName("muted"); subject_note.setWordWrap(True); subject_layout.addWidget(subject_note,4,2,2,3)
         box.addWidget(subject_card)
         policy = Card(); policy_layout = QGridLayout(policy); policy_layout.setContentsMargins(14,12,14,12)
         policy_layout.addWidget(QLabel("ACTIVE COMPARISON POLICY"),0,0,1,3)
-        for column, text in enumerate(("✓ Dealers/commercial only", "✓ Subject year + 1", "✓ Exact trim first")): policy_layout.addWidget(QLabel(text),1,column)
+        for column, text in enumerate(("✓ Dealers/commercial only", "✓ Subject year + 1", "✓ Smart trim evidence separated")): policy_layout.addWidget(QLabel(text),1,column)
         for column, text in enumerate(("✓ Dubai only · official agency exception", "✓ Mileage ±25% / minimum 15k km", "✓ Likely reposts collapsed")): policy_layout.addWidget(QLabel(text),2,column)
         policy_layout.addWidget(QLabel("✓ Live asking and historical sold evidence remain separate · median/weighted median is primary"),3,0,1,3)
         self.dd_allow_imports = QCheckBox("Explicitly allow non-GCC/import vehicles for this comparison")
@@ -659,7 +683,7 @@ class IntelligencePage(Page):
                 self.dd_test.setEnabled(True); self.dd_sync.setEnabled(True)
                 QMessageBox.information(self, "Vehicle details required", "Complete make, model, exact trim, year and mileage in the Vehicle to compare box above."); return
             subject = {"make":self.dd_make.text().strip(),"model":self.dd_model.text().strip(),"trim":self.dd_trim.text().strip(),"year":self.dd_year.value(),
-                       "mileage_km":self.dd_mileage.value(),"allow_imports":self.dd_allow_imports.isChecked()}
+                       "mileage_km":self.dd_mileage.value(),"allow_imports":self.dd_allow_imports.isChecked(),"trim_mode":str(self.dd_trim_mode.currentData())}
         self.db.set_setting("deal_drive_allow_imports", int(self.dd_allow_imports.isChecked()))
         self.db.set_setting("deal_drive_workspace_id", workspace_id)
         job = DealDriveJob(self.db, email, password, workspace_id, self.dd_limit.value(), sync, subject)
@@ -815,7 +839,7 @@ class IntelligencePage(Page):
     def _accept_watchlist_suggestion(self) -> None:
         suggestion=getattr(self,"_current_watchlist_suggestion",None)
         if not suggestion:return
-        save_watchlist_item(self.db,{**suggestion,"gcc_only":True,"dealer_only":True,"exclude_sharjah_ajman":True,"mileage_min":None,"mileage_max":None,"active":True}); self._refresh_watchlist()
+        save_watchlist_item(self.db,{**suggestion,"gcc_only":True,"dealer_only":True,"exclude_sharjah_ajman":True,"mileage_min":None,"mileage_max":None,"active":True,"trim_mode":"smart"}); self._refresh_watchlist()
 
     def _ignore_watchlist_suggestion(self) -> None:
         suggestion=getattr(self,"_current_watchlist_suggestion",None)
@@ -828,7 +852,8 @@ class IntelligencePage(Page):
         for index,row in enumerate(rows):
             vehicle=QTableWidgetItem(f"{row['make']} {row['model']}"); vehicle.setData(Qt.ItemDataRole.UserRole,row["id"]); self.watchlist_table.setItem(index,0,vehicle)
             mileage="Any" if row["mileage_min"] is None and row["mileage_max"] is None else f"{int(row['mileage_min'] or 0):,}–{int(row['mileage_max'] or 1000000):,} km"
-            rules=("GCC" if row["gcc_only"] else "Imports allowed")+(" · Dealer" if row["dealer_only"] else " · All sellers")+(" · DXB/AUH" if row["exclude_sharjah_ajman"] else "")
+            mode={"smart":"Smart trim","exact":"Exact only","model":"Model-wide"}.get(str(row.get("trim_mode") or "smart"),"Smart trim")
+            rules=("GCC" if row["gcc_only"] else "Imports allowed")+(" · Dealer" if row["dealer_only"] else " · All sellers")+" · Dubai/agency · "+mode
             state="Paused" if not row["active"] else "Active · due" if watchlist_sync_due(row) else "Active · 72h cooldown"
             values=[row["trim"],f"{row['year_from']}–{row['year_to']}",rules,mileage,state,row["last_synced"] or "Never"]
             for column,value in enumerate(values,1):self.watchlist_table.setItem(index,column,QTableWidgetItem(str(value)))
@@ -870,9 +895,10 @@ class IntelligencePage(Page):
                 change=row.get("change_30d"); trend=f"30d price {float(change):+.1f}%" if change is not None else "Building 30d history"
                 movement=f"{row['market_exits']} exits · +{row['new_listings']} new · {row['price_reductions']} cuts\n{trend}"
                 archive_days=row.get("median_listing_age_days");pace=default_pace if archive_days is not None else "? UNPROVEN"
+                trim_evidence=row.get("trim_evidence") or {};trim_line=f"{trim_evidence.get('confirmed',0)} exact · {trim_evidence.get('unspecified',0)} unspecified · {trim_evidence.get('related',0)} related"
                 cells=[f"{row['year_from']}–{row['year_to']}  {row['make']} {row['model']}\n{row['trim']}",pace,
                        f"{float(archive_days):.0f} DAYS" if archive_days is not None else "NO ARCHIVE DATA",f"{float(row['live_median_age_days']):.0f} days" if row.get("live_median_age_days") is not None else "—",
-                       f"{float(row['score']):.0f}/100 · {row['label']}",f"{row['current_listings']} live\n{row['sample_size']} archived",_money(row["median_asking_aed"]),movement,str(row["confidence"]).upper()]
+                       f"{float(row['score']):.0f}/100 · {row['label']}",f"{row['current_listings']} live · {row['sample_size']} archived\n{trim_line}",_money(row["median_asking_aed"]),movement,str(row["confidence"]).upper()]
                 for column,value in enumerate(cells):
                     item=QTableWidgetItem(str(value)); item.setForeground(QColor(color) if column in (1,2) else QColor(COLORS["text"])); table.setItem(index,column,item)
                 table.setRowHeight(index,62)

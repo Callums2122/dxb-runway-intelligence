@@ -24,6 +24,7 @@ def save_watchlist_item(db: Database, payload: dict[str, Any], item_id: int | No
         int(payload["year_from"]), int(payload["year_to"]), int(bool(payload.get("gcc_only", True))),
         payload.get("mileage_min"), payload.get("mileage_max"), int(bool(payload.get("dealer_only", True))),
         int(bool(payload.get("exclude_sharjah_ajman", True))), int(bool(payload.get("active", True))),
+        str(payload.get("trim_mode", "smart")) if str(payload.get("trim_mode", "smart")) in {"smart","exact","model"} else "smart",
     )
     if not values[0] or not values[1] or not values[2]:
         raise ValueError("Make, model and exact trim are required.")
@@ -31,10 +32,10 @@ def save_watchlist_item(db: Database, payload: dict[str, Any], item_id: int | No
         raise ValueError("Year from cannot be later than year to.")
     if item_id:
         db.execute("""UPDATE market_watchlist SET make=?,model=?,trim=?,year_from=?,year_to=?,gcc_only=?,mileage_min=?,mileage_max=?,
-            dealer_only=?,exclude_sharjah_ajman=?,active=?,ignored_suggestion=0,updated_at=CURRENT_TIMESTAMP WHERE id=?""", values + (item_id,))
+            dealer_only=?,exclude_sharjah_ajman=?,active=?,trim_mode=?,ignored_suggestion=0,updated_at=CURRENT_TIMESTAMP WHERE id=?""", values + (item_id,))
         return item_id
     return db.execute("""INSERT INTO market_watchlist(make,model,trim,year_from,year_to,gcc_only,mileage_min,mileage_max,dealer_only,
-        exclude_sharjah_ajman,active) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        exclude_sharjah_ajman,active,trim_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(make,model,trim,year_from,year_to) DO UPDATE SET active=1,ignored_suggestion=0,updated_at=CURRENT_TIMESTAMP""", values)
 
 
@@ -141,7 +142,8 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
     reference_mileage = int(((mileage_min or 0) + (mileage_max or 100000)) / 2)
     offers, meta = client.evaluate_subject(
         make=item["make"], model=item["model"], trim=item["trim"], year=int(item["year_from"]), year_to=int(item["year_to"]),
-        mileage_km=reference_mileage, allow_imports=not bool(item["gcc_only"]), dealer_only=bool(item["dealer_only"]), progress=progress,
+        mileage_km=reference_mileage, allow_imports=not bool(item["gcc_only"]), dealer_only=bool(item["dealer_only"]),
+        trim_mode=str(item.get("trim_mode") or "smart"), progress=progress,
     )
     filtered: list[dict[str, Any]] = []; archived: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -162,7 +164,11 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
         if offer.get("_active_market",not bool(offer.get("deleted"))):filtered.append(offer)
         else:archived.append(offer)
     now = datetime.now(timezone.utc)
-    prices = [float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")) for row in filtered if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")]
+    confirmed=[row for row in filtered if row.get("_trim_match")=="confirmed"]
+    unspecified=[row for row in filtered if row.get("_trim_match")=="unspecified"]
+    trim_mode=str(item.get("trim_mode") or "smart")
+    pricing_rows=(confirmed if trim_mode=="exact" else filtered if trim_mode=="model" else confirmed if len(confirmed)>=8 else confirmed+unspecified if len(confirmed)>=3 else filtered)
+    prices = [float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")) for row in pricing_rows if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")]
     ages = [(now - published).total_seconds() / 86400 for row in filtered if (published := _timestamp(row.get("publishedAt"))) and published <= now]
     archive_durations=[]
     for row in archived:
@@ -181,7 +187,8 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
     sales_history=evaluation.get("salesHistory") or {}
     archive_days=archive_speed_days(sales_history.get("weightedAvgDaysInSale"),archive_durations)
     archive_sample=len(archived) or int(sales_history.get("usefulOffersCount") or 0)
-    weighted = weighted_median([(float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")),float(row.get("_comparison_weight",1))*float(row.get("_runway_dealer_weight",1))) for row in filtered if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")])
+    match_weight={"confirmed":1.0,"unspecified":.35,"other":.15}
+    weighted = weighted_median([(float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")),float(row.get("_comparison_weight",1))*float(row.get("_runway_dealer_weight",1))*match_weight.get(str(row.get("_trim_match")),.15)) for row in pricing_rows if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")])
     change_7 = _trend(db, item["id"], now, 7, median_price); change_30 = _trend(db, item["id"], now, 30, median_price); change_90 = _trend(db, item["id"], now, 90, median_price)
     score = _score(archive_sample, float(archive_days) if archive_days is not None else None, new, exits, reductions, int(previous["sample_size"] or 0) if previous else 0, change_30)
     confidence = "High" if archive_sample >= 20 else "Medium" if archive_sample >= 8 else "Low"
@@ -189,7 +196,7 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
         weighted_market_price_aed,median_listing_age_days,new_listings,market_exits,price_reductions,sample_size,confidence,score,label,
         change_7d,change_30d,change_90d,detail_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
         item["id"], now.isoformat(), len(filtered), median_price, weighted, archive_days, new, exits, reductions,
-        archive_sample, confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation,"speed_source":"deal_drive_archive_v2","archive_api_days_raw":sales_history.get("weightedAvgDaysInSale"),"live_median_age_days":statistics.median(ages) if ages else None,"archive_sample_size":archive_sample,"archive_observed_durations":len(archive_durations),"dealer_policy":{"agency":sum(row.get("_runway_dealer_tier")=="agency" for row in filtered+archived),"direct":sum(row.get("_runway_dealer_tier")=="direct" for row in filtered+archived),"consider":sum(row.get("_runway_dealer_tier")=="consider" for row in filtered+archived),"unrated":sum(row.get("_runway_dealer_tier")=="unrated" for row in filtered+archived),"dubai_only_with_official_agency_exception":True}}, default=str),
+        archive_sample, confidence, score, _label(score), change_7, change_30, change_90, json.dumps({"evaluation": evaluation,"speed_source":"deal_drive_archive_v2","archive_api_days_raw":sales_history.get("weightedAvgDaysInSale"),"live_median_age_days":statistics.median(ages) if ages else None,"archive_sample_size":archive_sample,"archive_observed_durations":len(archive_durations),"trim_evidence":{"mode":trim_mode,"confirmed":sum(row.get("_trim_match")=="confirmed" for row in filtered+archived),"unspecified":sum(row.get("_trim_match")=="unspecified" for row in filtered+archived),"related":sum(row.get("_trim_match")=="other" for row in filtered+archived),"pricing_samples":len(pricing_rows)},"dealer_policy":{"agency":sum(row.get("_runway_dealer_tier")=="agency" for row in filtered+archived),"direct":sum(row.get("_runway_dealer_tier")=="direct" for row in filtered+archived),"consider":sum(row.get("_runway_dealer_tier")=="consider" for row in filtered+archived),"unrated":sum(row.get("_runway_dealer_tier")=="unrated" for row in filtered+archived),"dubai_only_with_official_agency_exception":True}}, default=str),
     ))
     with db.connect() as connection:
         connection.executemany("INSERT INTO market_watchlist_snapshot_offers(snapshot_id,offer_id,price_aed,published_at) VALUES (?,?,?,?)", [
@@ -231,7 +238,7 @@ def radar_rows(db: Database) -> list[dict[str, Any]]:
         item=dict(row)
         try:detail=json.loads(str(item.get("detail_json") or "{}"))
         except json.JSONDecodeError:detail={}
-        item["live_median_age_days"]=detail.get("live_median_age_days");item["speed_source"]=detail.get("speed_source")
+        item["live_median_age_days"]=detail.get("live_median_age_days");item["speed_source"]=detail.get("speed_source");item["trim_evidence"]=detail.get("trim_evidence") or {}
         output.append(item)
     return output
 
@@ -242,4 +249,8 @@ def matching_market_snapshot(db: Database, make: str, model: str, trim: str, yea
         WHERE lower(w.make)=lower(?) AND lower(w.model)=lower(?) AND lower(w.trim)=lower(?)
         AND (? IS NULL OR ? BETWEEN w.year_from AND w.year_to) AND w.active=1 ORDER BY s.sample_size DESC LIMIT 1""",
         (make.strip(), model.strip(), trim.strip(), year, year))
-    return dict(rows[0]) if rows else None
+    if not rows:return None
+    result=dict(rows[0])
+    try:result["trim_evidence"]=(json.loads(str(result.get("detail_json") or "{}"))).get("trim_evidence") or {}
+    except json.JSONDecodeError:result["trim_evidence"]={}
+    return result

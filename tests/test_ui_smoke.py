@@ -318,6 +318,8 @@ def test_ask_runway_is_separate_and_animates_received_answer(tmp_path: Path):
     assert len(chat.findChildren(QWidget, "agentAvatar"))>=2
     while chat._typing_index < len(chat._typing_answer): chat._typing_step()
     assert chat.state.text()=="●  Ready"
+    chat._follow_latest=False;chat.refresh();application.processEvents()
+    assert chat._follow_latest and chat.chat_scroll.verticalScrollBar().value()==chat.chat_scroll.verticalScrollBar().maximum()
     assert db.query("SELECT message FROM intelligence_chat_messages WHERE role='assistant'")[0][0].startswith("Evidence first")
     window.navigate("ask_runway"); assert window.context.text()=="ASK RUNWAY"
     window.close()

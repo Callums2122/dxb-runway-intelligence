@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 29
+SCHEMA_VERSION = 30
 
 
 MIGRATIONS: dict[int, str] = {
@@ -485,6 +485,10 @@ MIGRATIONS: dict[int, str] = {
       PRIMARY KEY(make,model,trim,model_year)
     );
     """,
+    30: """
+    ALTER TABLE market_watchlist ADD COLUMN trim_mode TEXT NOT NULL DEFAULT 'smart'
+      CHECK(trim_mode IN ('smart','exact','model'));
+    """,
 }
 
 
@@ -604,6 +608,9 @@ class Database:
                     columns = {row[1] for row in connection.execute("PRAGMA table_info(deal_drive_sync_runs)").fetchall()}
                     if "sync_mode" not in columns: connection.execute("ALTER TABLE deal_drive_sync_runs ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'comparison'")
                     if "subject_json" not in columns: connection.execute("ALTER TABLE deal_drive_sync_runs ADD COLUMN subject_json TEXT NOT NULL DEFAULT ''")
+                elif version == 30:
+                    columns={row[1] for row in connection.execute("PRAGMA table_info(market_watchlist)").fetchall()}
+                    if "trim_mode" not in columns:connection.executescript(MIGRATIONS[version])
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")

@@ -15,7 +15,9 @@ def payload():
 def test_watchlist_crud_is_owner_controlled(tmp_path):
     db=Database(tmp_path/"runway.db")
     item_id=save_watchlist_item(db,payload())
-    assert watchlist_items(db)[0]["model"]=="Q8"
+    assert watchlist_items(db)[0]["model"]=="Q8" and watchlist_items(db)[0]["trim_mode"]=="smart"
+    save_watchlist_item(db,{**payload(),"trim_mode":"exact"},item_id)
+    assert watchlist_items(db)[0]["trim_mode"]=="exact"
     set_watchlist_active(db,item_id,False)
     assert watchlist_items(db)[0]["active"]==0
     delete_watchlist_item(db,item_id)

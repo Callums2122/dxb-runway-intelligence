@@ -155,7 +155,8 @@ class DealDriveClient:
 
     def evaluate_subject(self, *, make: str, model: str, trim: str, year: int, mileage_km: int,
                          year_to: int | None = None, allow_imports: bool = False, dealer_only: bool = True,
-                         progress: Callable[[str], None] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                         trim_mode: str = "smart", progress: Callable[[str], None] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        trim_mode=trim_mode if trim_mode in {"smart","exact","model"} else "smart"
         if progress: progress(f"Resolving exact Deal Drive catalog IDs for {make} {model} {trim}…")
         brand = self._catalog_match("brands", "catalogBrands", make)
         model_node = self._catalog_match("models", "catalogModels", model, {"catalogBrandIds": [brand["id"]]})
@@ -175,7 +176,8 @@ class DealDriveClient:
                 try: gcc = self._catalog_match("regions", "catalogRegionalSpecs", search); break
                 except DealDriveError: pass
             if not gcc: raise DealDriveError("GCC regional specification could not be resolved; the comparison was stopped rather than widened.")
-        product = {"catalogBrandId":brand["id"], "catalogModelId":model_node["id"], "catalogTrimId":trim_node["id"] if trim_node else None,
+        query_trim=trim_node if trim_mode=="exact" else None
+        product = {"catalogBrandId":brand["id"], "catalogModelId":model_node["id"], "catalogTrimId":query_trim["id"] if query_trim else None,
                    "year":year, "modelYear":year, "mileage":mileage_km, "catalogMileageUnitCode":"km", "countryCode":"ae"}
         product = {key:value for key,value in product.items() if value is not None}
         auto = self._run("autofilters", {"input":{"evaluationProductParams":product,"countryCode":"ae"}}).get("marketEvaluatorAutofiltersByParams") or {}
@@ -184,7 +186,7 @@ class DealDriveClient:
             seller_types = [item for item in seller_types if not any(word in str(item.get("name","")).casefold() for word in ("private","individual"))]
         if not seller_types: raise DealDriveError("No permitted seller type was returned; comparison stopped safely.")
         common = {"catalogBrandId":brand["id"],"catalogModelId":model_node["id"],"yearFrom":year,"yearTo":year_to or year+1,"currencyCode":"AED"}
-        if trim_node: common["catalogTrimIds"]=[trim_node["id"]]
+        if query_trim: common["catalogTrimIds"]=[query_trim["id"]]
         if gcc: common["catalogRegionalSpecIds"]=[gcc["id"]]
         seller_ids=[item["id"] for item in seller_types]
         request={"evaluationProductParams":product,"commonFilter":common,"liveMarketFilter":{"sellerTypeIds":seller_ids,"maxOffersInSelection":500},
@@ -199,7 +201,7 @@ class DealDriveClient:
         if progress: progress(f"Fetching {len(ids):,} evaluated comparables for local mileage, city and duplicate checks…")
         offers=[]
         for start in range(0,len(ids),100): offers.extend(self._run("offer_data", {"input":ids[start:start+100]}).get("marketOffersData") or [])
-        if variant_fallback:
+        if variant_fallback and trim_mode=="exact":
             wanted=self._catalog_key(trim)
             available=sorted({name for offer in offers for name in self._offer_variant_names(offer)})
             offers=[offer for offer in offers if wanted in self._offer_variant_keys(offer)]
@@ -210,11 +212,18 @@ class DealDriveClient:
             # Do not mislabel that aggregate as exact-variant evidence; snapshot code derives
             # price and archive speed from the exact filtered offers above.
             evaluation={**evaluation,"salesHistory":{**(evaluation.get("salesHistory") or {}),"weightedAvgDaysInSale":None,"usefulOffersCount":0}}
+        wanted=self._catalog_key(trim)
+        for offer in offers:
+            keys=self._offer_variant_keys(offer)
+            offer["_trim_match"]="confirmed" if wanted and wanted in keys else "unspecified" if not keys else "other"
+        if trim_mode=="exact" and query_trim:
+            for offer in offers:offer["_trim_match"]="confirmed"
         for offer in offers:
             offer["_active_market"]=active.get(str(offer.get("id")),not bool(offer.get("deleted")))
             offer["_comparison_weight"]=weights.get(str(offer.get("id")),1)
         return offers, {"brand":brand,"model":model_node,"trim":trim_node,"gcc":gcc,"seller_types":seller_types,"evaluation":evaluation,
-                        "variant_fallback":variant_fallback,"variant":trim.strip()}
+                        "variant_fallback":variant_fallback,"variant":trim.strip(),"trim_mode":trim_mode,
+                        "trim_counts":{key:sum(offer.get("_trim_match")==key for offer in offers) for key in ("confirmed","unspecified","other")}}
 
     @classmethod
     def _offer_variant_names(cls, offer: dict[str, Any]) -> list[str]:
@@ -285,26 +294,32 @@ def comparison_exclusion(offer: dict[str, Any], *, allow_imports: bool = False, 
 
 
 def _mark_duplicates(connection: Any, run_id: int) -> None:
-    rows = connection.execute("SELECT id,offer_id,seller_id,brand,model,trim,model_year,mileage_km,price_aed FROM deal_drive_market_offers WHERE sync_run_id=? AND exclusion_reason='' ORDER BY id", (run_id,)).fetchall()
+    rows = connection.execute("SELECT id,offer_id,seller_id,brand,model,model_version,modification,trim,model_year,mileage_km,price_aed FROM deal_drive_market_offers WHERE sync_run_id=? AND exclusion_reason='' ORDER BY id", (run_id,)).fetchall()
     seen: dict[tuple[Any, ...], str] = {}
     for row in rows:
         # Same dealer + near-identical vehicle/mileage/price is treated as a repost, not a second comparable.
-        key = (row["seller_id"], str(row["brand"]).casefold(), str(row["model"]).casefold(), str(row["trim"]).casefold(), row["model_year"],
+        variant=str(row["trim"] or row["modification"] or row["model_version"] or "").casefold()
+        key = (row["seller_id"], str(row["brand"]).casefold(), str(row["model"]).casefold(), variant, row["model_year"],
                round(float(row["mileage_km"] or 0) / 500), round(float(row["price_aed"] or 0) / 1000))
         if row["seller_id"] and key in seen:
             connection.execute("UPDATE deal_drive_market_offers SET duplicate_of_offer_id=? WHERE id=?", (seen[key], row["id"]))
         else: seen[key] = row["offer_id"]
 
 
-def comparison_summary(db: Database, make: str, model: str, trim: str, year: int, mileage_km: float) -> dict[str, Any]:
+def comparison_summary(db: Database, make: str, model: str, trim: str, year: int, mileage_km: float, trim_mode: str = "smart") -> dict[str, Any]:
     latest = sync_status(db)["latest"]
     if not latest or latest["status"] != "success": return {"status": "not_synced"}
     tolerance = max(15000.0, mileage_km * 0.25)
     rows = [dict(row) for row in db.query("""SELECT * FROM deal_drive_market_offers WHERE sync_run_id=? AND lower(brand)=lower(?)
         AND lower(model)=lower(?) AND model_year BETWEEN ? AND ? AND exclusion_reason='' AND duplicate_of_offer_id IS NULL
         AND mileage_km BETWEEN ? AND ?""", (latest["id"], make, model, year, year + 1, max(0, mileage_km-tolerance), mileage_km+tolerance))]
-    exact = [row for row in rows if str(row["trim"]).casefold() == trim.strip().casefold()] if trim.strip() else rows
-    chosen = exact if exact else rows
+    wanted=DealDriveClient._catalog_key(trim);exact=[];unspecified=[];related=[]
+    for row in rows:
+        values=[row.get("trim"),row.get("modification"),row.get("model_version"),row.get("generation")]
+        keys={DealDriveClient._catalog_key(str(value)) for value in values if str(value or "").strip()}
+        (exact if wanted and wanted in keys else unspecified if not keys else related).append(row)
+    trim_mode=trim_mode if trim_mode in {"smart","exact","model"} else "smart"
+    chosen=(exact if trim_mode=="exact" else rows if trim_mode=="model" else exact if len(exact)>=8 else exact+unspecified if len(exact)>=3 else rows)
     live = [row for row in chosen if row["active_market"]]
     history = [row for row in chosen if not row["active_market"]]
     def stats(group: list[dict[str, Any]]) -> dict[str, Any]:
@@ -321,10 +336,10 @@ def comparison_summary(db: Database, make: str, model: str, trim: str, year: int
                 "average_price_aed": statistics.mean(prices) if prices else None,
                 "minimum_price_aed": min(prices) if prices else None, "maximum_price_aed": max(prices) if prices else None}
     return {"status":"ready", "filter_receipt": {"vehicle":f"{year}–{year+1} {make} {model}", "trim": trim or "all trims",
-            "trim_rule":"exact trim used" if exact else "no exact trim found; related trims shown separately", "mileage_km":mileage_km,
+            "trim_rule":f"{trim_mode} · {len(exact)} confirmed / {len(unspecified)} unspecified / {len(related)} related", "mileage_km":mileage_km,
             "mileage_tolerance_km":tolerance, "seller":"commercial/dealers only", "regional_spec":"GCC only" if db.get_setting("deal_drive_allow_imports","0") != "1" else "imports explicitly allowed",
-            "excluded_locations":["Sharjah","Ajman"], "duplicates":"collapsed by dealer + vehicle + near mileage/price"},
-            "exact_trim_samples":len(exact), "related_trim_samples":max(0,len(rows)-len(exact)), "live_market_asking":stats(live),
+            "excluded_locations":["outside Dubai except matching official agencies"], "duplicates":"collapsed by dealer + vehicle + near mileage/price"},
+            "exact_trim_samples":len(exact),"unspecified_trim_samples":len(unspecified),"related_trim_samples":len(related), "live_market_asking":stats(live),
             "historical_sold_or_removed":stats(history), "pricing_basis":"Median is primary; average is diagnostic only."}
 
 
