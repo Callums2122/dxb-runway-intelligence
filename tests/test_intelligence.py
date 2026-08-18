@@ -9,7 +9,7 @@ from dxb_runway.database import Database
 from dxb_runway.intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory, import_vehicle_history,
     intelligence_memories, learning_directive, save_chat_message, save_intelligence_memory,
-    save_chat_attachments, write_intelligence_snapshot,
+    save_chat_attachments, stock_research_subject, write_intelligence_snapshot,
 )
 
 
@@ -157,3 +157,12 @@ def test_chat_evidence_contains_authoritative_live_stock_snapshot(tmp_path: Path
     assert stock["cash_budget_remaining_aed"] == 1_773_000
     assert stock["total_expected_stock_profit_aed"] == 78_000
     assert stock["vehicles"][0]["vehicle"] in {"Audi Q8", "Mercedes E-Class"}
+
+
+def test_chat_resolves_natural_eclass_stock_research_request(tmp_path: Path) -> None:
+    db=_database(tmp_path)
+    db.add_vehicle(vehicle_name="2025 MERC ECLASS",purchase_price_aed=285_000,expected_sale_price_aed=305_000,purchased_date=date.today().isoformat(),purchase_type="consignment")
+    subject=stock_research_subject(db,"Research my E-Class in stock using the archive, it is 2025 Premium Plus")
+    assert subject is not None
+    assert (subject["make"],subject["model"],subject["trim"],subject["year"])==("Mercedes-Benz","E-Class","Premium Plus",2025)
+    assert subject["trim_mode"]=="smart" and subject["stock_vehicle"]["vehicle_name"]=="2025 MERC ECLASS"

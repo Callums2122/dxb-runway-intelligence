@@ -25,11 +25,11 @@ from .dialogs import MoneyBox
 from .intelligence import (
     analyse_opportunity, chat_conversation, chat_evidence, forget_intelligence_memory,
     import_history, import_vehicle_history, intelligence_memories, learning_directive,
-    recent_vehicle_grades, save_chat_attachments, save_chat_message, save_intelligence_memory, write_intelligence_snapshot,
+    recent_vehicle_grades, save_chat_attachments, save_chat_message, save_intelligence_memory, stock_research_subject, write_intelligence_snapshot,
 )
 from .market_watchlist import (
     delete_watchlist_item, ignore_suggestion, matching_market_snapshot, nightly_watchlist_sync, radar_rows, record_market_interest, save_watchlist_item, set_watchlist_active,
-    snapshot_watchlist_item, watchlist_items, watchlist_suggestions, watchlist_sync_due,
+    research_vehicle_now, snapshot_watchlist_item, watchlist_items, watchlist_suggestions, watchlist_sync_due,
 )
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
@@ -193,6 +193,20 @@ class WatchlistItemSyncJob(QRunnable):
             self.signals.progress.emit("Refreshing the exact Deal Drive cohort before Runway answers…")
             client=DealDriveClient(workspace_id=workspace);client.login(email,password);client.verify_market_access();snapshot_watchlist_item(self.db,client,self.item,self.signals.progress.emit)
             self.signals.finished.emit("Exact market cohort refreshed.")
+        except Exception as error:self.signals.failed.emit(str(error))
+
+
+class StockResearchJob(QRunnable):
+    def __init__(self,db: Database,subject: dict[str,object]):
+        super().__init__();self.db=db;self.subject=subject;self.signals=DealDriveSignals()
+    def run(self)->None:
+        try:
+            email=self.db.get_setting("deal_drive_email").strip();workspace=self.db.get_setting("deal_drive_workspace_id").strip();password=KeychainCredentials().load(email) if email else None
+            if not email or not password or not workspace:raise DealDriveError("Deal Drive connection is incomplete.")
+            self.signals.progress.emit(f"Researching {self.subject['year']} {self.subject['make']} {self.subject['model']} {self.subject.get('trim','')} in Deal Drive…")
+            client=DealDriveClient(workspace_id=workspace);client.login(email,password);client.verify_market_access()
+            result=research_vehicle_now(client,self.subject,self.signals.progress.emit);result["stock_vehicle"]=self.subject.get("stock_vehicle")
+            self.signals.finished.emit(json.dumps(result,default=str))
         except Exception as error:self.signals.failed.emit(str(error))
 
 
@@ -414,9 +428,15 @@ class AskRunwayPage(Page):
             job.signals.finished.connect(lambda message,q=question,a=attachments,i=matched:self._continue_chat(q,a,i,""))
             job.signals.failed.connect(lambda error,q=question,a=attachments,i=matched:self._continue_chat(q,a,i,f"Live Deal Drive refresh failed: {error}"))
             self._active_chat_market_job=job;QThreadPool.globalInstance().start(job);return
+        stock_subject=stock_research_subject(self.db,question) if not matched else None
+        if stock_subject:
+            job=StockResearchJob(self.db,stock_subject);job.signals.progress.connect(self.state.setText)
+            job.signals.finished.connect(lambda payload,q=question,a=attachments:self._continue_chat(q,a,None,"",json.loads(payload)))
+            job.signals.failed.connect(lambda error,q=question,a=attachments:self._continue_chat(q,a,None,f"Live Deal Drive stock research failed: {error}"))
+            self._active_stock_research_job=job;QThreadPool.globalInstance().start(job);return
         self._continue_chat(question,attachments,matched,"")
 
-    def _continue_chat(self,question: str,attachments: list[dict[str,object]],matched: dict[str,object] | None,market_warning: str) -> None:
+    def _continue_chat(self,question: str,attachments: list[dict[str,object]],matched: dict[str,object] | None,market_warning: str,research: dict[str,object] | None=None) -> None:
         evidence=chat_evidence(self.db)
         if matched:
             year_match=re.search(r"\b(20\d{2})\b",question);year=int(year_match.group(1)) if year_match else int(matched["year_from"])
@@ -427,7 +447,10 @@ class AskRunwayPage(Page):
                 centre=float(market.get("weighted_market_price_aed") or market.get("median_asking_aed") or 0)
                 estimate={"weighted_dealer_price_aed":market.get("weighted_market_price_aed"),"median_asking_aed":market.get("median_asking_aed"),"rough_retail_range_aed":[round(centre*.95,-3),round(centre*1.05,-3)] if centre else None,"median_market_age_days":market.get("median_listing_age_days"),"sample_size":market.get("sample_size"),"confidence":market.get("confidence"),"market_score":market.get("score"),"trim_evidence":market.get("trim_evidence")}
             evidence["requested_vehicle"]={"watchlist":matched,"locked_historical_grade":grade,"dealer_weighted_market_estimate":estimate,"refresh_warning":market_warning or None}
-        context = {"question": question, "evidence": evidence, "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "For requested_vehicle, state the locked historical grade separately from the current Deal Drive estimate. Give the rough retail range only when supplied, and state sample and confidence. Dubai and owner-approved direct dealers have greater weight; consider-tier and unrated dealers are supporting evidence. Never invent a purchase ceiling. Use live_stock as authoritative current Stock Level. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
+        elif research:
+            subject=research.get("subject") or {};grade=analyse_opportunity(self.db,make=str(subject.get("make","")),model=str(subject.get("model","")),trim=str(subject.get("trim","")),model_year=int(subject.get("year") or 0) or None)
+            evidence["requested_vehicle"]={"source":"live stock natural-language research","stock_vehicle":research.get("stock_vehicle"),"locked_historical_grade":grade,"live_deal_drive_research":research,"refresh_warning":market_warning or None}
+        context = {"question": question, "evidence": evidence, "image_policy": "Attached screenshots are unverified, point-in-time competitor evidence for a pricing conversation only. Read visible vehicle, trim, mileage and asking-price details; distinguish asking price from achieved sale price; flag unclear or incomparable listings. They must NEVER alter, recalculate or override the deterministic historical grade.", "instruction": "For requested_vehicle, state the locked historical grade separately from current Deal Drive evidence. If live_deal_drive_research supplies estimated_days_to_sell, answer the requested sale-time question directly, quote archive sample size and confidence, and call archived disappearances market exits rather than confirmed sales. Give the rough retail range only when supplied. Explain confirmed, unspecified and related trim counts. Dubai and manufacturer-matched official agency evidence is permitted. Never invent a purchase ceiling. Use live_stock as authoritative current Stock Level. Never take an external action or invent missing evidence. Be sharp, brutal, evidence-led and concise."}
         job = OpenClawChatJob(json.dumps(context), attachments); job.signals.finished.connect(self._chat_answer); job.signals.failed.connect(self._chat_error); QThreadPool.globalInstance().start(job); self._active_chat_job = job
 
     def _animate_thinking(self) -> None:

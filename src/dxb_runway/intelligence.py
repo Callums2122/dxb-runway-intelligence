@@ -600,3 +600,30 @@ def chat_evidence(db: Database, limit: int = 250) -> dict[str, Any]:
             "market_watchlist_radar": radar_rows(db),
             "learned_preferences": [row["memory_text"] for row in intelligence_memories(db)],
             "recent_conversation": chat_conversation(db)}
+
+
+def stock_research_subject(db: Database, question: str) -> dict[str, Any] | None:
+    """Resolve natural stock references into a bounded Deal Drive research subject."""
+    text=str(question or "");key=re.sub(r"[^a-z0-9]+","",text.casefold())
+    brand_aliases=(("Mercedes-Benz",("mercedesbenz","mercedes","merc")),("Volkswagen",("volkswagen","vw")),
+                   ("BMW",("bmw",)),("Geely",("geely",)),("Nissan",("nissan",)),("BAIC",("baic",)),
+                   ("Ford",("ford",)),("Audi",("audi",)),("Tank",("tank",)),("Maserati",("maserati",)),
+                   ("Jeep",("jeep",)),("RAM",("ram",)),("Peugeot",("peugeot",)),("Lotus",("lotus",)))
+    model_names={"eclass":"E-Class","cclass":"C-Class","sclass":"S-Class","gclass":"G-Class"}
+    candidates=[]
+    for row in db.stock_vehicles():
+        item=dict(row);raw=str(item.get("vehicle_name") or "");clean=re.sub(r"\b20\d{2}\b","",raw).strip();clean_key=re.sub(r"[^a-z0-9]+","",clean.casefold())
+        make="";alias=""
+        for official,aliases in brand_aliases:
+            found=next((value for value in aliases if clean_key.startswith(value)),"")
+            if found:make=official;alias=found;break
+        if not make:continue
+        model_key=clean_key[len(alias):];model=model_names.get(model_key,re.sub(r"\s+"," ",clean[len(re.match(r'^\s*\S+',clean).group(0)):]).strip())
+        if not model_key or model_key not in key:continue
+        year_matches=re.findall(r"\b(20\d{2})\b",text);stock_year=re.search(r"\b(20\d{2})\b",raw);year=int(year_matches[-1] if year_matches else stock_year.group(1) if stock_year else datetime.now().year)
+        trim=""
+        tail_match=re.search(rf"\b{year}\b\s+([A-Za-z][A-Za-z0-9+ -]{{1,35}})\s*[?.!]*$",text.strip())
+        if tail_match:trim=re.sub(r"\s+"," ",tail_match.group(1)).strip().title()
+        candidates.append((len(model_key),{"make":make,"model":model,"trim":trim,"year":year,"year_to":year+1,"mileage_km":50000,
+                                           "trim_mode":"smart","stock_vehicle":item,"mileage_assumed":True}))
+    return max(candidates,key=lambda value:value[0])[1] if candidates else None

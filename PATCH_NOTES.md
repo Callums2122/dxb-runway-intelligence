@@ -4,6 +4,7 @@ This document records shipped DXB RUNWAY changes. Planned Alba Cars purchasing w
 
 ## Current release — 2.2.0
 
+- Ask Runway now resolves natural references to vehicles already in Stock Level (including aliases such as `MERC ECLASS` → Mercedes-Benz E-Class), extracts the supplied year/trim, performs an immediate one-off Deal Drive archive comparison, and answers sale-time questions without requiring a Watchlist entry.
 - Added Smart blend, Exact trim only and Make/model only market modes. Smart blend separates confirmed, unspecified and related trims, weights confirmed trims most heavily for price, and uses broader evidence to strengthen market-speed analysis.
 - Ask Runway now opens at the latest message and follows new typing at the bottom, but stops auto-scrolling when the owner deliberately scrolls upward.
 - Deal Drive evidence is now Dubai-only, except for manufacturer-matched official UAE agencies; Dealer Trust has a separate searchable reference-style agency section.

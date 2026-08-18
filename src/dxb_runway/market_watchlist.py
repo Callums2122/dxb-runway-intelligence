@@ -204,6 +204,37 @@ def snapshot_watchlist_item(db: Database, client: DealDriveClient, item: dict[st
     return snapshot_id
 
 
+def research_vehicle_now(client: DealDriveClient, subject: dict[str, Any], progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """One-off stock research without silently adding the vehicle to Market Watchlist."""
+    api_subject={key:subject[key] for key in ("make","model","trim","year","year_to","mileage_km","trim_mode") if key in subject}
+    offers,meta=client.evaluate_subject(**api_subject,progress=progress)
+    accepted=[]
+    for offer in offers:
+        if comparison_exclusion(offer):continue
+        tier,weight,_=dealer_evidence(offer)
+        if tier=="exclude":continue
+        offer["_runway_dealer_weight"]=weight;accepted.append(offer)
+    live=[row for row in accepted if row.get("_active_market",not bool(row.get("deleted")))]
+    archived=[row for row in accepted if not row.get("_active_market",not bool(row.get("deleted")))]
+    confirmed=[row for row in live if row.get("_trim_match")=="confirmed"];unspecified=[row for row in live if row.get("_trim_match")=="unspecified"]
+    mode=str(subject.get("trim_mode") or "smart")
+    pricing=(confirmed if mode=="exact" else live if mode=="model" else confirmed if len(confirmed)>=8 else confirmed+unspecified if len(confirmed)>=3 else live)
+    match_weight={"confirmed":1.0,"unspecified":.35,"other":.15}
+    prices=[float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")) for row in pricing if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")]
+    weighted=weighted_median([(float(row.get("priceInWorkspaceDefaultCurrency") or row.get("price")),float(row.get("_comparison_weight",1))*float(row.get("_runway_dealer_weight",1))*match_weight.get(str(row.get("_trim_match")),.15)) for row in pricing if row.get("priceInWorkspaceDefaultCurrency") or row.get("price")])
+    durations=[]
+    for row in archived:
+        start=_timestamp(row.get("publishedAt") or row.get("createdAt"));end=_timestamp(row.get("deletedAt") or row.get("updatedAt"))
+        if start and end and end>start:durations.append((end-start).total_seconds()/86400)
+    sales=(meta.get("evaluation") or {}).get("salesHistory") or {}
+    days=archive_speed_days(sales.get("weightedAvgDaysInSale"),durations);archive_sample=len(archived) or int(sales.get("usefulOffersCount") or 0)
+    confidence="High" if archive_sample>=20 else "Medium" if archive_sample>=8 else "Low"
+    return {"subject":api_subject,"current_listings":len(live),"archive_samples":archive_sample,"estimated_days_to_sell":round(float(days),1) if days is not None else None,
+            "median_asking_aed":statistics.median(prices) if prices else None,"weighted_market_price_aed":weighted,"confidence":confidence,
+            "trim_evidence":{"confirmed":sum(row.get("_trim_match")=="confirmed" for row in accepted),"unspecified":sum(row.get("_trim_match")=="unspecified" for row in accepted),"related":sum(row.get("_trim_match")=="other" for row in accepted),"pricing_samples":len(pricing)},
+            "scope":"Dubai dealers plus manufacturer-matched official agencies; GCC; requested year and following year","sale_language":"Archived/disappeared listings are market exits unless Deal Drive confirms a sale."}
+
+
 def nightly_watchlist_sync(db: Database, progress: Callable[[str], None] | None = None) -> int:
     items = watchlist_items(db, active_only=True)
     if not items:
