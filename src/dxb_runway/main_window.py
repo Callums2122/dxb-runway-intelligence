@@ -15,6 +15,7 @@ from .dialogs import CommandPalette
 from .gym import GymDashboardPage, GymMealsPage, GymNutritionPage, GymProgressPage, GymTrainingPage
 from .intelligence_screen import AskRunwayPage, IntelligencePage
 from .schedule_screen import SchedulePage
+from .stock_action_plan import StockActionPlanPage
 from .mobile_sync import MobileSyncManager
 from .screens import (
     BudgetsPage, CalendarPage, CustomerContactPage, DashboardPage, DebtPage, GoalsPage, InspectionPage, KPITrackerPage, ReportsPage,
@@ -25,7 +26,7 @@ from .style import COLORS
 
 
 NAV_SECTIONS = [
-    ("leads", "LEADS", COLORS["purple"], [("todo", "✓", "Today's to-do"), ("success", "★", "Checklist to success"), ("kpi", "◫", "KPI tracker"), ("stock", "▦", "Stock level"), ("vehicles", "◈", "Vehicle desk"), ("vehicle_history", "◷", "Vehicle performance"), ("calendar", "▣", "Calendar"), ("schedule", "◴", "Schedule")]),
+    ("leads", "LEADS", COLORS["purple"], [("todo", "✓", "Today's to-do"), ("success", "★", "Checklist to success"), ("kpi", "◫", "KPI tracker"), ("stock", "▦", "Stock level"), ("stock_action", "⚡", "Stock action plan"), ("vehicles", "◈", "Vehicle desk"), ("vehicle_history", "◷", "Vehicle performance"), ("calendar", "▣", "Calendar"), ("schedule", "◴", "Schedule")]),
     ("ai", "RUNWAY AI", COLORS["cyan"], [("intelligence", "✦", "Buying intelligence"), ("ask_runway", "◉", "Ask Runway")]),
     ("other", "MISC / OTHER", COLORS["amber"], [("contacts", "◉", "Customer contact"), ("inspection", "⌕", "Inspection"), ("templates", "✉", "WhatsApp templates"), ("settings", "⚙", "Settings")]),
 ]
@@ -61,7 +62,7 @@ class MainWindow(QMainWindow):
         right=QVBoxLayout(); right.setContentsMargins(0,0,0,0); right.setSpacing(0); top=QFrame(); top.setObjectName("topbar"); tl=QHBoxLayout(top); tl.setContentsMargins(20,10,20,10); self.context=QLabel("BUYING INTELLIGENCE"); self.context.setObjectName("eyebrow"); tl.addWidget(self.context); tl.addStretch(); self.sync_status=QLabel("Private sync checking…"); self.sync_status.setObjectName("muted"); tl.addWidget(self.sync_status); command=QPushButton(f"⌕  Search or command     {COMMAND_LABEL} K"); command.clicked.connect(self.open_palette); tl.addWidget(command); right.addWidget(top)
         self.stack=QStackedWidget(); right.addWidget(self.stack,1); shell.addLayout(right,1)
         # Legacy pages remain constructible for data compatibility, but are intentionally absent from navigation in this edition.
-        self.pages={"dashboard":DashboardPage(db),"todo":TodayTodoPage(db),"success":SuccessChecklistPage(db),"kpi":KPITrackerPage(db),"contacts":CustomerContactPage(db),"inspection":InspectionPage(db),"templates":WhatsAppTemplatesPage(db),"stock":StockLevelPage(db),"vehicles":VehicleDeskPage(db),"gym_today":GymDashboardPage(db),"gym_training":GymTrainingPage(db),"gym_nutrition":GymNutritionPage(db),"gym_progress":GymProgressPage(db),"gym_meals":GymMealsPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"schedule":SchedulePage(db),"goals":GoalsPage(db),"vehicle_history":VehicleHistoryPage(db),"reports":ReportsPage(db),"intelligence":IntelligencePage(db),"ask_runway":AskRunwayPage(db),"settings":SettingsPage(db)}
+        self.pages={"dashboard":DashboardPage(db),"todo":TodayTodoPage(db),"success":SuccessChecklistPage(db),"kpi":KPITrackerPage(db),"contacts":CustomerContactPage(db),"inspection":InspectionPage(db),"templates":WhatsAppTemplatesPage(db),"stock":StockLevelPage(db),"stock_action":StockActionPlanPage(db),"vehicles":VehicleDeskPage(db),"gym_today":GymDashboardPage(db),"gym_training":GymTrainingPage(db),"gym_nutrition":GymNutritionPage(db),"gym_progress":GymProgressPage(db),"gym_meals":GymMealsPage(db),"transactions":TransactionsPage(db),"debt":DebtPage(db),"scenarios":ScenarioPage(db),"budgets":BudgetsPage(db),"calendar":CalendarPage(db),"schedule":SchedulePage(db),"goals":GoalsPage(db),"vehicle_history":VehicleHistoryPage(db),"reports":ReportsPage(db),"intelligence":IntelligencePage(db),"ask_runway":AskRunwayPage(db),"settings":SettingsPage(db)}
         for key,page in self.pages.items(): self.stack.addWidget(page); self.page_keys.append(key)
         self.mobile_sync=MobileSyncManager(db,self); self.mobile_sync.status_changed.connect(self.set_sync_status)
         for page in self.pages.values(): page.changed.connect(self.refresh_all); page.changed.connect(self.mobile_sync.schedule)
@@ -91,7 +92,7 @@ class MainWindow(QMainWindow):
             label.setText("●" if self.compact else f"●  {title}"); label.setAlignment(Qt.AlignmentFlag.AlignCenter if self.compact else Qt.AlignmentFlag.AlignLeft); count.setVisible(not self.compact); header.layout().setContentsMargins(0,4,0,4) if self.compact else header.layout().setContentsMargins(10,6,8,6)
 
     def open_palette(self)->None:
-        commands=[("Open buying intelligence","nav:intelligence"),("Open Ask Runway","nav:ask_runway"),("Open today's to-do list","nav:todo"),("Open checklist to success","nav:success"),("Open KPI tracker","nav:kpi"),("Open customer contact","nav:contacts"),("Open inspection","nav:inspection"),("Open WhatsApp templates","nav:templates"),("Open stock level","nav:stock"),("Open vehicle desk","nav:vehicles"),("Open vehicle performance","nav:vehicle_history"),("Open calendar","nav:calendar"),("Open schedule","nav:schedule"),("Open settings","nav:settings"),("Refresh all data","refresh")]
+        commands=[("Open buying intelligence","nav:intelligence"),("Open Ask Runway","nav:ask_runway"),("Open today's to-do list","nav:todo"),("Open checklist to success","nav:success"),("Open KPI tracker","nav:kpi"),("Open customer contact","nav:contacts"),("Open inspection","nav:inspection"),("Open WhatsApp templates","nav:templates"),("Open stock level","nav:stock"),("Open stock action plan","nav:stock_action"),("Open vehicle desk","nav:vehicles"),("Open vehicle performance","nav:vehicle_history"),("Open calendar","nav:calendar"),("Open schedule","nav:schedule"),("Open settings","nav:settings"),("Refresh all data","refresh")]
         palette=CommandPalette(commands,self); palette.command_selected.connect(self.execute_command); center=self.geometry().center(); palette.move(center.x()-palette.width()//2,self.geometry().top()+90); palette.exec()
 
     def execute_command(self,command:str)->None:

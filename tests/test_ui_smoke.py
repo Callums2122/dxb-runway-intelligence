@@ -208,8 +208,8 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","schedule","goals","vehicle_history","reports","intelligence","ask_runway","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","vehicles","vehicle_history","calendar","schedule"],["intelligence","ask_runway"],["contacts","inspection","templates","settings"]]
+    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","stock_action","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","schedule","goals","vehicle_history","reports","intelligence","ask_runway","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["todo","success","kpi","stock","stock_action","vehicles","vehicle_history","calendar","schedule"],["intelligence","ask_runway"],["contacts","inspection","templates","settings"]]
     assert window.nav_buttons["success"].property("section")=="leads"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["vehicle_history"].property("section")=="leads"
