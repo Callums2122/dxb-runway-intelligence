@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -17,6 +19,7 @@ from typing import Any
 
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 SHEETS_ORIGIN = "https://sheets.googleapis.com"
+PUBLIC_SHEETS_ORIGIN = "https://docs.google.com"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 KEYCHAIN_SERVICE = "com.dxb-runway-intelligence.google-schedule-readonly"
@@ -45,14 +48,18 @@ class GoogleSheetsReadOnlyClient:
     def __init__(self):
         self.client_id=os.environ.get("DXB_GOOGLE_OAUTH_CLIENT_ID","").strip()
         self.client_secret=os.environ.get("DXB_GOOGLE_OAUTH_CLIENT_SECRET","").strip()
-        if not self.client_id:raise GoogleScheduleError("Set DXB_GOOGLE_OAUTH_CLIENT_ID before connecting Google Schedule.")
-        self.tokens=_TokenStore(self.client_id)
+        self.tokens=_TokenStore(self.client_id) if self.client_id else None
 
-    def connected(self)->bool:return bool(self.tokens.load().get("refresh_token"))
+    def connected(self)->bool:return True
 
-    def disconnect(self)->None:self.tokens.delete()
+    def connection_mode(self)->str:
+        return "oauth" if self.tokens and self.tokens.load().get("refresh_token") else "public_readonly"
+
+    def disconnect(self)->None:
+        if self.tokens:self.tokens.delete()
 
     def authorize(self)->None:
+        if not self.client_id:raise GoogleScheduleError("OAuth is optional because this rota already provides a public read-only feed. Set DXB_GOOGLE_OAUTH_CLIENT_ID only if management later disables that feed.")
         verifier=secrets.token_urlsafe(64);challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=");state=secrets.token_urlsafe(24);result:dict[str,str]={}
         class Handler(BaseHTTPRequestHandler):
             def do_GET(handler):
@@ -75,6 +82,7 @@ class GoogleSheetsReadOnlyClient:
         except (urllib.error.URLError,urllib.error.HTTPError,json.JSONDecodeError):raise GoogleScheduleError("Google authentication failed or expired.") from None
 
     def _access_token(self)->str:
+        if not self.tokens:raise GoogleScheduleError("Google OAuth is not configured.")
         token=self.tokens.load()
         if token.get("access_token") and float(token.get("expires_at",0))>time.time():return str(token["access_token"])
         if not token.get("refresh_token"):raise GoogleScheduleError("Google Schedule is not connected or access has expired.")
@@ -94,6 +102,19 @@ class GoogleSheetsReadOnlyClient:
         except (urllib.error.URLError,json.JSONDecodeError):raise GoogleScheduleError("Google Sheets is temporarily unavailable. Using the last cached rota.") from None
 
     def get_spreadsheet_values(self,spreadsheet_id:str,sheet_name:str)->list[list[str]]:
-        range_name=urllib.parse.quote(f"'{sheet_name}'",safe="");url=f"{SHEETS_ORIGIN}/v4/spreadsheets/{urllib.parse.quote(spreadsheet_id,safe='')}/values/{range_name}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE"
-        return self._sheets_get(url).get("values") or []
+        if self.connection_mode()=="oauth":
+            range_name=urllib.parse.quote(f"'{sheet_name}'",safe="");url=f"{SHEETS_ORIGIN}/v4/spreadsheets/{urllib.parse.quote(spreadsheet_id,safe='')}/values/{range_name}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE"
+            return self._sheets_get(url).get("values") or []
+        return self._public_csv_get(spreadsheet_id,sheet_name)
 
+    def _public_csv_get(self,spreadsheet_id:str,sheet_name:str)->list[list[str]]:
+        url=f"{PUBLIC_SHEETS_ORIGIN}/spreadsheets/d/{urllib.parse.quote(spreadsheet_id,safe='')}/gviz/tq?{urllib.parse.urlencode({'tqx':'out:csv','sheet':sheet_name})}"
+        if not url.startswith(PUBLIC_SHEETS_ORIGIN+"/spreadsheets/d/"):raise GoogleScheduleError("Blocked non-Google spreadsheet destination.")
+        request=urllib.request.Request(url,headers={"Accept":"text/csv"},method="GET")
+        if request.get_method()!="GET":raise GoogleScheduleError("Blocked: Google Schedule integration is strictly read-only.")
+        try:
+            with urllib.request.urlopen(request,timeout=30) as response:return list(csv.reader(io.StringIO(response.read().decode("utf-8-sig"))))
+        except urllib.error.HTTPError as error:
+            if error.code in {401,403}:raise GoogleScheduleError("The rota's read-only feed is no longer available. Using the last cached rota.") from None
+            raise GoogleScheduleError(f"Google Schedule could not be read (HTTP {error.code}). Using cached rota.") from None
+        except (urllib.error.URLError,UnicodeDecodeError,csv.Error):raise GoogleScheduleError("Google Schedule is temporarily unavailable. Using the last cached rota.") from None

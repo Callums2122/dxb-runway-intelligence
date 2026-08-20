@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import json
 import math
+import os
 import re
 import time
 from datetime import date, datetime, timedelta
@@ -1605,9 +1606,11 @@ class SettingsPage(Page):
         lock=Card();ll=QVBoxLayout(lock);title=QLabel("STRICTLY READ ONLY");title.setStyleSheet(f"color:{COLORS['green']};font-weight:900");ll.addWidget(title);copy=QLabel(f"DXB Runway can read this spreadsheet but cannot edit, delete, append or modify it.\n\nOnly OAuth scope requested:\n{SCOPE}\n\nThe Sheets transport only permits GET requests. OAuth credentials come from DXB_GOOGLE_OAUTH_CLIENT_ID and optional DXB_GOOGLE_OAUTH_CLIENT_SECRET environment variables. Tokens are stored in macOS Keychain and never shown in the UI or logs.");copy.setWordWrap(True);copy.setObjectName("muted");ll.addWidget(copy);gl.addWidget(lock)
         actions=QHBoxLayout();self.google_connect=QPushButton("Connect Google Schedule");self.google_connect.setProperty("primary",True);self.google_connect.clicked.connect(self.connect_google_schedule);actions.addWidget(self.google_connect);self.google_disconnect=QPushButton("Disconnect");self.google_disconnect.clicked.connect(self.disconnect_google_schedule);actions.addWidget(self.google_disconnect);actions.addStretch();gl.addLayout(actions);gl.addStretch();tabs.addTab(google,"Google Schedule");outer.addWidget(page_scroll(content));self.refresh_google_schedule_status()
     def refresh_google_schedule_status(self)->None:
-        try:connected=GoogleSheetsReadOnlyClient().connected();message="Connected — Read Only" if connected else "Not connected"
+        mode="unavailable"
+        try:
+            client=GoogleSheetsReadOnlyClient();connected=client.connected();mode=client.connection_mode();message="Connected — Read Only · no login required" if mode=="public_readonly" else "Connected — Read Only · OAuth"
         except GoogleScheduleError as error:connected=False;message=f"Not configured — {error}"
-        self.google_state.setText(message);self.google_state.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-size:16px;font-weight:800");self.google_disconnect.setEnabled(connected);self.google_connect.setText("Reconnect Google Schedule" if connected else "Connect Google Schedule")
+        self.google_state.setText(message);self.google_state.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-size:16px;font-weight:800");oauth=connected and mode=="oauth";self.google_disconnect.setEnabled(oauth);self.google_connect.setVisible(oauth or bool(os.environ.get("DXB_GOOGLE_OAUTH_CLIENT_ID")));self.google_connect.setText("Reconnect Google Schedule" if oauth else "Connect Google Schedule")
     def connect_google_schedule(self)->None:
         if self._google_busy:return
         self._google_busy=True;self.google_connect.setEnabled(False);self.google_state.setText("Waiting for Google authorization in your browser…");job=_GoogleScheduleAuthJob();job.signals.finished.connect(self._google_connected);job.signals.failed.connect(self._google_failed);self._google_job=job;QThreadPool.globalInstance().start(job)

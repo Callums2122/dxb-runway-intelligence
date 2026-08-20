@@ -40,7 +40,7 @@ def test_sync_caches_locally_and_records_future_change(tmp_path,monkeypatch):
 
 
 def test_sheets_transport_is_get_only(monkeypatch):
-    monkeypatch.setenv("DXB_GOOGLE_OAUTH_CLIENT_ID","test-client");client=GoogleSheetsReadOnlyClient();monkeypatch.setattr(client,"_access_token",lambda:"secret")
+    monkeypatch.setenv("DXB_GOOGLE_OAUTH_CLIENT_ID","test-client");client=GoogleSheetsReadOnlyClient();monkeypatch.setattr(client,"_access_token",lambda:"secret");monkeypatch.setattr(client,"connection_mode",lambda:"oauth")
     captured=[]
     class Response:
         def __enter__(self):return self
@@ -52,3 +52,17 @@ def test_sheets_transport_is_get_only(monkeypatch):
     assert captured[0].get_method()=="GET" and captured[0].full_url.startswith("https://sheets.googleapis.com/")
     with pytest.raises(GoogleScheduleError):client._sheets_get("https://example.com/not-sheets")
     assert SCOPE=="https://www.googleapis.com/auth/spreadsheets.readonly"
+
+
+def test_public_schedule_transport_is_anonymous_get(monkeypatch):
+    monkeypatch.delenv("DXB_GOOGLE_OAUTH_CLIENT_ID",raising=False);client=GoogleSheetsReadOnlyClient();captured=[]
+    class Response:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self):return b'Date,Callum Steen\n20/08/2026,OFF\n'
+    def fake_open(request,timeout):captured.append(request);return Response()
+    monkeypatch.setattr("dxb_runway.google_schedule.urllib.request.urlopen",fake_open)
+    rows=client.get_spreadsheet_values("sheet-id","SCHEDULE 2026")
+    assert rows[1]==["20/08/2026","OFF"]
+    assert captured[0].get_method()=="GET" and captured[0].get_header("Authorization") is None
+    assert client.connection_mode()=="public_readonly"

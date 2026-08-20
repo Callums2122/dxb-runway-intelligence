@@ -22,7 +22,7 @@ Private, data-led vehicle purchasing intelligence for macOS and Windows. This is
 
 ## Read-only Google Schedule
 
-Create a Google OAuth desktop client and provide its credentials to the app process as `DXB_GOOGLE_OAUTH_CLIENT_ID` and, only when Google issued one, `DXB_GOOGLE_OAUTH_CLIENT_SECRET`. Connect from **Settings → Google Schedule**. Tokens are stored in macOS Keychain rather than the database or logs.
+The configured management rota currently exposes Google's public read-only CSV feed, so Schedule connects without credentials, cookies or a browser session. It sends anonymous GET requests only. If management disables that feed later, OAuth remains available by providing `DXB_GOOGLE_OAUTH_CLIENT_ID` and, only when Google issued one, `DXB_GOOGLE_OAUTH_CLIENT_SECRET`; tokens are stored in macOS Keychain rather than the database or logs.
 
 The integration requests only `https://www.googleapis.com/auth/spreadsheets.readonly`. Its Sheets transport exposes GET requests only; it contains no create, append, update, batch-update or delete helpers. Schedule refreshes modify only Runway's local cache.
 
