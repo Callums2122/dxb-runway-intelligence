@@ -166,3 +166,12 @@ def test_chat_resolves_natural_eclass_stock_research_request(tmp_path: Path) -> 
     assert subject is not None
     assert (subject["make"],subject["model"],subject["trim"],subject["year"])==("Mercedes-Benz","E-Class","Premium Plus",2025)
     assert subject["trim_mode"]=="smart" and subject["stock_vehicle"]["vehicle_name"]=="2025 MERC ECLASS"
+
+
+def test_chat_maps_bmw_derivative_to_deal_drive_series_family(tmp_path: Path) -> None:
+    db=_database(tmp_path)
+    db.add_vehicle(vehicle_name="BMW 740I",purchase_price_aed=380_000,expected_sale_price_aed=400_000,purchased_date=date.today().isoformat(),purchase_type="consignment")
+    save_chat_message(db,"user","check 740i 2024 on deal drive please and see how fast it will sell")
+    subject=stock_research_subject(db,"can you grade my 7 series i have in stock please")
+    assert subject is not None
+    assert (subject["make"],subject["model"],subject["trim"],subject["year"])==("BMW","7 Series","740I",2024)

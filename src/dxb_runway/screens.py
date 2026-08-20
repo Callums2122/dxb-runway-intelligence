@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from .database import Database
 from .contact_import import import_downloaded_contacts
 from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials
+from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError, SCOPE
 from .intelligence import analyse_opportunity, split_vehicle, stock_research_subject
 from .market_watchlist import research_vehicle_now
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
@@ -1579,16 +1580,46 @@ class ReportsPage(Page):
         if path: create_financial_pdf(Path(path),month=self.month.date().toString("MMMM yyyy"),summary=self.summary,rows=[dict(r) for r in self.rows],gbp_aed_rate=self.db.get_setting("gbp_aed_rate","4.928313")); QMessageBox.information(self,"Report exported",f"PDF saved locally to:\n{path}")
 
 
+class _GoogleScheduleAuthSignals(QObject):
+    finished=Signal();failed=Signal(str)
+
+
+class _GoogleScheduleAuthJob(QRunnable):
+    def __init__(self):super().__init__();self.signals=_GoogleScheduleAuthSignals()
+    def run(self):
+        try:GoogleSheetsReadOnlyClient().authorize();self.signals.finished.emit()
+        except Exception as error:self.signals.failed.emit(str(error))
+
+
 class SettingsPage(Page):
     def __init__(self,db:Database):
-        super().__init__(db); outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(16); root.addWidget(SectionHeader("Settings & data","All settings and data stay in this computer's local application-data folder. No telemetry, accounts or network requests.")); tabs=QTabWidget(); root.addWidget(tabs)
+        super().__init__(db); self._google_busy=False; outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); root=QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(16); root.addWidget(SectionHeader("Settings & data","Runway is local-first. Only services you explicitly connect can make narrowly scoped network requests.")); tabs=QTabWidget(); root.addWidget(tabs)
         finance=QWidget(); form=QFormLayout(finance); self.fields={}; settings=db.all_settings(); self.original_rate=float(settings.get("gbp_aed_rate","4.928313")); configs=[("gbp_aed_rate","GBP → AED rate",6),("monthly_spending_cap_gbp","Monthly spending cap · GBP",2),("salary_aed","Guaranteed salary · AED",2),("rent_aed","Accommodation · AED",2),("security_deposit_aed","Refundable deposit · AED",2),("transport_aed","Transport · AED",2),("food_aed","Food estimate · AED",2),("emergency_fund_aed","Protected emergency fund · AED",2)]
         for key,label,decimals in configs: box=MoneyBox(decimals=decimals); box.setValue(float(settings.get(key,0))); self.fields[key]=box; form.addRow(label,box)
         rate_info=QLabel(f"Current snapshot: 1 GBP = {self.original_rate:.6f} AED\nSource: {settings.get('gbp_aed_rate_source','Manual')} · Updated {settings.get('gbp_aed_rate_updated_at','—')}\nGBP equivalents are calculated as AED ÷ this rate."); rate_info.setObjectName("muted"); rate_info.setWordWrap(True); form.addRow("Rate details",rate_info)
         self.quote=QLineEdit(settings.get("quote","")); self.why=QTextEdit(settings.get("why_i_moved","")); self.why.setMaximumHeight(90); form.addRow("Motivational quote",self.quote); form.addRow("Why I moved",self.why); save=QPushButton("Save settings"); save.setProperty("primary",True); save.clicked.connect(self.save); form.addRow(save); tabs.addTab(finance,"Financial assumptions")
         data=QWidget(); dl=QVBoxLayout(data); dl.setContentsMargins(18,18,18,18); dl.addWidget(QLabel(f"Database\n{db.path}")); dl.addWidget(QLabel(f"Receipts\n{db.receipts_dir}"));
         for label,callback in [("Create portable backup",self.backup),("Create encrypted backup",lambda:self.backup(True)),("Restore backup",self.restore),("Database health check",self.health),("Open local data folder",self.open_folder),("Reset demo data",self.reset_demo)]: btn=QPushButton(label); btn.clicked.connect(callback); dl.addWidget(btn)
-        privacy=QLabel("PRIVACY GUARANTEE\n\nYour Mac database remains the source of truth. Stock and Vehicle Desk data are mirrored over an encrypted connection to your private, owner-only phone app. DXB RUNWAY contains no analytics or telemetry. Transactions, receipts and other private records stay on this Mac unless you explicitly include them in a portable backup."); privacy.setWordWrap(True); privacy.setObjectName("muted"); dl.addWidget(privacy); dl.addStretch(); tabs.addTab(data,"Local data & privacy"); outer.addWidget(page_scroll(content))
+        privacy=QLabel("PRIVACY GUARANTEE\n\nYour Mac database remains the source of truth. Stock and Vehicle Desk data are mirrored over an encrypted connection to your private, owner-only phone app. DXB RUNWAY contains no analytics or telemetry. Transactions, receipts and other private records stay on this Mac unless you explicitly include them in a portable backup. Google Schedule, if connected, is isolated behind a read-only Sheets client."); privacy.setWordWrap(True); privacy.setObjectName("muted"); dl.addWidget(privacy); dl.addStretch(); tabs.addTab(data,"Local data & privacy")
+        google=QWidget();gl=QVBoxLayout(google);gl.setContentsMargins(20,20,20,20);gl.setSpacing(14);gl.addWidget(SectionHeader("Google Schedule","Connect management’s rota using the smallest possible Google permission."));self.google_state=QLabel();self.google_state.setWordWrap(True);gl.addWidget(self.google_state)
+        lock=Card();ll=QVBoxLayout(lock);title=QLabel("STRICTLY READ ONLY");title.setStyleSheet(f"color:{COLORS['green']};font-weight:900");ll.addWidget(title);copy=QLabel(f"DXB Runway can read this spreadsheet but cannot edit, delete, append or modify it.\n\nOnly OAuth scope requested:\n{SCOPE}\n\nThe Sheets transport only permits GET requests. OAuth credentials come from DXB_GOOGLE_OAUTH_CLIENT_ID and optional DXB_GOOGLE_OAUTH_CLIENT_SECRET environment variables. Tokens are stored in macOS Keychain and never shown in the UI or logs.");copy.setWordWrap(True);copy.setObjectName("muted");ll.addWidget(copy);gl.addWidget(lock)
+        actions=QHBoxLayout();self.google_connect=QPushButton("Connect Google Schedule");self.google_connect.setProperty("primary",True);self.google_connect.clicked.connect(self.connect_google_schedule);actions.addWidget(self.google_connect);self.google_disconnect=QPushButton("Disconnect");self.google_disconnect.clicked.connect(self.disconnect_google_schedule);actions.addWidget(self.google_disconnect);actions.addStretch();gl.addLayout(actions);gl.addStretch();tabs.addTab(google,"Google Schedule");outer.addWidget(page_scroll(content));self.refresh_google_schedule_status()
+    def refresh_google_schedule_status(self)->None:
+        try:connected=GoogleSheetsReadOnlyClient().connected();message="Connected — Read Only" if connected else "Not connected"
+        except GoogleScheduleError as error:connected=False;message=f"Not configured — {error}"
+        self.google_state.setText(message);self.google_state.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-size:16px;font-weight:800");self.google_disconnect.setEnabled(connected);self.google_connect.setText("Reconnect Google Schedule" if connected else "Connect Google Schedule")
+    def connect_google_schedule(self)->None:
+        if self._google_busy:return
+        self._google_busy=True;self.google_connect.setEnabled(False);self.google_state.setText("Waiting for Google authorization in your browser…");job=_GoogleScheduleAuthJob();job.signals.finished.connect(self._google_connected);job.signals.failed.connect(self._google_failed);self._google_job=job;QThreadPool.globalInstance().start(job)
+    def _google_connected(self)->None:
+        self._google_busy=False;self.google_connect.setEnabled(True);self.refresh_google_schedule_status();QMessageBox.information(self,"Google Schedule connected","Connected — Read Only\n\nRunway can read the rota but cannot modify the management spreadsheet.");self.changed.emit()
+    def _google_failed(self,message:str)->None:
+        self._google_busy=False;self.google_connect.setEnabled(True);self.refresh_google_schedule_status();QMessageBox.warning(self,"Google Schedule connection failed",message)
+    def disconnect_google_schedule(self)->None:
+        if QMessageBox.question(self,"Disconnect Google Schedule","Remove the read-only Google token from macOS Keychain? Cached rota data will remain available.")!=QMessageBox.StandardButton.Yes:return
+        try:GoogleSheetsReadOnlyClient().disconnect()
+        except GoogleScheduleError as error:QMessageBox.warning(self,"Disconnect failed",str(error));return
+        self.refresh_google_schedule_status();self.changed.emit()
     def save(self)->None:
         for key,box in self.fields.items(): self.db.set_setting(key,box.value())
         if abs(self.fields["gbp_aed_rate"].value()-self.original_rate)>0.0000005:

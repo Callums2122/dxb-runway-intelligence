@@ -623,12 +623,27 @@ def stock_research_subject(db: Database, question: str) -> dict[str, Any] | None
             found=next((value for value in aliases if clean_key.startswith(value)),"")
             if found:make=official;alias=found;break
         if not make:continue
-        model_key=clean_key[len(alias):];model=model_names.get(model_key,re.sub(r"\s+"," ",clean[len(re.match(r'^\s*\S+',clean).group(0)):]).strip())
-        if not model_key or model_key not in key:continue
-        year_matches=re.findall(r"\b(20\d{2})\b",text);stock_year=re.search(r"\b(20\d{2})\b",raw);year=int(year_matches[-1] if year_matches else stock_year.group(1) if stock_year else datetime.now().year)
-        trim=""
+        model_key=clean_key[len(alias):];model=model_names.get(model_key,re.sub(r"\s+"," ",clean[len(re.match(r'^\s*\S+',clean).group(0)):]).strip());derived_trim=""
+        match_keys={model_key}
+        # Deal Drive catalogues BMW saloons by family (7 Series), while stock is often
+        # entered by derivative (740i). Preserve both identities: model=7 Series, trim=740i.
+        bmw_derivative=re.fullmatch(r"([1-8])\d{2}[a-z0-9]*",model_key) if make=="BMW" else None
+        if bmw_derivative:
+            model=f"{bmw_derivative.group(1)} Series";derived_trim=clean.split(maxsplit=1)[1] if len(clean.split(maxsplit=1))>1 else model_key.upper();match_keys.add(f"{bmw_derivative.group(1)}series")
+        if not model_key or not any(value and value in key for value in match_keys):continue
+        year_matches=re.findall(r"\b(20\d{2})\b",text);stock_year=re.search(r"\b(20\d{2})\b",raw);saved_year=item.get("market_model_year")
+        history_year=None
+        if not year_matches and not saved_year and not stock_year:
+            for message in db.query("SELECT message FROM intelligence_chat_messages WHERE role='user' ORDER BY id DESC LIMIT 40"):
+                message_text=str(message["message"] or "");message_key=re.sub(r"[^a-z0-9]+","",message_text.casefold())
+                if any(value and value in message_key for value in match_keys):
+                    found=re.findall(r"\b(20\d{2})\b",message_text)
+                    if found:history_year=int(found[-1]);break
+        year_value=year_matches[-1] if year_matches else saved_year if saved_year else stock_year.group(1) if stock_year else history_year or datetime.now().year
+        year=int(year_value)
+        trim=str(item.get("market_trim") or derived_trim or "")
         tail_match=re.search(rf"\b{year}\b\s+([A-Za-z][A-Za-z0-9+ -]{{1,35}})\s*[?.!]*$",text.strip())
         if tail_match:trim=re.sub(r"\s+"," ",tail_match.group(1)).strip().title()
-        candidates.append((len(model_key),{"make":make,"model":model,"trim":trim,"year":year,"year_to":year+1,"mileage_km":50000,
-                                           "trim_mode":"smart","stock_vehicle":item,"mileage_assumed":True}))
+        candidates.append((max(len(value) for value in match_keys),{"make":make,"model":model,"trim":trim,"year":year,"year_to":year+1,"mileage_km":int(item.get("mileage_km") or 50000),
+                                           "trim_mode":"smart","stock_vehicle":item,"mileage_assumed":not bool(item.get("mileage_km"))}))
     return max(candidates,key=lambda value:value[0])[1] if candidates else None

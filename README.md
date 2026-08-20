@@ -18,6 +18,13 @@ Private, data-led vehicle purchasing intelligence for macOS and Windows. This is
 - Uses the dedicated Runway agent portrait in the page header and every assistant message.
 - Retains chat history locally and turns clear owner instructions such as “remember”, “from now on” or “add seasonality to the analysis” into durable, reviewable memory.
 - Includes a Memory screen where learned preferences can be added or forgotten; memories are injected into future app and Discord analysis without granting the agent write access.
+- Adds a Schedule dashboard backed by a capability-limited Google Sheets client using only `spreadsheets.readonly`, with a ten-minute refresh, local cache, rota change detection and cached fallback when Google is unavailable.
+
+## Read-only Google Schedule
+
+Create a Google OAuth desktop client and provide its credentials to the app process as `DXB_GOOGLE_OAUTH_CLIENT_ID` and, only when Google issued one, `DXB_GOOGLE_OAUTH_CLIENT_SECRET`. Connect from **Settings → Google Schedule**. Tokens are stored in macOS Keychain rather than the database or logs.
+
+The integration requests only `https://www.googleapis.com/auth/spreadsheets.readonly`. Its Sheets transport exposes GET requests only; it contains no create, append, update, batch-update or delete helpers. Schedule refreshes modify only Runway's local cache.
 
 ## AI safety boundary
 

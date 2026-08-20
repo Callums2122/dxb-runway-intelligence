@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 31
+SCHEMA_VERSION = 32
 
 
 MIGRATIONS: dict[int, str] = {
@@ -500,6 +500,33 @@ MIGRATIONS: dict[int, str] = {
     ALTER TABLE vehicles ADD COLUMN deal_drive_median_asking_aed REAL;
     ALTER TABLE vehicles ADD COLUMN deal_drive_research_json TEXT NOT NULL DEFAULT '{}';
     ALTER TABLE vehicles ADD COLUMN deal_drive_researched_at TEXT;
+    """,
+    32: """
+    CREATE TABLE IF NOT EXISTS schedule_entries (
+      schedule_date TEXT NOT NULL,
+      person_name TEXT NOT NULL,
+      shift_type TEXT NOT NULL,
+      raw_value TEXT NOT NULL DEFAULT '',
+      synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(schedule_date,person_name)
+    );
+    CREATE TABLE IF NOT EXISTS schedule_changes (
+      id INTEGER PRIMARY KEY,
+      schedule_date TEXT NOT NULL,
+      old_shift TEXT NOT NULL,
+      new_shift TEXT NOT NULL,
+      detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS schedule_sync_runs (
+      id INTEGER PRIMARY KEY,
+      started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT,
+      status TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      content_hash TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedule_entries_date ON schedule_entries(schedule_date);
+    CREATE INDEX IF NOT EXISTS idx_schedule_changes_detected ON schedule_changes(detected_at DESC);
     """,
 }
 
