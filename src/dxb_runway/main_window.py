@@ -26,7 +26,7 @@ from .style import COLORS
 
 
 NAV_SECTIONS = [
-    ("leads", "LEADS", COLORS["purple"], [("todo", "✓", "Today's to-do"), ("success", "★", "Checklist to success"), ("kpi", "◫", "KPI tracker"), ("stock", "▦", "Stock level"), ("stock_action", "⚡", "Stock action plan"), ("vehicles", "◈", "Vehicle desk"), ("vehicle_history", "◷", "Vehicle performance"), ("calendar", "▣", "Calendar"), ("schedule", "◴", "Schedule")]),
+    ("leads", "LEADS", COLORS["purple"], [("todo", "📝", "Today's to-do"), ("success", "🎯", "Checklist to success"), ("kpi", "📊", "KPI tracker"), ("stock", "🚘", "Stock level"), ("stock_action", "⚡", "Stock action plan"), ("vehicles", "💼", "Vehicle desk"), ("vehicle_history", "📈", "Vehicle performance"), ("calendar", "📅", "Calendar"), ("schedule", "🗓", "Schedule")]),
     ("ai", "RUNWAY AI", COLORS["cyan"], [("intelligence", "✦", "Buying intelligence"), ("ask_runway", "◉", "Ask Runway")]),
     ("other", "MISC / OTHER", COLORS["amber"], [("contacts", "◉", "Customer contact"), ("inspection", "⌕", "Inspection"), ("templates", "✉", "WhatsApp templates"), ("settings", "⚙", "Settings")]),
 ]
