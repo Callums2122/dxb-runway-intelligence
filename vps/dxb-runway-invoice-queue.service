@@ -1,0 +1,24 @@
+[Unit]
+Description=DXB Runway read-only invoice queue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dxb-runway-invoices
+Group=dxb-runway-invoices
+EnvironmentFile=/etc/dxb-runway/invoice-queue.env
+ExecStart=/usr/bin/python3 /opt/dxb-runway-invoice-queue/invoice_queue.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dxb-runway-invoices
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

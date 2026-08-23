@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from datetime import date, datetime
+from typing import Any
+
+from .database import Database
+from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError
+
+
+def spreadsheet_id(value: str) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", text)
+    candidate = match.group(1) if match else text
+    return candidate if re.fullmatch(r"[A-Za-z0-9_-]{20,}", candidate) else ""
+
+
+def _norm(value: object) -> str:
+    text = str(value or "").upper().replace("MERCEDES-BENZ", "MERCEDES").replace("RANGE ROVER", "LAND ROVER")
+    text = re.sub(r"\b(NEW|USED|GCC|UAE|CLASS)\b", " ", text)
+    return re.sub(r"[^A-Z0-9]+", " ", text).strip()
+
+
+def _date(value: object) -> str | None:
+    text = str(value or "").strip()
+    for pattern in ("%Y %B %d", "%Y %b %d", "%d %B %Y", "%d %b %Y", "%d/%m/%Y", "%Y-%m-%d"):
+        try: return datetime.strptime(text, pattern).date().isoformat()
+        except ValueError: pass
+    match = re.search(r"(20\d{2})\s+([A-Za-z]+)\s+(\d{1,2})", text)
+    if match:
+        try: return datetime.strptime(" ".join(match.groups()), "%Y %B %d").date().isoformat()
+        except ValueError: pass
+    return None
+
+
+def _vehicle_parts(value: object) -> tuple[int | None, tuple[str, ...]]:
+    text = _norm(value); year_match = re.search(r"\b(20\d{2})\b", text); year = int(year_match.group(1)) if year_match else None
+    if year_match: text = re.sub(rf"\b{year}\b", " ", text)
+    tokens = tuple(token for token in text.split() if token not in {"THE", "CAR", "PREMIUM", "PLUS", "LINE", "EDITION"})
+    return year, tokens
+
+
+def _same_model(left: object, right: object) -> bool:
+    _, a = _vehicle_parts(left); _, b = _vehicle_parts(right)
+    if not a or not b: return False
+    compact_a = "".join(a); compact_b = "".join(b)
+    if compact_a in compact_b or compact_b in compact_a: return True
+    common = set(a) & set(b)
+    return len(common) >= min(2, len(set(a)), len(set(b)))
+
+
+def match_stock(vehicle_text: str, stock: list[dict[str, Any]]) -> tuple[int | None, str, str]:
+    source_year, _ = _vehicle_parts(vehicle_text)
+    candidates = [row for row in stock if _same_model(vehicle_text, row["vehicle_name"])]
+    if not candidates: return None, "unmatched", "No matching make/model currently in stock"
+    exact = [row for row in candidates if source_year and _vehicle_parts(row["vehicle_name"])[0] == source_year]
+    chosen = exact[0] if exact else candidates[0]
+    if exact: return int(chosen["id"]), "green", f"Exact year, make and model · {chosen['vehicle_name']}"
+    return int(chosen["id"]), "amber", f"Same make and model · stock is {chosen['vehicle_name']}"
+
+
+def parse_pipeline(values: list[list[str]], stock: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    current_date: str | None = None; section = "Appointments"; headers: dict[str, int] = {}; output: list[dict[str, Any]] = []
+    aliases = {"NO":"no","SN":"stock_number","STOCK NO":"stock_number","STOCK NUMBER":"stock_number","NAME":"customer_name","CUSTOMER":"customer_name","CAR":"vehicle_text","VEHICLE":"vehicle_text","TIME":"appointment_time","SALESPERSON":"salesperson","CHECKED IN?":"checked_in","CHECKED IN":"checked_in","NOTE":"note","NOTES":"note","MOVED?":"moved","MOVED":"moved"}
+    for row_index, row in enumerate(values):
+        cells = [str(cell or "").strip() for cell in row]; joined = " ".join(cell for cell in cells if cell)
+        found_date = next((_date(cell) for cell in cells if _date(cell)), None)
+        if found_date: current_date = found_date
+        if "APPOINTMENT" in joined.upper() and len(joined) < 100: section = joined.title()
+        normalized = [_norm(cell) for cell in cells]
+        if "CAR" in normalized or "VEHICLE" in normalized:
+            headers = {aliases[name]: index for index, name in enumerate(normalized) if name in aliases}; continue
+        if not headers or "vehicle_text" not in headers: continue
+        def cell(key: str) -> str:
+            index = headers.get(key, -1); return cells[index] if 0 <= index < len(cells) else ""
+        vehicle = cell("vehicle_text")
+        if not vehicle or _norm(vehicle) in {"CAR", "VEHICLE"}: continue
+        day = current_date or date.today().isoformat(); matched, grade, detail = match_stock(vehicle, stock)
+        key = "|".join((cell("stock_number"), cell("customer_name"), vehicle, cell("appointment_time"), str(row_index)))
+        output.append({"appointment_date":day,"source_row_key":hashlib.sha256(key.encode()).hexdigest()[:24],"stock_number":cell("stock_number"),"customer_name":cell("customer_name"),"vehicle_text":vehicle,"appointment_time":cell("appointment_time"),"salesperson":cell("salesperson"),"checked_in":cell("checked_in"),"note":cell("note"),"moved":cell("moved"),"section_name":section,"matched_vehicle_id":matched,"match_grade":grade,"match_detail":detail})
+    return output
+
+
+def sync_pipeline(db: Database) -> int:
+    source_id = spreadsheet_id(db.get_setting("pipeline_spreadsheet_id", "")); sheet = db.get_setting("pipeline_sheet_name", "Pipeline").strip() or "Pipeline"
+    if not source_id: raise GoogleScheduleError("Paste the Pipeline Google Sheet link in Settings first. Cached appointments remain available.")
+    run = db.execute("INSERT INTO pipeline_sync_runs(status,message) VALUES ('running','Reading Pipeline — strictly read only')")
+    try:
+        values = GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
+        stock = [dict(row) for row in db.query("SELECT id,vehicle_name FROM vehicles WHERE status='stock' ORDER BY id")]
+        rows = parse_pipeline(values, stock); digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+        days = sorted({row["appointment_date"] for row in rows})
+        with db.connect() as connection:
+            for day in days: connection.execute("DELETE FROM pipeline_appointments WHERE appointment_date=?", (day,))
+            connection.executemany("""INSERT INTO pipeline_appointments(appointment_date,source_row_key,stock_number,customer_name,vehicle_text,appointment_time,salesperson,checked_in,note,moved,section_name,matched_vehicle_id,match_grade,match_detail) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [tuple(row[key] for key in ("appointment_date","source_row_key","stock_number","customer_name","vehicle_text","appointment_time","salesperson","checked_in","note","moved","section_name","matched_vehicle_id","match_grade","match_detail")) for row in rows])
+            connection.execute("UPDATE pipeline_sync_runs SET status='success',message=?,content_hash=?,completed_at=CURRENT_TIMESTAMP WHERE id=?", (f"Read-only sync complete · {len(rows)} appointments", digest, run))
+        return len(rows)
+    except Exception as error:
+        db.execute("UPDATE pipeline_sync_runs SET status='failed',message=?,completed_at=CURRENT_TIMESTAMP WHERE id=?", (str(error), run)); raise
+
+
+def appointments(db: Database, day: str | None = None) -> list[dict[str, Any]]:
+    day = day or date.today().isoformat()
+    return [dict(row) for row in db.query("SELECT p.*,v.vehicle_name AS matched_vehicle FROM pipeline_appointments p LEFT JOIN vehicles v ON v.id=p.matched_vehicle_id WHERE p.appointment_date=? ORDER BY p.appointment_time,p.id", (day,))]
+
+
+def sync_status(db: Database) -> dict[str, Any]:
+    rows = db.query("SELECT * FROM pipeline_sync_runs ORDER BY id DESC LIMIT 1")
+    return dict(rows[0]) if rows else {"status":"never","message":"Waiting for first read-only Pipeline sync","completed_at":None}

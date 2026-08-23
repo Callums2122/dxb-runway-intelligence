@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 33
+SCHEMA_VERSION = 34
 
 
 MIGRATIONS: dict[int, str] = {
@@ -545,6 +545,39 @@ MIGRATIONS: dict[int, str] = {
       processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_invoice_sync_events_processed ON invoice_sync_events(processed_at DESC);
+    """,
+    34: """
+    CREATE TABLE IF NOT EXISTS pipeline_appointments (
+      id INTEGER PRIMARY KEY,
+      appointment_date TEXT NOT NULL,
+      source_row_key TEXT NOT NULL,
+      stock_number TEXT NOT NULL DEFAULT '',
+      customer_name TEXT NOT NULL DEFAULT '',
+      vehicle_text TEXT NOT NULL DEFAULT '',
+      appointment_time TEXT NOT NULL DEFAULT '',
+      salesperson TEXT NOT NULL DEFAULT '',
+      checked_in TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      moved TEXT NOT NULL DEFAULT '',
+      section_name TEXT NOT NULL DEFAULT '',
+      matched_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      match_grade TEXT NOT NULL DEFAULT 'unmatched' CHECK(match_grade IN ('green','amber','unmatched')),
+      match_detail TEXT NOT NULL DEFAULT '',
+      synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(appointment_date,source_row_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pipeline_appointments_date ON pipeline_appointments(appointment_date);
+    CREATE INDEX IF NOT EXISTS idx_pipeline_appointments_match ON pipeline_appointments(match_grade,matched_vehicle_id);
+    CREATE TABLE IF NOT EXISTS pipeline_sync_runs (
+      id INTEGER PRIMARY KEY,
+      started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT,
+      status TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      content_hash TEXT NOT NULL DEFAULT ''
+    );
+    INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_spreadsheet_id','');
+    INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_sheet_name','Pipeline');
     """,
 }
 

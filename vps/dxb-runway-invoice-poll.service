@@ -1,0 +1,15 @@
+[Unit]
+Description=Poll DXB Runway read-only invoice source
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=dxb-runway-invoices
+Group=dxb-runway-invoices
+EnvironmentFile=/etc/dxb-runway/invoice-queue.env
+ExecStart=/usr/bin/python3 -c "import sys;sys.path.insert(0,'/opt/dxb-runway-invoice-queue');import invoice_queue;print(invoice_queue.poll())"
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dxb-runway-invoices

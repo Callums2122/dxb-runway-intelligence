@@ -26,6 +26,7 @@ from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials
 from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError, SCOPE
 from .intelligence import analyse_opportunity, split_vehicle, stock_research_subject
 from .market_watchlist import research_vehicle_now
+from .pipeline import spreadsheet_id
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
@@ -1602,9 +1603,29 @@ class SettingsPage(Page):
         data=QWidget(); dl=QVBoxLayout(data); dl.setContentsMargins(18,18,18,18); dl.addWidget(QLabel(f"Database\n{db.path}")); dl.addWidget(QLabel(f"Receipts\n{db.receipts_dir}"));
         for label,callback in [("Create portable backup",self.backup),("Create encrypted backup",lambda:self.backup(True)),("Restore backup",self.restore),("Database health check",self.health),("Open local data folder",self.open_folder),("Reset demo data",self.reset_demo)]: btn=QPushButton(label); btn.clicked.connect(callback); dl.addWidget(btn)
         privacy=QLabel("PRIVACY GUARANTEE\n\nYour Mac database remains the source of truth. Stock and Vehicle Desk data are mirrored over an encrypted connection to your private, owner-only phone app. DXB RUNWAY contains no analytics or telemetry. Transactions, receipts and other private records stay on this Mac unless you explicitly include them in a portable backup. Google Schedule, if connected, is isolated behind a read-only Sheets client."); privacy.setWordWrap(True); privacy.setObjectName("muted"); dl.addWidget(privacy); dl.addStretch(); tabs.addTab(data,"Local data & privacy")
-        google=QWidget();gl=QVBoxLayout(google);gl.setContentsMargins(20,20,20,20);gl.setSpacing(14);gl.addWidget(SectionHeader("Google Schedule","Connect management’s rota using the smallest possible Google permission."));self.google_state=QLabel();self.google_state.setWordWrap(True);gl.addWidget(self.google_state)
+        google=QWidget();gl=QVBoxLayout(google);gl.setContentsMargins(20,20,20,20);gl.setSpacing(14);gl.addWidget(SectionHeader("Google Sheets · read only","Schedule and Pipeline use the same capability-limited read-only Google connection."));self.google_state=QLabel();self.google_state.setWordWrap(True);gl.addWidget(self.google_state)
+        pipeline=Card();pl=QFormLayout(pipeline);self.pipeline_url=QLineEdit(db.get_setting("pipeline_spreadsheet_id",""));self.pipeline_url.setPlaceholderText("Paste the Pipeline Google Sheet URL");self.pipeline_sheet=QLineEdit(db.get_setting("pipeline_sheet_name","Pipeline"));self.pipeline_sheet.setPlaceholderText("Pipeline");pl.addRow("Pipeline spreadsheet",self.pipeline_url);pl.addRow("Sheet / tab name",self.pipeline_sheet);save_pipeline=QPushButton("Save Pipeline connection");save_pipeline.setProperty("primary",True);save_pipeline.clicked.connect(self.save_pipeline_connection);pl.addRow(save_pipeline);gl.addWidget(pipeline)
         lock=Card();ll=QVBoxLayout(lock);title=QLabel("STRICTLY READ ONLY");title.setStyleSheet(f"color:{COLORS['green']};font-weight:900");ll.addWidget(title);copy=QLabel(f"DXB Runway can read this spreadsheet but cannot edit, delete, append or modify it.\n\nOnly OAuth scope requested:\n{SCOPE}\n\nThe Sheets transport only permits GET requests. OAuth credentials come from DXB_GOOGLE_OAUTH_CLIENT_ID and optional DXB_GOOGLE_OAUTH_CLIENT_SECRET environment variables. Tokens are stored in macOS Keychain and never shown in the UI or logs.");copy.setWordWrap(True);copy.setObjectName("muted");ll.addWidget(copy);gl.addWidget(lock)
-        actions=QHBoxLayout();self.google_connect=QPushButton("Connect Google Schedule");self.google_connect.setProperty("primary",True);self.google_connect.clicked.connect(self.connect_google_schedule);actions.addWidget(self.google_connect);self.google_disconnect=QPushButton("Disconnect");self.google_disconnect.clicked.connect(self.disconnect_google_schedule);actions.addWidget(self.google_disconnect);actions.addStretch();gl.addLayout(actions);gl.addStretch();tabs.addTab(google,"Google Schedule");outer.addWidget(page_scroll(content));self.refresh_google_schedule_status()
+        actions=QHBoxLayout();self.google_connect=QPushButton("Connect Google Schedule");self.google_connect.setProperty("primary",True);self.google_connect.clicked.connect(self.connect_google_schedule);actions.addWidget(self.google_connect);self.google_disconnect=QPushButton("Disconnect");self.google_disconnect.clicked.connect(self.disconnect_google_schedule);actions.addWidget(self.google_disconnect);actions.addStretch();gl.addLayout(actions);gl.addStretch();tabs.addTab(google,"Google Schedule")
+        invoices=QWidget();il=QVBoxLayout(invoices);il.setContentsMargins(20,20,20,20);il.setSpacing(14);il.addWidget(SectionHeader("Sold invoice sync","Runway reads only the Google Chat INVOICES space and safely matches sold vehicles to current stock."));self.invoice_state=QLabel();self.invoice_state.setWordWrap(True);il.addWidget(self.invoice_state)
+        guard=Card();guard_l=QVBoxLayout(guard);guard_title=QLabel("READ ONLY · SAFE MATCHING");guard_title.setStyleSheet(f"color:{COLORS['green']};font-weight:900");guard_l.addWidget(guard_title);guard_copy=QLabel("Runway cannot send, reply to, react to, edit or delete Google Chat messages. Exact stock numbers are preferred. A unique vehicle/year match may be sold automatically; ambiguous matches and consignments are held for review without changing stock.");guard_copy.setWordWrap(True);guard_copy.setObjectName("muted");guard_l.addWidget(guard_copy);il.addWidget(guard)
+        self.invoice_events=QTableWidget(0,5);self.invoice_events.setHorizontalHeaderLabels(["TIME","VEHICLE","STOCK NO.","OUTCOME","DETAIL"]);self.invoice_events.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);self.invoice_events.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows);self.invoice_events.setMinimumHeight(260);il.addWidget(self.invoice_events);il.addStretch();tabs.addTab(invoices,"Sold invoice sync")
+        outer.addWidget(page_scroll(content));self.refresh_google_schedule_status();self.refresh_invoice_status()
+
+    def refresh(self)->None:
+        self.refresh_google_schedule_status();self.refresh_invoice_status()
+
+    def refresh_invoice_status(self)->None:
+        connected=bool(self.db.get_setting("invoice_sync_endpoint") and self.db.get_setting("invoice_sync_access_key"));last=self.db.get_setting("invoice_sync_last_at","Never");error=self.db.get_setting("invoice_sync_last_error")
+        message=f"{'Connected — Read Only' if connected else 'Not connected'} · checks every 5 minutes · last checked {last}"
+        if error:message+=f"\nLast warning: {error}"
+        self.invoice_state.setText(message);self.invoice_state.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-size:15px;font-weight:800")
+        rows=self.db.query("SELECT * FROM invoice_sync_events ORDER BY processed_at DESC,id DESC LIMIT 20") if connected else []
+        self.invoice_events.setRowCount(len(rows))
+        for i,row in enumerate(rows):
+            values=[row["processed_at"],f"{row['model_year'] or ''} {row['vehicle_text']}".strip(),row["stock_number"],str(row["outcome"]).upper(),row["detail"]]
+            for j,value in enumerate(values):self.invoice_events.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if j==3 and row["outcome"]=="sold" else COLORS["amber"] if j==3 and row["outcome"]=="review" else None))
+        self.invoice_events.horizontalHeader().setStretchLastSection(True)
     def refresh_google_schedule_status(self)->None:
         mode="unavailable"
         try:
@@ -1623,6 +1644,10 @@ class SettingsPage(Page):
         try:GoogleSheetsReadOnlyClient().disconnect()
         except GoogleScheduleError as error:QMessageBox.warning(self,"Disconnect failed",str(error));return
         self.refresh_google_schedule_status();self.changed.emit()
+    def save_pipeline_connection(self)->None:
+        source=spreadsheet_id(self.pipeline_url.text())
+        if not source:QMessageBox.warning(self,"Invalid Pipeline link","Paste the full Google Sheets Pipeline URL, or its spreadsheet ID.");return
+        self.db.set_setting("pipeline_spreadsheet_id",source);self.db.set_setting("pipeline_sheet_name",self.pipeline_sheet.text().strip() or "Pipeline");self.pipeline_url.setText(source);QMessageBox.information(self,"Pipeline connected","Saved — Read Only\n\nRunway will read the Pipeline every 10 minutes and cannot edit, append or delete anything in it.");self.changed.emit()
     def save(self)->None:
         for key,box in self.fields.items(): self.db.set_setting(key,box.value())
         if abs(self.fields["gbp_aed_rate"].value()-self.original_rate)>0.0000005:

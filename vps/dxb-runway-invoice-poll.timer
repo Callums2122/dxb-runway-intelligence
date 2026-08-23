@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll DXB Runway invoice source every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=20
+
+[Install]
+WantedBy=timers.target
