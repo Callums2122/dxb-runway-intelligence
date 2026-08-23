@@ -161,6 +161,12 @@ def run(notify: bool = False, date_key: str | None = None) -> dict:
         try:
             rows = parse_appointments(fetch_values())
             timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            # Each source date is a complete read-only snapshot. Clear only the
+            # matching local dates before replacing them so deleted or moved
+            # appointments cannot remain stale in Runway.
+            snapshot_dates = sorted({row["date"] for row in rows})
+            for snapshot_date in snapshot_dates:
+                db.execute("DELETE FROM appointments WHERE appointment_date=?", (snapshot_date,))
             for row in rows:
                 db.execute("""INSERT INTO appointments(appointment_key,appointment_date,appointment_time,stock_number,customer_name,vehicle_text,salesperson,checked_in,note,moved,first_seen,last_seen,payload_json)
                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(appointment_key) DO UPDATE SET appointment_date=excluded.appointment_date,appointment_time=excluded.appointment_time,stock_number=excluded.stock_number,customer_name=excluded.customer_name,vehicle_text=excluded.vehicle_text,salesperson=excluded.salesperson,checked_in=excluded.checked_in,note=excluded.note,moved=excluded.moved,last_seen=excluded.last_seen,payload_json=excluded.payload_json""",
