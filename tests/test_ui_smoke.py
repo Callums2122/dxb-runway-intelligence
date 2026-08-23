@@ -98,7 +98,7 @@ def test_mobile_sync_snapshot_contains_only_vehicle_desk_data(tmp_path: Path):
     assert snapshot["vehicles"][0]["vehicle_name"]=="2024 Porsche 911"
     assert snapshot["months"][0]["purchasing_budget_aed"]==2_000_000
     assert snapshot["earnings"][0]["tier"]=="Tier 3"
-    assert set(snapshot)=={"vehicles","months","earnings"}
+    assert set(snapshot)=={"vehicles","months","earnings","schedule","kpiCalls","kpiWork"}
 
 
 def test_hit_kpi_reduces_vehicle_desk_tier_goal(tmp_path: Path):

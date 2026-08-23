@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 32
+SCHEMA_VERSION = 33
 
 
 MIGRATIONS: dict[int, str] = {
@@ -528,6 +528,24 @@ MIGRATIONS: dict[int, str] = {
     CREATE INDEX IF NOT EXISTS idx_schedule_entries_date ON schedule_entries(schedule_date);
     CREATE INDEX IF NOT EXISTS idx_schedule_changes_detected ON schedule_changes(detected_at DESC);
     """,
+    33: """
+    ALTER TABLE vehicles ADD COLUMN external_stock_number TEXT NOT NULL DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_vehicles_external_stock_number ON vehicles(external_stock_number);
+    CREATE TABLE IF NOT EXISTS invoice_sync_events (
+      id INTEGER PRIMARY KEY,
+      source_message_id TEXT NOT NULL UNIQUE,
+      source_created_at TEXT NOT NULL DEFAULT '',
+      stock_number TEXT NOT NULL DEFAULT '',
+      vehicle_text TEXT NOT NULL DEFAULT '',
+      model_year INTEGER,
+      sold_price_aed REAL,
+      matched_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      outcome TEXT NOT NULL CHECK(outcome IN ('sold','review','ignored','error')),
+      detail TEXT NOT NULL DEFAULT '',
+      processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_invoice_sync_events_processed ON invoice_sync_events(processed_at DESC);
+    """,
 }
 
 
@@ -658,6 +676,20 @@ class Database:
                                  "deal_drive_research_json":"TEXT NOT NULL DEFAULT '{}'","deal_drive_researched_at":"TEXT"}
                     for column,definition in definitions.items():
                         if column not in columns:connection.execute(f"ALTER TABLE vehicles ADD COLUMN {column} {definition}")
+                elif version == 33:
+                    columns={row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
+                    if "external_stock_number" not in columns:connection.execute("ALTER TABLE vehicles ADD COLUMN external_stock_number TEXT NOT NULL DEFAULT ''")
+                    connection.executescript("""
+                    CREATE INDEX IF NOT EXISTS idx_vehicles_external_stock_number ON vehicles(external_stock_number);
+                    CREATE TABLE IF NOT EXISTS invoice_sync_events (
+                      id INTEGER PRIMARY KEY, source_message_id TEXT NOT NULL UNIQUE, source_created_at TEXT NOT NULL DEFAULT '',
+                      stock_number TEXT NOT NULL DEFAULT '', vehicle_text TEXT NOT NULL DEFAULT '', model_year INTEGER,
+                      sold_price_aed REAL, matched_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+                      outcome TEXT NOT NULL CHECK(outcome IN ('sold','review','ignored','error')), detail TEXT NOT NULL DEFAULT '',
+                      processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_invoice_sync_events_processed ON invoice_sync_events(processed_at DESC);
+                    """)
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -705,7 +737,8 @@ class Database:
         """Return the small, read-only dataset mirrored to the private phone app."""
         vehicles = [dict(row) for row in self.query(
             "SELECT id,vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,status,"
-            "sold_price_aed,sold_date,notes,purchase_type,initial_owner_payout_aed,updated_at "
+            "sold_price_aed,sold_date,notes,purchase_type,initial_owner_payout_aed,updated_at,"
+            "deal_drive_estimated_days,deal_drive_confidence,deal_drive_archive_samples "
             "FROM vehicles ORDER BY id"
         )]
         months = [dict(row) for row in self.query(
@@ -715,7 +748,16 @@ class Database:
             "SELECT year,month,purchasing_budget_aed,eligible_profit_aed,tier,salary_aed,commission_aed,"
             "payment_date,received FROM earnings ORDER BY year,month"
         )]
-        return {"vehicles": vehicles, "months": months, "earnings": earnings}
+        schedule = [dict(row) for row in self.query(
+            "SELECT schedule_date,person_name,shift_type,raw_value FROM schedule_entries ORDER BY schedule_date,person_name"
+        )]
+        kpi_calls = [dict(row) for row in self.query(
+            "SELECT called_at,phone_number,call_count FROM kpi_calls WHERE called_at>=date('now','start of month','-1 month') ORDER BY called_at"
+        )]
+        kpi_work = [dict(row) for row in self.query(
+            "SELECT work_date,hours FROM kpi_work_days WHERE work_date>=date('now','start of month','-1 month') ORDER BY work_date"
+        )]
+        return {"vehicles": vehicles, "months": months, "earnings": earnings, "schedule": schedule, "kpiCalls": kpi_calls, "kpiWork": kpi_work}
 
     def daily_tasks(self, task_date: str | None = None) -> list[sqlite3.Row]:
         chosen_date=str(task_date or date.today().isoformat())[:10]
@@ -1018,7 +1060,7 @@ class Database:
 
     def add_vehicle(self, *, vehicle_name: str, purchase_price_aed: float, expected_sale_price_aed: float,
                     purchased_date: str, notes: str = "", purchase_type: str = "cash", market_model_year: int | None = None,
-                    market_trim: str = "", mileage_km: int | None = None) -> int:
+                    market_trim: str = "", mileage_km: int | None = None, external_stock_number: str = "") -> int:
         name = vehicle_name.strip()
         if not name:
             raise ValueError("Vehicle name is required")
@@ -1027,9 +1069,9 @@ class Database:
         if purchase_type not in {"cash", "consignment"}:
             raise ValueError("Purchase type must be cash or consignment")
         return self.execute(
-            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed,market_model_year,market_trim,mileage_km,deal_drive_research_status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO vehicles(vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,notes,purchase_type,initial_owner_payout_aed,market_model_year,market_trim,mileage_km,deal_drive_research_status,external_stock_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (name, purchase_price_aed, expected_sale_price_aed, purchased_date[:10], notes.strip(), purchase_type, purchase_price_aed if purchase_type=="consignment" else None,
-             market_model_year,market_trim.strip(),mileage_km,"pending"),
+             market_model_year,market_trim.strip(),mileage_km,"pending",external_stock_number.strip()),
         )
 
     def mark_vehicle_consignment(self,vehicle_id:int,owner_payout_aed:float)->None:
