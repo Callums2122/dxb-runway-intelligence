@@ -578,6 +578,8 @@ MIGRATIONS: dict[int, str] = {
     );
     INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_spreadsheet_id','');
     INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_sheet_name','Pipeline');
+    INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_reader_url','');
+    INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_reader_key','');
     """,
 }
 

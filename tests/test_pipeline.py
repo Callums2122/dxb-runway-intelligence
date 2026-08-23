@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dxb_runway.database import Database
 from dxb_runway.google_schedule import GoogleSheetsReadOnlyClient
-from dxb_runway.pipeline import appointments, parse_pipeline, spreadsheet_id, sync_pipeline
+from dxb_runway.pipeline import appointments, get_pipeline_reader_values, parse_pipeline, spreadsheet_id, sync_pipeline
 
 
 def sample_values():
@@ -35,3 +35,23 @@ def test_pipeline_sync_is_read_only_and_caches(tmp_path,monkeypatch):
 
 def test_spreadsheet_id_rejects_non_google_noise():
     assert spreadsheet_id("not a sheet")==""
+
+
+def test_private_reader_is_get_only(monkeypatch):
+    captured=[]
+    class Response:
+        def __enter__(self):return self
+        def __exit__(self,*args):return None
+        def read(self):return b'{"ok":true,"values":[["Pipeline"]]}'
+    def open_request(request,timeout):
+        captured.append((request.full_url,request.get_method(),timeout));return Response()
+    monkeypatch.setattr("urllib.request.urlopen",open_request)
+    assert get_pipeline_reader_values("https://script.google.com/macros/s/deployment/exec","private-key")==[["Pipeline"]]
+    assert captured[0][1]=="GET"
+    assert "key=private-key" in captured[0][0]
+
+
+def test_private_reader_rejects_other_hosts():
+    import pytest
+    with pytest.raises(Exception,match="Blocked unapproved"):
+        get_pipeline_reader_values("https://example.com/macros/s/deployment/exec","private-key")

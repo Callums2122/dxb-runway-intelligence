@@ -1,0 +1,11 @@
+[Unit]
+Description=Send DXB Runway morning briefing at 07:00 Dubai time
+
+[Timer]
+# Dubai is UTC+4 year-round.
+OnCalendar=*-*-* 03:00:00 UTC
+AccuracySec=20s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

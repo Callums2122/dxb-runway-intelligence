@@ -3,11 +3,45 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, datetime
 from typing import Any
 
 from .database import Database
 from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError
+
+
+PIPELINE_READER_ORIGIN = "https://script.google.com"
+
+
+def get_pipeline_reader_values(endpoint: str, access_key: str) -> list[list[str]]:
+    """Read the private Pipeline bridge using one capability-limited GET request."""
+    endpoint = str(endpoint or "").strip()
+    access_key = str(access_key or "").strip()
+    if not endpoint or not access_key:
+        raise GoogleScheduleError("The private Pipeline reader is not configured. Cached appointments remain available.")
+    parsed = urllib.parse.urlparse(endpoint)
+    if parsed.scheme != "https" or parsed.netloc != "script.google.com" or not parsed.path.startswith("/macros/s/"):
+        raise GoogleScheduleError("Blocked unapproved Pipeline reader destination.")
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    query.append(("key", access_key))
+    url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(query)))
+    request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+    if request.get_method() != "GET":
+        raise GoogleScheduleError("Blocked: Pipeline integration is strictly read-only.")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        raise GoogleScheduleError(f"The private Pipeline reader could not be read (HTTP {error.code}). Cached appointments remain available.") from None
+    except (urllib.error.URLError, json.JSONDecodeError):
+        raise GoogleScheduleError("The private Pipeline reader is temporarily unavailable. Cached appointments remain available.") from None
+    if not payload.get("ok"):
+        raise GoogleScheduleError(str(payload.get("error") or "The private Pipeline reader rejected the request."))
+    values = payload.get("values")
+    return values if isinstance(values, list) else []
 
 
 def spreadsheet_id(value: str) -> str:
@@ -88,7 +122,9 @@ def sync_pipeline(db: Database) -> int:
     if not source_id: raise GoogleScheduleError("Paste the Pipeline Google Sheet link in Settings first. Cached appointments remain available.")
     run = db.execute("INSERT INTO pipeline_sync_runs(status,message) VALUES ('running','Reading Pipeline — strictly read only')")
     try:
-        values = GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
+        reader_url = db.get_setting("pipeline_reader_url", "").strip()
+        reader_key = db.get_setting("pipeline_reader_key", "").strip()
+        values = get_pipeline_reader_values(reader_url, reader_key) if reader_url else GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
         stock = [dict(row) for row in db.query("SELECT id,vehicle_name FROM vehicles WHERE status='stock' ORDER BY id")]
         rows = parse_pipeline(values, stock); digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         days = sorted({row["appointment_date"] for row in rows})
