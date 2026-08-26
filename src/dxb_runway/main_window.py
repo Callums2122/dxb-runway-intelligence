@@ -17,6 +17,7 @@ from .intelligence_screen import AskRunwayPage, IntelligencePage
 from .schedule_screen import SchedulePage
 from .pipeline_screen import PipelinePage
 from .stock_action_plan import StockActionPlanPage
+from .commerce_dashboard import CommerceDashboardPage
 from .mobile_sync import MobileSyncManager
 from .invoice_sync_manager import InvoiceSyncManager
 from .stock_flow_manager import StockFlowManager
@@ -25,10 +26,12 @@ from .screens import (
     ScenarioPage, SettingsPage, StockLevelPage, SuccessChecklistPage, TodayTodoPage, TransactionsPage, VehicleDeskPage, VehicleHistoryPage,
     WhatsAppTemplatesPage
 )
+DashboardPage = CommerceDashboardPage
 from .style import COLORS
 
 
 NAV_SECTIONS = [
+    ("overview", "DASHBOARD", COLORS["green"], [("dashboard", "▦", "Dashboard")]),
     ("leads", "LEADS", COLORS["purple"], [("stock", "🚘", "Stock level"), ("vehicles", "💼", "Vehicle desk"), ("kpi", "📊", "KPI tracker"), ("schedule", "🗓", "Schedule"), ("stock_action", "⚡", "Stock action plan"), ("vehicle_history", "📈", "Vehicle performance"), ("pipeline", "🟢", "Appointments"), ("todo", "📝", "Today's to-do"), ("success", "🎯", "Checklist to success"), ("calendar", "📅", "Calendar")]),
     ("ai", "RUNWAY AI", COLORS["cyan"], [("intelligence", "✦", "Buying intelligence"), ("ask_runway", "◉", "Ask Runway")]),
     ("other", "MISC / OTHER", COLORS["amber"], [("contacts", "◉", "Customer contact"), ("inspection", "⌕", "Inspection"), ("templates", "✉", "WhatsApp templates"), ("settings", "⚙", "Settings")]),
@@ -71,8 +74,8 @@ class MainWindow(QMainWindow):
         self.invoice_sync=InvoiceSyncManager(db,self); self.invoice_sync.status_changed.connect(self.set_invoice_status); self.invoice_sync.data_changed.connect(self._invoice_data_changed)
         self.stock_flow_sync=StockFlowManager(db,self); self.stock_flow_sync.status_changed.connect(self.set_invoice_status); self.stock_flow_sync.data_changed.connect(self._invoice_data_changed)
         for page in self.pages.values(): page.changed.connect(self.refresh_all); page.changed.connect(self.mobile_sync.schedule)
-        QShortcut(QKeySequence(f"{COMMAND_MOD}+K"),self,activated=self.open_palette); QShortcut(QKeySequence(f"{COMMAND_MOD}+1"),self,activated=lambda:self.navigate("intelligence")); QShortcut(QKeySequence("F5"),self,activated=self.refresh_all)
-        self.compact=False; self.navigate("intelligence"); QTimer.singleShot(1200,self.mobile_sync.schedule)
+        QShortcut(QKeySequence(f"{COMMAND_MOD}+K"),self,activated=self.open_palette); QShortcut(QKeySequence(f"{COMMAND_MOD}+1"),self,activated=lambda:self.navigate("dashboard")); QShortcut(QKeySequence("F5"),self,activated=self.refresh_all)
+        self.compact=False; self.navigate("dashboard"); QTimer.singleShot(1200,self.mobile_sync.schedule)
 
     def set_sync_status(self,text:str,okay:bool)->None:
         self.sync_status.setText(text); self.sync_status.setStyleSheet(f"color:{COLORS['green'] if okay else COLORS['muted']};font-size:10px")
