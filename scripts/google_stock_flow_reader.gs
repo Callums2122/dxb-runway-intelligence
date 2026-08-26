@@ -11,15 +11,38 @@ function doGet(e) {
     return json_({status: 'error', error: 'unauthorised'});
   }
   try {
-    const query = 'from:admin@albacars.kissflow.com newer_than:45d';
-    const listed = gmailGet_('/gmail/v1/users/me/messages?q=' + encodeURIComponent(query) + '&maxResults=500');
-    const events = (listed.messages || []).map(function(row) {
-      return parseMessage_(gmailGet_('/gmail/v1/users/me/messages/' + encodeURIComponent(row.id) + '?format=full'));
+    const query = 'from:admin@albacars.kissflow.com newer_than:45d {subject:"STOCK FLOW" subject:"PRICE REDUCTION"}';
+    const listed = gmailGet_('/gmail/v1/users/me/messages?q=' + encodeURIComponent(query) + '&maxResults=200');
+    const messages = gmailGetMany_((listed.messages || []).map(function(row) {
+      return '/gmail/v1/users/me/messages/' + encodeURIComponent(row.id) + '?format=full';
+    }));
+    const events = messages.map(function(message) {
+      return parseMessage_(message);
     }).filter(function(row) { return row !== null; });
     return json_({status: 'ok', readOnly: true, stockEvents: events});
   } catch (error) {
     return json_({status: 'error', error: String(error && error.message || error)});
   }
+}
+
+function gmailGetMany_(paths) {
+  const token = ScriptApp.getOAuthToken();
+  const results = [];
+  for (let offset = 0; offset < paths.length; offset += 50) {
+    const requests = paths.slice(offset, offset + 50).map(function(path) {
+      return {
+        url: 'https://gmail.googleapis.com' + path,
+        method: 'get',
+        headers: {Authorization: 'Bearer ' + token},
+        muteHttpExceptions: true
+      };
+    });
+    UrlFetchApp.fetchAll(requests).forEach(function(response) {
+      if (response.getResponseCode() !== 200) throw new Error('Gmail read failed: HTTP ' + response.getResponseCode());
+      results.push(JSON.parse(response.getContentText()));
+    });
+  }
+  return results;
 }
 
 function gmailGet_(path) {

@@ -4,6 +4,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=runway-reader
+Group=runway-reader
 EnvironmentFile=/etc/dxb-runway/invoice-queue.env
 ExecStart=/usr/bin/python3 /opt/dxb-runway/invoice_queue.py --poll-stock-flow
 NoNewPrivileges=true
@@ -11,4 +13,17 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/dxb-runway-invoices
-
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+PrivateDevices=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0027
