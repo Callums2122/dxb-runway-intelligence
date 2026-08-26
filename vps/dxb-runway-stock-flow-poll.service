@@ -1,0 +1,14 @@
+[Unit]
+Description=DXB Runway read-only Stock Flow poll
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/dxb-runway/invoice-queue.env
+ExecStart=/usr/bin/python3 /opt/dxb-runway/invoice_queue.py --poll-stock-flow
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dxb-runway-invoices
+

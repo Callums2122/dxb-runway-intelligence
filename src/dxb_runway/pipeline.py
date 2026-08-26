@@ -110,8 +110,19 @@ def parse_pipeline(values: list[list[str]], stock: list[dict[str, Any]]) -> list
         def cell(key: str) -> str:
             index = headers.get(key, -1); return cells[index] if 0 <= index < len(cells) else ""
         vehicle = cell("vehicle_text")
-        if not vehicle or _norm(vehicle) in {"CAR", "VEHICLE"}: continue
-        day = current_date or date.today().isoformat(); matched, grade, detail = match_stock(vehicle, stock)
+        appointment_number = cell("no")
+        # Management often creates the booking before filling in its vehicle.
+        # A numbered rota row is still a real appointment and must be counted.
+        is_numbered_appointment = bool(re.fullmatch(r"\d+", appointment_number.replace(",", "").strip()))
+        has_appointment_details = bool(cell("customer_name") and cell("appointment_time"))
+        if not is_numbered_appointment and not has_appointment_details: continue
+        if _norm(vehicle) in {"CAR", "VEHICLE"}: continue
+        if vehicle:
+            matched, grade, detail = match_stock(vehicle, stock)
+        else:
+            vehicle = "Vehicle not supplied"
+            matched, grade, detail = None, "unmatched", "Management has not supplied a vehicle for this appointment yet"
+        day = current_date or date.today().isoformat()
         key = "|".join((cell("stock_number"), cell("customer_name"), vehicle, cell("appointment_time"), str(row_index)))
         output.append({"appointment_date":day,"source_row_key":hashlib.sha256(key.encode()).hexdigest()[:24],"stock_number":cell("stock_number"),"customer_name":cell("customer_name"),"vehicle_text":vehicle,"appointment_time":cell("appointment_time"),"salesperson":cell("salesperson"),"checked_in":cell("checked_in"),"note":cell("note"),"moved":cell("moved"),"section_name":section,"matched_vehicle_id":matched,"match_grade":grade,"match_detail":detail})
     return output
@@ -124,7 +135,12 @@ def sync_pipeline(db: Database) -> int:
     try:
         reader_url = db.get_setting("pipeline_reader_url", "").strip()
         reader_key = db.get_setting("pipeline_reader_key", "").strip()
-        values = get_pipeline_reader_values(reader_url, reader_key) if reader_url else GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
+        if reader_url or reader_key:
+            if not reader_url or not reader_key:
+                raise GoogleScheduleError("The private Pipeline reader URL and access key must both be configured. Cached appointments remain available.")
+            values = get_pipeline_reader_values(reader_url, reader_key)
+        else:
+            values = GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
         stock = [dict(row) for row in db.query("SELECT id,vehicle_name FROM vehicles WHERE status='stock' ORDER BY id")]
         rows = parse_pipeline(values, stock); digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         days = sorted({row["appointment_date"] for row in rows})
@@ -145,3 +161,17 @@ def appointments(db: Database, day: str | None = None) -> list[dict[str, Any]]:
 def sync_status(db: Database) -> dict[str, Any]:
     rows = db.query("SELECT * FROM pipeline_sync_runs ORDER BY id DESC LIMIT 1")
     return dict(rows[0]) if rows else {"status":"never","message":"Waiting for first read-only Pipeline sync","completed_at":None}
+
+
+def connection_status(db: Database) -> tuple[bool, str]:
+    """Report the actual Pipeline transport state without exposing credentials."""
+    source = spreadsheet_id(db.get_setting("pipeline_spreadsheet_id", ""))
+    reader_url = db.get_setting("pipeline_reader_url", "").strip()
+    reader_key = db.get_setting("pipeline_reader_key", "").strip()
+    if not source:
+        return False, "Pipeline spreadsheet is not configured"
+    if bool(reader_url) != bool(reader_key):
+        return False, "Private reader configuration is incomplete"
+    if reader_url and reader_key:
+        return True, "Connected through the private GET-only reader"
+    return False, "Private Pipeline reader URL and access key are required"

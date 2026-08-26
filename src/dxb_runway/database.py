@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 
 
 MIGRATIONS: dict[int, str] = {
@@ -581,6 +581,24 @@ MIGRATIONS: dict[int, str] = {
     INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_reader_url','');
     INSERT OR IGNORE INTO settings(key,value) VALUES ('pipeline_reader_key','');
     """,
+    35: """
+    ALTER TABLE vehicles ADD COLUMN external_workflow_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vehicles ADD COLUMN external_stock_status TEXT NOT NULL DEFAULT '';
+    ALTER TABLE vehicles ADD COLUMN external_live_price_aed REAL;
+    ALTER TABLE vehicles ADD COLUMN external_status_updated_at TEXT;
+    CREATE INDEX IF NOT EXISTS idx_vehicles_external_workflow_id ON vehicles(external_workflow_id);
+    CREATE TABLE IF NOT EXISTS stock_flow_events (
+      id INTEGER PRIMARY KEY, source_message_id TEXT NOT NULL UNIQUE, source_created_at TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '', workflow_id TEXT NOT NULL DEFAULT '', stock_number TEXT NOT NULL DEFAULT '',
+      vehicle_text TEXT NOT NULL DEFAULT '', model_year INTEGER, event_type TEXT NOT NULL,
+      stock_status TEXT NOT NULL DEFAULT '', live_price_aed REAL,
+      matched_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+      outcome TEXT NOT NULL CHECK(outcome IN ('linked','updated','review','ignored','error')),
+      detail TEXT NOT NULL DEFAULT '', raw_json TEXT NOT NULL DEFAULT '{}', processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_flow_events_processed ON stock_flow_events(processed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_stock_flow_events_vehicle ON stock_flow_events(matched_vehicle_id,processed_at DESC);
+    """,
 }
 
 
@@ -603,6 +621,8 @@ DEFAULT_SETTINGS = {
     "start_date": "2026-07-27", "arrival_date": "2026-07-23", "onboarding_complete": "0",
     "why_i_moved": "Build a stronger future with patience, focus and options.", "quote": "Protect the runway. Earn the upside.",
     "theme": "dark", "start_of_month": "1", "currency_preference": "AED",
+    "pipeline_spreadsheet_id": "", "pipeline_sheet_name": "Pipeline",
+    "pipeline_reader_url": "", "pipeline_reader_key": "",
 }
 
 
@@ -725,6 +745,25 @@ class Database:
                     );
                     CREATE INDEX IF NOT EXISTS idx_invoice_sync_events_processed ON invoice_sync_events(processed_at DESC);
                     """)
+                elif version == 35:
+                    columns={row[1] for row in connection.execute("PRAGMA table_info(vehicles)").fetchall()}
+                    definitions={"external_workflow_id":"TEXT NOT NULL DEFAULT ''","external_stock_status":"TEXT NOT NULL DEFAULT ''","external_live_price_aed":"REAL","external_status_updated_at":"TEXT"}
+                    for column,definition in definitions.items():
+                        if column not in columns:connection.execute(f"ALTER TABLE vehicles ADD COLUMN {column} {definition}")
+                    connection.executescript("""
+                    CREATE INDEX IF NOT EXISTS idx_vehicles_external_workflow_id ON vehicles(external_workflow_id);
+                    CREATE TABLE IF NOT EXISTS stock_flow_events (
+                      id INTEGER PRIMARY KEY, source_message_id TEXT NOT NULL UNIQUE, source_created_at TEXT NOT NULL DEFAULT '',
+                      subject TEXT NOT NULL DEFAULT '', workflow_id TEXT NOT NULL DEFAULT '', stock_number TEXT NOT NULL DEFAULT '',
+                      vehicle_text TEXT NOT NULL DEFAULT '', model_year INTEGER, event_type TEXT NOT NULL,
+                      stock_status TEXT NOT NULL DEFAULT '', live_price_aed REAL,
+                      matched_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL,
+                      outcome TEXT NOT NULL CHECK(outcome IN ('linked','updated','review','ignored','error')),
+                      detail TEXT NOT NULL DEFAULT '', raw_json TEXT NOT NULL DEFAULT '{}', processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_stock_flow_events_processed ON stock_flow_events(processed_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_stock_flow_events_vehicle ON stock_flow_events(matched_vehicle_id,processed_at DESC);
+                    """)
                 else:
                     connection.executescript(MIGRATIONS[version])
                 connection.execute(f"PRAGMA user_version={version}")
@@ -773,7 +812,8 @@ class Database:
         vehicles = [dict(row) for row in self.query(
             "SELECT id,vehicle_name,purchase_price_aed,expected_sale_price_aed,purchased_date,status,"
             "sold_price_aed,sold_date,notes,purchase_type,initial_owner_payout_aed,updated_at,"
-            "deal_drive_estimated_days,deal_drive_confidence,deal_drive_archive_samples "
+            "deal_drive_estimated_days,deal_drive_confidence,deal_drive_archive_samples,"
+            "external_stock_number,external_workflow_id,external_stock_status,external_live_price_aed,external_status_updated_at "
             "FROM vehicles ORDER BY id"
         )]
         months = [dict(row) for row in self.query(

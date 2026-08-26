@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dxb_runway.database import Database
 from dxb_runway.google_schedule import GoogleSheetsReadOnlyClient
-from dxb_runway.pipeline import appointments, get_pipeline_reader_values, parse_pipeline, spreadsheet_id, sync_pipeline
+from dxb_runway.pipeline import appointments, connection_status, get_pipeline_reader_values, parse_pipeline, spreadsheet_id, sync_pipeline
 
 
 def sample_values():
@@ -21,6 +21,17 @@ def test_pipeline_parser_grades_exact_model_and_unmatched():
     rows=parse_pipeline(sample_values(),stock)
     assert [row["match_grade"] for row in rows]==["green","amber","unmatched"]
     assert all(row["appointment_date"]=="2026-08-23" for row in rows)
+
+
+def test_pipeline_parser_counts_numbered_appointments_without_vehicle():
+    values = sample_values()
+    values.append(["4", "", "Customer without vehicle", "", "4:00 PM"])
+    rows = parse_pipeline(values, [])
+    blank_vehicle = rows[-1]
+    assert len(rows) == 4
+    assert blank_vehicle["vehicle_text"] == "Vehicle not supplied"
+    assert blank_vehicle["match_grade"] == "unmatched"
+    assert "not supplied" in blank_vehicle["match_detail"].lower()
 
 
 def test_pipeline_sync_is_read_only_and_caches(tmp_path,monkeypatch):
@@ -55,3 +66,13 @@ def test_private_reader_rejects_other_hosts():
     import pytest
     with pytest.raises(Exception,match="Blocked unapproved"):
         get_pipeline_reader_values("https://example.com/macros/s/deployment/exec","private-key")
+
+
+def test_connection_status_requires_complete_private_reader(tmp_path):
+    db=Database(tmp_path/"data.db")
+    db.set_setting("pipeline_spreadsheet_id","abcdefghijklmnopqrstuvwxyz123456789")
+    assert connection_status(db)==(False,"Private Pipeline reader URL and access key are required")
+    db.set_setting("pipeline_reader_url","https://script.google.com/macros/s/deployment/exec")
+    assert connection_status(db)==(False,"Private reader configuration is incomplete")
+    db.set_setting("pipeline_reader_key","private-key")
+    assert connection_status(db)==(True,"Connected through the private GET-only reader")

@@ -7,7 +7,7 @@ import pytest
 
 from dxb_runway.database import Database
 from dxb_runway.google_schedule import GoogleScheduleError,GoogleSheetsReadOnlyClient,SCOPE
-from dxb_runway.schedule import classify_shift,get_evening_shift_team,get_recent_changes,get_schedule_rows,sync_schedule
+from dxb_runway.schedule import classify_shift,get_evening_shift_team,get_recent_changes,get_schedule_rows,get_upcoming_schedule,sync_schedule
 
 
 def test_shift_classification_including_blank():
@@ -24,6 +24,14 @@ def test_parser_finds_dynamic_columns_and_ignores_metadata():
 
 def test_parser_requires_callum_and_date():
     with pytest.raises(GoogleScheduleError):get_schedule_rows([["Date","Someone Else"],["20/08/2026","OFF"]])
+
+
+def test_upcoming_can_start_from_tomorrow(tmp_path):
+    db=Database(tmp_path/"data.db");today=date(2026,8,25);tomorrow=today+timedelta(days=1)
+    db.execute("INSERT INTO schedule_entries(schedule_date,person_name,shift_type,raw_value) VALUES (?,?,?,?)",(today.isoformat(),"Callum Steen","Normal Working Day",""))
+    db.execute("INSERT INTO schedule_entries(schedule_date,person_name,shift_type,raw_value) VALUES (?,?,?,?)",(tomorrow.isoformat(),"Callum Steen","ADDITIONAL/SPECIAL LEAVE","ADDITIONAL/SPECIAL LEAVE"))
+    rows=get_upcoming_schedule(db,today+timedelta(days=1))
+    assert [row["schedule_date"] for row in rows]==[tomorrow.isoformat()]
 
 
 def test_sync_caches_locally_and_records_future_change(tmp_path,monkeypatch):

@@ -19,6 +19,7 @@ from .pipeline_screen import PipelinePage
 from .stock_action_plan import StockActionPlanPage
 from .mobile_sync import MobileSyncManager
 from .invoice_sync_manager import InvoiceSyncManager
+from .stock_flow_manager import StockFlowManager
 from .screens import (
     BudgetsPage, CalendarPage, CustomerContactPage, DashboardPage, DebtPage, GoalsPage, InspectionPage, KPITrackerPage, ReportsPage,
     ScenarioPage, SettingsPage, StockLevelPage, SuccessChecklistPage, TodayTodoPage, TransactionsPage, VehicleDeskPage, VehicleHistoryPage,
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         for key,page in self.pages.items(): self.stack.addWidget(page); self.page_keys.append(key)
         self.mobile_sync=MobileSyncManager(db,self); self.mobile_sync.status_changed.connect(self.set_sync_status)
         self.invoice_sync=InvoiceSyncManager(db,self); self.invoice_sync.status_changed.connect(self.set_invoice_status); self.invoice_sync.data_changed.connect(self._invoice_data_changed)
+        self.stock_flow_sync=StockFlowManager(db,self); self.stock_flow_sync.status_changed.connect(self.set_invoice_status); self.stock_flow_sync.data_changed.connect(self._invoice_data_changed)
         for page in self.pages.values(): page.changed.connect(self.refresh_all); page.changed.connect(self.mobile_sync.schedule)
         QShortcut(QKeySequence(f"{COMMAND_MOD}+K"),self,activated=self.open_palette); QShortcut(QKeySequence(f"{COMMAND_MOD}+1"),self,activated=lambda:self.navigate("intelligence")); QShortcut(QKeySequence("F5"),self,activated=self.refresh_all)
         self.compact=False; self.navigate("intelligence"); QTimer.singleShot(1200,self.mobile_sync.schedule)

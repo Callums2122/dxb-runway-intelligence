@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QAbstractItemView,QComboBox,QGridLayout,QHeaderVie
 
 from .database import Database
 from .google_schedule import GoogleSheetsReadOnlyClient,GoogleScheduleError
-from .schedule import OFF_TYPES,get_evening_shift_team,get_my_schedule,get_recent_changes,get_upcoming_schedule,sync_schedule,sync_status
+from .schedule import OFF_TYPES,dubai_today,get_evening_shift_team,get_my_schedule,get_recent_changes,get_upcoming_schedule,sync_schedule,sync_status
 from .screens import Page,page_scroll,table_item
 from .style import COLORS
 from .widgets import Card,MetricCard,SectionHeader
@@ -40,7 +40,7 @@ class SchedulePage(Page):
         head=QHBoxLayout();head.addWidget(SectionHeader("Schedule","A simple view of when you are working, on evenings, OFF or on leave."));head.addStretch();self.status_label=QLabel();self.status_label.setObjectName("muted");head.addWidget(self.status_label);self.sync_button=QPushButton("↻ Refresh now");self.sync_button.clicked.connect(lambda:self.start_sync(True));head.addWidget(self.sync_button);root.addLayout(head)
         self.coverage=QLabel();self.coverage.setWordWrap(True);self.coverage.setStyleSheet(f"color:{COLORS['amber']};font-weight:800");root.addWidget(self.coverage)
         metrics=QGridLayout();metrics.setSpacing(12);self.metrics={}
-        for column,(key,label,color) in enumerate((("today","Today",COLORS["cyan"]),("next","Next working day",COLORS["green"]),("evening","Next evening shift",COLORS["purple"]),("off","Next OFF / leave",COLORS["amber"]))):card=MetricCard(label,accent=color);self.metrics[key]=card;metrics.addWidget(card,0,column)
+        for column,(key,label,color) in enumerate((("today","Today",COLORS["cyan"]),("next","Next day",COLORS["green"]),("evening","Next evening shift",COLORS["purple"]),("off","Next OFF / leave",COLORS["amber"]))):card=MetricCard(label,accent=color);self.metrics[key]=card;metrics.addWidget(card,0,column)
         root.addLayout(metrics)
         glance=Card();gal=QVBoxLayout(glance);gal.addWidget(SectionHeader("Next 30 rota days","Everything important, grouped so you can read it in seconds."));legend=QHBoxLayout();self.glance={}
         for key,title,color in (("working","WORKING DAYS",COLORS["green"]),("evening","EVENING SHIFTS",COLORS["purple"]),("off","DAYS OFF",COLORS["red"]),("leave","LEAVE / HOLIDAY",COLORS["amber"])):
@@ -51,7 +51,14 @@ class SchedulePage(Page):
         evening=Card();el=QVBoxLayout(evening);el.addWidget(SectionHeader("Evening shift team","Who is working the evening shift with you."));self.evening=QTableWidget(0,3);self._setup(self.evening,["DATE","DAY","TEAM WITH CALLUM"]);el.addWidget(self.evening);bottom.addWidget(evening,0,0)
         changes=Card();cl=QVBoxLayout(changes);cl.addWidget(SectionHeader("Recent schedule changes","Latest future changes management made after your previous sync."));self.changes=QTableWidget(0,3);self._setup(self.changes,["DATE","PREVIOUS","NEW"]);cl.addWidget(self.changes);bottom.addWidget(changes,0,1);root.addLayout(bottom)
         summary=Card();sl=QVBoxLayout(summary);sl.addWidget(SectionHeader("Selected month summary","A clean count for the month shown above."));self.summary=QLabel();self.summary.setWordWrap(True);sl.addWidget(self.summary);root.addWidget(summary);outer.addWidget(page_scroll(content))
-        self.timer=QTimer(self);self.timer.setInterval(600_000);self.timer.timeout.connect(lambda:self.start_sync(False));self.timer.start();self.refresh();QTimer.singleShot(1000,lambda:self.start_sync(False))
+        self.timer=QTimer(self);self.timer.setInterval(600_000);self.timer.timeout.connect(lambda:self.start_sync(False));self.timer.start()
+        self.day_timer=QTimer(self);self.day_timer.setInterval(60_000);self.day_timer.timeout.connect(self._refresh_if_day_changed);self.day_timer.start();self._visible_day=dubai_today()
+        self.refresh();QTimer.singleShot(1000,lambda:self.start_sync(False))
+
+    def _refresh_if_day_changed(self)->None:
+        current=dubai_today()
+        if current!=self._visible_day:
+            self._visible_day=current;self.refresh();self.start_sync(False);self.changed.emit()
 
     def _setup(self,table:QTableWidget,labels:list[str]):table.setHorizontalHeaderLabels(labels);table.verticalHeader().hide();table.horizontalHeader().setStretchLastSection(True);table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers);table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection);table.setMinimumHeight(235)
     def start_sync(self,force:bool)->None:
@@ -70,14 +77,14 @@ class SchedulePage(Page):
     def _failed(self,message:str)->None:self._busy=False;self.sync_button.setEnabled(True);self.status_label.setText(f"Cached rota · {message}");self.refresh()
 
     def refresh(self)->None:
-        rows=get_my_schedule(self.db);by_day={row["schedule_date"]:row for row in rows};today=date.today();first=date.fromisoformat(rows[0]["schedule_date"]) if rows else None;last=date.fromisoformat(rows[-1]["schedule_date"]) if rows else None
+        rows=get_my_schedule(self.db);by_day={row["schedule_date"]:row for row in rows};today=dubai_today();self._visible_day=today;first=date.fromisoformat(rows[0]["schedule_date"]) if rows else None;last=date.fromisoformat(rows[-1]["schedule_date"]) if rows else None
         if first and today<first:self.coverage.setText(f"ⓘ Management has supplied this rota from {first.strftime('%A %d %B %Y')}. Days before that date are not present in the sheet.")
         elif first:self.coverage.setText(f"✓ LIVE READ-ONLY ROTA · Coverage {first.strftime('%d %b %Y')} to {last.strftime('%d %b %Y')} · refreshed every 10 minutes")
         else:self.coverage.setText("No rota has been cached yet. Press Refresh now to retry.")
         today_row=by_day.get(today.isoformat());today_shift=today_row["shift_type"] if today_row else "No rota supplied";today_detail="Management rota starts later" if first and today<first else "Working · Evening shift" if today_shift=="EVENING SHIFT" else "Working" if _working(today_shift) else "Not working"
-        self.metrics["today"].set_value(_short(today_shift),today_detail,_colour(today_shift));upcoming=get_upcoming_schedule(self.db,today)
-        next_work=next((row for row in upcoming if _working(row["shift_type"])),None);next_evening=next((row for row in upcoming if row["shift_type"]=="EVENING SHIFT"),None);next_rest=next((row for row in upcoming if not _working(row["shift_type"])),None)
-        self.metrics["next"].set_value(_short(next_work["shift_type"]) if next_work else "—",self._day_detail(next_work),COLORS["green"]);team=get_evening_shift_team(self.db,next_evening["schedule_date"]) if next_evening else [];self.metrics["evening"].set_value("EVENING" if next_evening else "—",self._day_detail(next_evening)+(f" · With {', '.join(team)}" if team else ""),COLORS["purple"]);self.metrics["off"].set_value(_short(next_rest["shift_type"]) if next_rest else "—",self._day_detail(next_rest),_colour(next_rest["shift_type"]) if next_rest else COLORS["amber"])
+        self.metrics["today"].set_value(_short(today_shift),today_detail,_colour(today_shift));upcoming=get_upcoming_schedule(self.db,today);future=get_upcoming_schedule(self.db,today+timedelta(days=1))
+        next_day=future[0] if future else None;next_evening=next((row for row in future if row["shift_type"]=="EVENING SHIFT"),None);next_rest=next((row for row in future if not _working(row["shift_type"])),None)
+        self.metrics["next"].set_value(_short(next_day["shift_type"]) if next_day else "—",self._day_detail(next_day),_colour(next_day["shift_type"]) if next_day else COLORS["green"]);team=get_evening_shift_team(self.db,next_evening["schedule_date"]) if next_evening else [];self.metrics["evening"].set_value("EVENING" if next_evening else "—",self._day_detail(next_evening)+(f" · With {', '.join(team)}" if team else ""),COLORS["purple"]);self.metrics["off"].set_value(_short(next_rest["shift_type"]) if next_rest else "—",self._day_detail(next_rest),_colour(next_rest["shift_type"]) if next_rest else COLORS["amber"])
         window=upcoming[:30]
         groups={key:[row for row in window if _category(row["shift_type"])==key] for key in self.glance}
         all_work=[row for row in window if _working(row["shift_type"])]

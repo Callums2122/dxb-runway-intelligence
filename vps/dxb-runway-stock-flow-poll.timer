@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll read-only Kissflow stock email events every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=dxb-runway-stock-flow-poll.service
+
+[Install]
+WantedBy=timers.target

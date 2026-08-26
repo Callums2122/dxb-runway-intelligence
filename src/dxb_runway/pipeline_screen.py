@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView, QDateEdit, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QTableWidget, QVBoxLayout, QWidget
 
 from .database import Database
-from .pipeline import appointments, sync_pipeline, sync_status
+from .pipeline import appointments, connection_status, sync_pipeline, sync_status
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
 from .widgets import Card, MetricCard, SectionHeader
@@ -29,8 +29,7 @@ class PipelinePage(Page):
         super().__init__(db); self._busy = False
         outer = QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(24,22,24,28); root.setSpacing(14)
         head = QHBoxLayout(); head.addWidget(SectionHeader("Appointments","Live management Pipeline appointments matched against your current stock.")); head.addStretch(); self.status = QLabel(); self.status.setObjectName("muted"); head.addWidget(self.status); self.day = QDateEdit(); self.day.setCalendarPopup(True); self.day.setDisplayFormat("ddd dd MMM yyyy"); self.day.setDate(QDate.currentDate()); self.day.dateChanged.connect(self.refresh); head.addWidget(self.day); self.sync_button = QPushButton("↻ Refresh now"); self.sync_button.clicked.connect(lambda:self.start_sync(True)); head.addWidget(self.sync_button); root.addLayout(head)
-        safety = QLabel("CONNECTED ACCESS IS STRICTLY READ ONLY · refreshes every 10 minutes · the management spreadsheet can never be edited")
-        safety.setStyleSheet(f"color:{COLORS['green']};font-weight:850"); safety.setWordWrap(True); root.addWidget(safety)
+        self.safety = QLabel(); self.safety.setWordWrap(True); root.addWidget(self.safety)
         metrics = QGridLayout(); metrics.setSpacing(12); self.metrics = {}
         for column,(key,label,color) in enumerate((("total","Appointments",COLORS["cyan"]),("green","Exact stock match",COLORS["green"]),("amber","Model match",COLORS["amber"]),("unmatched","Not in your stock",COLORS["muted"]))):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,column)
@@ -53,6 +52,9 @@ class PipelinePage(Page):
     def _failed(self,message:str)->None: self._busy=False; self.sync_button.setEnabled(True); self.status.setText(f"Cached appointments · {message}"); self.refresh()
 
     def refresh(self) -> None:
+        connected, connection_message = connection_status(self.db)
+        self.safety.setText(f"{'CONNECTED' if connected else 'CONNECTION NEEDED'} · {connection_message} · STRICTLY READ ONLY")
+        self.safety.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-weight:850")
         selected = self.day.date().toString("yyyy-MM-dd"); rows = appointments(self.db, selected); order={"green":0,"amber":1,"unmatched":2}; rows.sort(key=lambda row:(order.get(row["match_grade"],3),row["appointment_time"]))
         counts={grade:sum(row["match_grade"]==grade for row in rows) for grade in ("green","amber","unmatched")}
         self.metrics["total"].set_value(str(len(rows)),date.fromisoformat(selected).strftime("%A · %d %B"),COLORS["cyan"])

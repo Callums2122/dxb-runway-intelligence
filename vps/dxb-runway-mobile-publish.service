@@ -1,6 +1,6 @@
 [Unit]
-Description=DXB Runway 07:00 Dubai sales briefing notification
-After=network-online.target
+Description=Publish cached DXB Runway brief to mobile
+After=network-online.target dxb-runway-pipeline-sync.service
 Wants=network-online.target
 
 [Service]
@@ -8,7 +8,7 @@ Type=oneshot
 User=runway-publisher
 Group=runway-publisher
 EnvironmentFile=/etc/dxb-runway/publisher.env
-ExecStart=/opt/dxb-runway-pipeline/venv/bin/python /opt/dxb-runway-pipeline/pipeline_brief.py --publish-only --notify
+ExecStart=/opt/dxb-runway-pipeline/venv/bin/python /opt/dxb-runway-pipeline/pipeline_brief.py --publish-only
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
