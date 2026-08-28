@@ -14,10 +14,12 @@ from dxb_runway.app import place_on_secondary_display
 from dxb_runway.dialogs import CustomerContactDialog, OnboardingDialog, SellVehicleDialog, VehicleDialog
 from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer, openclaw_request, watchlist_match_from_question
+from dxb_runway.pipeline_screen import PipelinePage
 from dxb_runway.gym import GymNutritionPage
 from dxb_runway.domain import TARGET_PERCENTAGES, money
 from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
 from dxb_runway.screens import WhatsAppTemplatesPage
+from dxb_runway.style import COLORS
 
 
 def app():
@@ -143,6 +145,17 @@ def test_stock_vehicle_edit_dialog_prefills_matching_fields(tmp_path: Path):
     assert values["vehicle_name"]=="2024 Audi Q8" and values["market_trim"]=="S line"
     assert values["external_stock_number"]=="13833" and values["mileage_km"]==15000
     dialog.close()
+
+
+def test_pipeline_exact_stock_number_is_visibly_green(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); vehicle_id=db.add_vehicle(vehicle_name="2024 Audi Q8",purchase_type="cash",purchase_price_aed=227000,expected_sale_price_aed=285000,purchased_date="2026-08-14",external_stock_number="13833")
+    today=date.today().isoformat(); db.execute("""INSERT INTO pipeline_appointments(appointment_date,source_row_key,stock_number,customer_name,vehicle_text,matched_vehicle_id,match_grade,match_detail)
+        VALUES (?,?,?,?,?,?,?,?)""",(today,"today-1","13833","Buyer","Audi Q8 2024",vehicle_id,"green","Exact stock number 13833"))
+    page=PipelinePage(db); stock_number_item=page.table.item(0,5)
+    assert stock_number_item.text()=="✓ 13833"
+    assert stock_number_item.foreground().color().name()==COLORS["green"]
+    assert "Matched to your Runway stock by SN" in stock_number_item.toolTip()
+    page.close()
 
 
 def test_consignment_sale_dialog_tracks_final_owner_payout(tmp_path: Path):
