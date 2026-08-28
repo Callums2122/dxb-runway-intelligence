@@ -35,7 +35,7 @@ class PipelinePage(Page):
             card=MetricCard(label,accent=color); self.metrics[key]=card; metrics.addWidget(card,0,column)
         root.addLayout(metrics)
         legend = Card(); ll = QHBoxLayout(legend); ll.addWidget(QLabel("🟢 GREEN · exact stock number or exact year, make and model")); ll.addSpacing(20); ll.addWidget(QLabel("🟠 AMBER · same make and model, different/unknown year")); ll.addSpacing(20); ll.addWidget(QLabel("⚪ UNMATCHED · no current-stock equivalent")); ll.addStretch(); root.addWidget(legend)
-        card = Card(); cl = QVBoxLayout(card); cl.addWidget(SectionHeader("Daily appointment board","The strongest matches are placed first so you can act quickly.")); self.table = QTableWidget(0,8); self.table.setHorizontalHeaderLabels(["GRADE","TIME","CUSTOMER","APPOINTMENT VEHICLE","YOUR STOCK MATCH","SN","CHECKED IN","NOTE"]); self.table.verticalHeader().hide(); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); self.table.horizontalHeader().setSectionResizeMode(3,QHeaderView.ResizeMode.Stretch); self.table.horizontalHeader().setSectionResizeMode(4,QHeaderView.ResizeMode.Stretch); self.table.setMinimumHeight(520); cl.addWidget(self.table); root.addWidget(card)
+        card = Card(); cl = QVBoxLayout(card); cl.addWidget(SectionHeader("Daily appointment board","The strongest matches are placed first so you can act quickly. Expected profit is shown only for green stock matches.")); self.table = QTableWidget(0,9); self.table.setHorizontalHeaderLabels(["GRADE","TIME","CUSTOMER","APPOINTMENT VEHICLE","YOUR STOCK MATCH","EXPECTED PROFIT","SN","CHECKED IN","NOTE"]); self.table.verticalHeader().hide(); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection); self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents); self.table.horizontalHeader().setSectionResizeMode(3,QHeaderView.ResizeMode.Stretch); self.table.horizontalHeader().setSectionResizeMode(4,QHeaderView.ResizeMode.Stretch); self.table.setMinimumHeight(520); cl.addWidget(self.table); root.addWidget(card)
         outer.addWidget(page_scroll(content)); self.timer=QTimer(self); self.timer.setInterval(600_000); self.timer.timeout.connect(lambda:self.start_sync(False)); self.timer.start(); self.refresh(); QTimer.singleShot(1200,lambda:self.start_sync(False))
 
     def start_sync(self, force: bool) -> None:
@@ -65,11 +65,13 @@ class PipelinePage(Page):
         self.table.setRowCount(len(rows))
         for i,row in enumerate(rows):
             grade=row["match_grade"]; color=COLORS["green"] if grade=="green" else COLORS["amber"] if grade=="amber" else COLORS["muted"]; label="EXACT" if grade=="green" else "MODEL" if grade=="amber" else "—"
-            values=[label,row["appointment_time"],row["customer_name"],row["vehicle_text"],row.get("matched_vehicle") or "No stock match",row["stock_number"],row["checked_in"],row["note"]]
+            profit=float(row.get("matched_expected_profit_aed") or 0); profit_text=f"AED {profit:+,.0f}" if grade=="green" else "—"
+            values=[label,row["appointment_time"],row["customer_name"],row["vehicle_text"],row.get("matched_vehicle") or "No stock match",profit_text,row["stock_number"],row["checked_in"],row["note"]]
             for j,value in enumerate(values):
                 matched_stock_number=bool(str(row["stock_number"] or "").strip()) and grade=="green"
-                item=table_item(value,Qt.AlignmentFlag.AlignVCenter,color=COLORS["green"] if j==5 and matched_stock_number else color if j in {0,4} else None)
-                if j==5 and matched_stock_number:item.setText(f"✓ {value}"); item.setToolTip(f"Matched to your Runway stock by SN · {row['match_detail']}")
+                item_color=COLORS["green"] if j==6 and matched_stock_number else COLORS["green"] if j==5 and grade=="green" and profit>=0 else COLORS["red"] if j==5 and grade=="green" else color if j in {0,4} else None
+                item=table_item(value,Qt.AlignmentFlag.AlignVCenter,color=item_color)
+                if j==6 and matched_stock_number:item.setText(f"✓ {value}"); item.setToolTip(f"Matched to your Runway stock by SN · {row['match_detail']}")
                 if grade in {"green","amber"}: item.setBackground(QColor(color).darker(430))
                 if not item.toolTip():item.setToolTip(row["match_detail"])
                 self.table.setItem(i,j,item)

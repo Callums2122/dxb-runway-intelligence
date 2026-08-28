@@ -176,7 +176,10 @@ def rematch_cached_appointments(db: Database) -> int:
 
 def appointments(db: Database, day: str | None = None) -> list[dict[str, Any]]:
     day = day or date.today().isoformat()
-    return [dict(row) for row in db.query("SELECT p.*,v.vehicle_name AS matched_vehicle FROM pipeline_appointments p LEFT JOIN vehicles v ON v.id=p.matched_vehicle_id WHERE p.appointment_date=? ORDER BY p.appointment_time,p.id", (day,))]
+    return [dict(row) for row in db.query("""SELECT p.*,v.vehicle_name AS matched_vehicle,
+        CASE WHEN v.id IS NOT NULL THEN v.expected_sale_price_aed-v.purchase_price_aed END AS matched_expected_profit_aed
+        FROM pipeline_appointments p LEFT JOIN vehicles v ON v.id=p.matched_vehicle_id
+        WHERE p.appointment_date=? ORDER BY p.appointment_time,p.id""", (day,))]
 
 
 def sync_status(db: Database) -> dict[str, Any]:
