@@ -137,6 +137,14 @@ def test_inspection_purchase_dialog_prefills_verified_prices(tmp_path: Path):
     dialog.close()
 
 
+def test_stock_vehicle_edit_dialog_prefills_matching_fields(tmp_path: Path):
+    application=app(); db=Database(tmp_path/"data.db"); vehicle_id=db.add_vehicle(vehicle_name="2024 Audi Q8",purchase_type="cash",purchase_price_aed=227000,expected_sale_price_aed=285000,purchased_date="2026-08-14",market_model_year=2024,market_trim="S line",mileage_km=15000,external_stock_number="13833")
+    vehicle=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0]; dialog=VehicleDialog(db,vehicle=vehicle); values=dialog.values()
+    assert values["vehicle_name"]=="2024 Audi Q8" and values["market_trim"]=="S line"
+    assert values["external_stock_number"]=="13833" and values["mileage_km"]==15000
+    dialog.close()
+
+
 def test_consignment_sale_dialog_tracks_final_owner_payout(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); vehicle_id=db.add_vehicle(vehicle_name="Range Rover",purchase_type="consignment",purchase_price_aed=270000,expected_sale_price_aed=280000,purchased_date="2026-08-01"); vehicle=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0]
     dialog=SellVehicleDialog(vehicle); dialog.owner_payout.setValue(265000); values=dialog.values()

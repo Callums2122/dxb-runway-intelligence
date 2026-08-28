@@ -205,7 +205,7 @@ class PayCardDialog(QDialog):
 
 
 class VehicleDialog(QDialog):
-    def __init__(self, db: Database, parent=None, source_customer=None):
+    def __init__(self, db: Database, parent=None, source_customer=None, vehicle=None):
         super().__init__(parent); self.db=db; self.setWindowTitle("Add vehicle to stock"); self.setMinimumWidth(520)
         root=QVBoxLayout(self); root.setContentsMargins(24,22,24,22); root.setSpacing(14)
         title=QLabel("ADD TO CURRENT STOCK"); title.setObjectName("pageTitle"); root.addWidget(title)
@@ -224,6 +224,9 @@ class VehicleDialog(QDialog):
         if source_customer:
             self.setWindowTitle("Confirm inspected vehicle purchase"); title.setText("CONFIRM PURCHASE & MOVE TO STOCK"); copy.setText("Verify what we bought or agreed the vehicle for and what we expect to sell it for. Saving adds it to Stock Level.")
             model_year=customer_model_year(source_customer['vehicle_age_years']); self.name.setText(f"{model_year} {source_customer['vehicle_name']}"); self.market_year.setValue(model_year); self.mileage.setValue(int(source_customer["mileage"] or 0)); self.purchase.setValue(float(source_customer["cash_offer_aed"])); self.expected.setValue(float(source_customer["vehicle_price_aed"])); self.notes.setText(f"Purchased after inspection · {source_customer['customer_name']}")
+        if vehicle:
+            self.setWindowTitle("Edit stock vehicle"); title.setText("EDIT STOCK VEHICLE"); copy.setText("Saving rewires the vehicle across appointments and queues a fresh Deal Drive stock scan using the corrected year, trim and mileage.")
+            self.name.setText(str(vehicle["vehicle_name"] or "")); self.market_year.setValue(int(vehicle["market_model_year"] or 0)); self.market_trim.setText(str(vehicle["market_trim"] or "")); self.stock_number.setText(str(vehicle["external_stock_number"] or "")); self.mileage.setValue(int(vehicle["mileage_km"] or 0)); self.purchase_type.setCurrentIndex(max(0,self.purchase_type.findData(str(vehicle["purchase_type"] or "cash")))); self.purchase.setValue(float(vehicle["purchase_price_aed"] or 0)); self.expected.setValue(float(vehicle["expected_sale_price_aed"] or 0)); self.purchased.setDate(QDate.fromString(str(vehicle["purchased_date"] or "")[:10],"yyyy-MM-dd")); self.notes.setText(str(vehicle["notes"] or "")); self.update_profit()
         buttons=QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Save); buttons.accepted.connect(self.validate_and_accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
 
     def update_profit(self)->None:

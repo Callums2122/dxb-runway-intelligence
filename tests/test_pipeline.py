@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dxb_runway.database import Database
 from dxb_runway.google_schedule import GoogleSheetsReadOnlyClient
-from dxb_runway.pipeline import appointments, connection_status, get_pipeline_reader_values, parse_pipeline, spreadsheet_id, sync_pipeline
+from dxb_runway.pipeline import appointments, connection_status, get_pipeline_reader_values, parse_pipeline, rematch_cached_appointments, spreadsheet_id, sync_pipeline
 
 
 def sample_values():
@@ -21,6 +21,25 @@ def test_pipeline_parser_grades_exact_model_and_unmatched():
     rows=parse_pipeline(sample_values(),stock)
     assert [row["match_grade"] for row in rows]==["green","amber","unmatched"]
     assert all(row["appointment_date"]=="2026-08-23" for row in rows)
+
+
+def test_pipeline_stock_number_overrides_imperfect_vehicle_text():
+    stock=[{"id":7,"vehicle_name":"2024 Chevrolet Silverado HD","external_stock_number":"13930"}]
+    values=sample_values(); values[3]=["1","13930","Ali","Chevrolet truck","9:30 AM","Finlay","Yes","","Yes"]
+    row=parse_pipeline(values,stock)[0]
+    assert row["matched_vehicle_id"]==7 and row["match_grade"]=="green"
+    assert "13930" in row["match_detail"]
+
+
+def test_editing_stock_number_rematches_cached_future_appointments(tmp_path):
+    db=Database(tmp_path/"data.db")
+    vehicle_id=db.add_vehicle(vehicle_name="2024 Chevrolet Silverado HD",purchase_type="cash",purchase_price_aed=180000,expected_sale_price_aed=220000,purchased_date="2026-08-20")
+    db.execute("""INSERT INTO pipeline_appointments(appointment_date,source_row_key,stock_number,customer_name,vehicle_text,match_grade)
+        VALUES ('2099-08-28','future-1','13930','Buyer','Different description','unmatched')""")
+    db.update_stock_vehicle(vehicle_id,vehicle_name="2024 Chevrolet Silverado HD",purchase_type="cash",purchase_price_aed=180000,expected_sale_price_aed=220000,purchased_date="2026-08-20",market_model_year=2024,market_trim="High Country",mileage_km=12000,external_stock_number="13930")
+    assert rematch_cached_appointments(db)==1
+    row=db.query("SELECT * FROM pipeline_appointments")[0]
+    assert row["matched_vehicle_id"]==vehicle_id and row["match_grade"]=="green"
 
 
 def test_pipeline_parser_counts_numbered_appointments_without_vehicle():

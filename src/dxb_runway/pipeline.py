@@ -85,7 +85,11 @@ def _same_model(left: object, right: object) -> bool:
     return len(common) >= min(2, len(set(a)), len(set(b)))
 
 
-def match_stock(vehicle_text: str, stock: list[dict[str, Any]]) -> tuple[int | None, str, str]:
+def match_stock(vehicle_text: str, stock: list[dict[str, Any]], stock_number: str = "") -> tuple[int | None, str, str]:
+    wanted_stock_number=str(stock_number or "").strip().upper()
+    if wanted_stock_number:
+        exact_number=next((row for row in stock if str(row.get("external_stock_number") or "").strip().upper()==wanted_stock_number),None)
+        if exact_number:return int(exact_number["id"]),"green",f"Exact stock number {wanted_stock_number} · {exact_number['vehicle_name']}"
     source_year, _ = _vehicle_parts(vehicle_text)
     candidates = [row for row in stock if _same_model(vehicle_text, row["vehicle_name"])]
     if not candidates: return None, "unmatched", "No matching make/model currently in stock"
@@ -118,7 +122,7 @@ def parse_pipeline(values: list[list[str]], stock: list[dict[str, Any]]) -> list
         if not is_numbered_appointment and not has_appointment_details: continue
         if _norm(vehicle) in {"CAR", "VEHICLE"}: continue
         if vehicle:
-            matched, grade, detail = match_stock(vehicle, stock)
+            matched, grade, detail = match_stock(vehicle, stock, cell("stock_number"))
         else:
             vehicle = "Vehicle not supplied"
             matched, grade, detail = None, "unmatched", "Management has not supplied a vehicle for this appointment yet"
@@ -141,7 +145,7 @@ def sync_pipeline(db: Database) -> int:
             values = get_pipeline_reader_values(reader_url, reader_key)
         else:
             values = GoogleSheetsReadOnlyClient().get_spreadsheet_values(source_id, sheet)
-        stock = [dict(row) for row in db.query("SELECT id,vehicle_name FROM vehicles WHERE status='stock' ORDER BY id")]
+        stock = [dict(row) for row in db.query("SELECT id,vehicle_name,external_stock_number FROM vehicles WHERE status='stock' ORDER BY id")]
         rows = parse_pipeline(values, stock); digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         days = sorted({row["appointment_date"] for row in rows})
         with db.connect() as connection:
@@ -151,6 +155,18 @@ def sync_pipeline(db: Database) -> int:
         return len(rows)
     except Exception as error:
         db.execute("UPDATE pipeline_sync_runs SET status='failed',message=?,completed_at=CURRENT_TIMESTAMP WHERE id=?", (str(error), run)); raise
+
+
+def rematch_cached_appointments(db: Database) -> int:
+    """Rewire cached appointments after local stock details change; no Google write occurs."""
+    stock=[dict(row) for row in db.query("SELECT id,vehicle_name,external_stock_number FROM vehicles WHERE status='stock' ORDER BY id")]
+    rows=db.query("SELECT id,vehicle_text,stock_number FROM pipeline_appointments WHERE appointment_date>=?",(date.today().isoformat(),))
+    changed=0
+    with db.connect() as connection:
+        for row in rows:
+            matched,grade,detail=match_stock(str(row["vehicle_text"] or ""),stock,str(row["stock_number"] or ""))
+            connection.execute("UPDATE pipeline_appointments SET matched_vehicle_id=?,match_grade=?,match_detail=?,synced_at=CURRENT_TIMESTAMP WHERE id=?",(matched,grade,detail,row["id"]));changed+=1
+    return changed
 
 
 def appointments(db: Database, day: str | None = None) -> list[dict[str, Any]]:

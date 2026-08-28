@@ -1149,6 +1149,29 @@ class Database:
              market_model_year,market_trim.strip(),mileage_km,"pending",external_stock_number.strip()),
         )
 
+    def update_stock_vehicle(self, vehicle_id: int, *, vehicle_name: str, purchase_price_aed: float,
+                             expected_sale_price_aed: float, purchased_date: str, notes: str = "",
+                             purchase_type: str = "cash", market_model_year: int | None = None,
+                             market_trim: str = "", mileage_km: int | None = None,
+                             external_stock_number: str = "") -> None:
+        name=vehicle_name.strip(); stock_number=external_stock_number.strip()
+        if not name:raise ValueError("Vehicle name is required")
+        if purchase_price_aed<0 or expected_sale_price_aed<0:raise ValueError("Vehicle prices cannot be negative")
+        if purchase_type not in {"cash","consignment"}:raise ValueError("Purchase type must be cash or consignment")
+        if stock_number:
+            duplicate=self.query("SELECT id FROM vehicles WHERE external_stock_number=? AND id<>?",(stock_number,vehicle_id))
+            if duplicate:raise ValueError(f"Stock number {stock_number} is already linked to another Runway vehicle")
+        changed=self.execute("""UPDATE vehicles SET vehicle_name=?,purchase_price_aed=?,expected_sale_price_aed=?,
+            purchased_date=?,notes=?,purchase_type=?,initial_owner_payout_aed=?,market_model_year=?,market_trim=?,
+            mileage_km=?,external_stock_number=?,deal_drive_research_status='pending',deal_drive_estimated_days=NULL,
+            deal_drive_archive_samples=NULL,deal_drive_confidence=NULL,deal_drive_median_asking_aed=NULL,
+            deal_drive_research_json='{}',deal_drive_researched_at=NULL,updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND status='stock'""",
+            (name,purchase_price_aed,expected_sale_price_aed,purchased_date[:10],notes.strip(),purchase_type,
+             purchase_price_aed if purchase_type=="consignment" else None,market_model_year,market_trim.strip(),
+             mileage_km,stock_number,vehicle_id))
+        if changed!=1:raise ValueError("Vehicle is no longer available in stock")
+
     def mark_vehicle_consignment(self,vehicle_id:int,owner_payout_aed:float)->None:
         if owner_payout_aed<=0: raise ValueError("Owner payout must be greater than zero")
         changed=self.execute("UPDATE vehicles SET purchase_type='consignment',purchase_price_aed=?,initial_owner_payout_aed=COALESCE(initial_owner_payout_aed,?),updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='stock'",(owner_payout_aed,owner_payout_aed,vehicle_id))

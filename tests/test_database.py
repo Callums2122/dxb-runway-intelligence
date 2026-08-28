@@ -240,6 +240,16 @@ def test_inspected_vehicle_purchase_moves_customer_to_stock(tmp_path: Path):
     assert customer["status"]=="sold" and db.customer_contacts(stage="inspection")==[]
 
 
+def test_stock_vehicle_edit_updates_identity_and_queues_fresh_research(tmp_path: Path):
+    db=Database(tmp_path/"runway.db")
+    vehicle_id=db.add_vehicle(vehicle_name="BMW 7 Series",purchase_type="consignment",purchase_price_aed=380000,expected_sale_price_aed=400000,purchased_date="2026-08-17")
+    db.execute("UPDATE vehicles SET deal_drive_research_status='complete',deal_drive_estimated_days=25 WHERE id=?",(vehicle_id,))
+    db.update_stock_vehicle(vehicle_id,vehicle_name="BMW 740i",purchase_type="consignment",purchase_price_aed=380000,expected_sale_price_aed=400000,purchased_date="2026-08-17",market_model_year=2024,market_trim="M Sport",mileage_km=9000,external_stock_number="14001")
+    row=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0]
+    assert (row["vehicle_name"],row["market_model_year"],row["market_trim"],row["external_stock_number"])==("BMW 740i",2024,"M Sport","14001")
+    assert row["deal_drive_research_status"]=="pending" and row["deal_drive_estimated_days"] is None
+
+
 def test_soft_delete_and_undo(tmp_path: Path):
     db=Database(tmp_path/"runway.db"); category=db.query("SELECT id FROM categories WHERE name='Miscellaneous'")[0]["id"]
     tx=db.add_transaction({"amount":10,"currency":"AED","occurred_at":"2026-07-20T10:00:00","kind":"expense","category_id":category,"merchant":"Test","payment_method":"Cash","recurring":0,"notes":"","receipt_path":None,"refundable_deposit":0,"essential":0,"tags":""})

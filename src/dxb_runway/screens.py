@@ -26,7 +26,7 @@ from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials
 from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError, SCOPE
 from .intelligence import analyse_opportunity, split_vehicle, stock_research_subject
 from .market_watchlist import research_vehicle_now
-from .pipeline import spreadsheet_id
+from .pipeline import rematch_cached_appointments, spreadsheet_id
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
     CommissionTier, FinancialPosition, TARGET_PERCENTAGES, basic_salary, calculate_earnings, calculate_timed_runway, card_utilisation,
@@ -904,11 +904,12 @@ class StockResearchJob(QRunnable):
 class StockLevelPage(Page):
     def __init__(self, db: Database):
         super().__init__(db)
-        self._research_jobs:dict[int,StockResearchJob]={}; self._researching_ids:set[int]=set(); self.db.execute("UPDATE vehicles SET deal_drive_research_status='pending' WHERE status='stock' AND deal_drive_research_status='researching'")
+        self._research_jobs:dict[int,StockResearchJob]={}; self._researching_ids:set[int]=set(); self._research_after_current:set[int]=set(); self.db.execute("UPDATE vehicles SET deal_drive_research_status='pending' WHERE status='stock' AND deal_drive_research_status='researching'")
         outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0)
         content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
         top=QHBoxLayout(); top.addWidget(SectionHeader("Stock level","Every vehicle currently held, including cash purchases and consignments.")); top.addStretch()
         add=QPushButton("＋ Add car"); add.setProperty("primary",True); add.clicked.connect(self.add_vehicle); top.addWidget(add)
+        edit=QPushButton("Edit selected"); edit.clicked.connect(self.edit_selected); top.addWidget(edit)
         consignment=QPushButton("Mark as consignment"); consignment.clicked.connect(self.mark_consignment); top.addWidget(consignment)
         sold=QPushButton("Mark selected as sold"); sold.clicked.connect(self.sell_selected); top.addWidget(sold)
         remove=QPushButton("Remove / return to owner"); remove.clicked.connect(self.remove_selected); top.addWidget(remove); layout.addLayout(top)
@@ -928,7 +929,7 @@ class StockLevelPage(Page):
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
         note=QLabel("New stock is saved instantly, then researched against Deal Drive in the background. The forecast uses archived market-exit time, sample size and confidence; it does not treat current listing age as selling time."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,11); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE","STOCK NO.","KISSFLOW STATUS"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.table.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); self.table.doubleClicked.connect(self.sell_selected); card_layout.addWidget(self.table); layout.addWidget(card); outer.addWidget(page_scroll(content))
+        self.table=QTableWidget(0,11); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE","STOCK NO.","KISSFLOW STATUS"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.table.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); self.table.doubleClicked.connect(self.edit_selected); card_layout.addWidget(self.table); layout.addWidget(card); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -1008,11 +1009,32 @@ class StockLevelPage(Page):
         job=StockResearchJob(self.db,vehicle_id); self._research_jobs[vehicle_id]=job; job.signals.finished.connect(self._stock_research_finished); QThreadPool.globalInstance().start(job); self.refresh()
 
     def _stock_research_finished(self,vehicle_id:int)->None:
-        self._researching_ids.discard(vehicle_id); self._research_jobs.pop(vehicle_id,None); self.refresh()
+        self._researching_ids.discard(vehicle_id); self._research_jobs.pop(vehicle_id,None)
+        if vehicle_id in self._research_after_current:
+            self._research_after_current.discard(vehicle_id)
+            self.db.execute("UPDATE vehicles SET deal_drive_research_status='pending' WHERE id=? AND status='stock'",(vehicle_id,))
+        self.refresh()
 
     def add_vehicle(self)->None:
         dialog=VehicleDialog(self.db,self)
-        if dialog.exec(): self.db.add_vehicle(**dialog.values()); self.refresh(); self.changed.emit()
+        if dialog.exec():
+            self.db.add_vehicle(**dialog.values()); rematch_cached_appointments(self.db); self.refresh(); self.changed.emit()
+
+    def edit_selected(self)->None:
+        vehicle_id=self.selected_id()
+        if vehicle_id is None: QMessageBox.information(self,"Select a car","Select the stock vehicle you want to edit."); return
+        rows=self.db.query("SELECT * FROM vehicles WHERE id=? AND status='stock'",(vehicle_id,))
+        if not rows: QMessageBox.warning(self,"No longer in stock","That vehicle is no longer available in stock."); self.refresh(); return
+        dialog=VehicleDialog(self.db,self,vehicle=rows[0])
+        if not dialog.exec():return
+        try:
+            if vehicle_id in self._researching_ids:self._research_after_current.add(vehicle_id)
+            self.db.update_stock_vehicle(vehicle_id,**dialog.values())
+            rematched=rematch_cached_appointments(self.db)
+        except ValueError as error:
+            QMessageBox.warning(self,"Could not save vehicle",str(error)); return
+        self.refresh(); self.changed.emit()
+        QMessageBox.information(self,"Stock vehicle updated",f"Saved and rewired across Runway. {rematched} upcoming appointment{'s' if rematched!=1 else ''} rematched. A fresh Deal Drive scan is queued.")
 
     def sell_selected(self)->None:
         vehicle_id=self.selected_id()
