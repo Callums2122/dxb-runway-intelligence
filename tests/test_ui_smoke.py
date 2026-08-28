@@ -152,6 +152,8 @@ def test_pipeline_exact_stock_number_is_visibly_green(tmp_path: Path):
     today=date.today().isoformat(); db.execute("""INSERT INTO pipeline_appointments(appointment_date,source_row_key,stock_number,customer_name,vehicle_text,matched_vehicle_id,match_grade,match_detail)
         VALUES (?,?,?,?,?,?,?,?)""",(today,"today-1","13833","Buyer","Audi Q8 2024",vehicle_id,"green","Exact stock number 13833"))
     page=PipelinePage(db); profit_item=page.table.item(0,5); stock_number_item=page.table.item(0,6)
+    assert page.table.item(0,3).text()=="Audi Q8 2024" and page.table.item(0,4).text()=="2024 Audi Q8"
+    assert page.table.columnWidth(3)>=200 and page.table.columnWidth(4)>=180
     assert profit_item.text()=="AED +58,000" and profit_item.foreground().color().name()==COLORS["green"]
     assert stock_number_item.text()=="✓ 13833"
     assert stock_number_item.foreground().color().name()==COLORS["green"]
