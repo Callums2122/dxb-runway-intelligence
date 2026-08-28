@@ -85,10 +85,15 @@ def _same_model(left: object, right: object) -> bool:
     return len(common) >= min(2, len(set(a)), len(set(b)))
 
 
+def _stock_number_key(value: object) -> str:
+    """Compare Sheet-formatted numbers (13,848) with locally stored values (13848)."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").strip().upper())
+
+
 def match_stock(vehicle_text: str, stock: list[dict[str, Any]], stock_number: str = "") -> tuple[int | None, str, str]:
-    wanted_stock_number=str(stock_number or "").strip().upper()
+    wanted_stock_number=_stock_number_key(stock_number)
     if wanted_stock_number:
-        exact_number=next((row for row in stock if str(row.get("external_stock_number") or "").strip().upper()==wanted_stock_number),None)
+        exact_number=next((row for row in stock if _stock_number_key(row.get("external_stock_number"))==wanted_stock_number),None)
         if exact_number:return int(exact_number["id"]),"green",f"Exact stock number {wanted_stock_number} · {exact_number['vehicle_name']}"
     source_year, _ = _vehicle_parts(vehicle_text)
     candidates = [row for row in stock if _same_model(vehicle_text, row["vehicle_name"])]

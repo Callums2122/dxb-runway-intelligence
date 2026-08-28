@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QAbstractItemView, QDateEdit, QGridLayout, QHeaderView, QHBoxLayout, QLabel, QPushButton, QTableWidget, QVBoxLayout, QWidget
 
 from .database import Database
-from .pipeline import appointments, connection_status, sync_pipeline, sync_status
+from .pipeline import appointments, connection_status, rematch_cached_appointments, sync_pipeline, sync_status
 from .screens import Page, page_scroll, table_item
 from .style import COLORS
 from .widgets import Card, MetricCard, SectionHeader
@@ -55,6 +55,9 @@ class PipelinePage(Page):
         connected, connection_message = connection_status(self.db)
         self.safety.setText(f"{'CONNECTED' if connected else 'CONNECTION NEEDED'} · {connection_message} · STRICTLY READ ONLY")
         self.safety.setStyleSheet(f"color:{COLORS['green'] if connected else COLORS['amber']};font-weight:850")
+        # Stock edits and improved matching rules should affect the cached board immediately.
+        # This only updates Runway's local cache; it never writes to the management Sheet.
+        rematch_cached_appointments(self.db)
         selected = self.day.date().toString("yyyy-MM-dd"); rows = appointments(self.db, selected); order={"green":0,"amber":1,"unmatched":2}; rows.sort(key=lambda row:(order.get(row["match_grade"],3),row["appointment_time"]))
         counts={grade:sum(row["match_grade"]==grade for row in rows) for grade in ("green","amber","unmatched")}
         self.metrics["total"].set_value(str(len(rows)),date.fromisoformat(selected).strftime("%A · %d %B"),COLORS["cyan"])

@@ -31,6 +31,14 @@ def test_pipeline_stock_number_overrides_imperfect_vehicle_text():
     assert "13930" in row["match_detail"]
 
 
+def test_pipeline_formatted_stock_number_matches_plain_runway_number():
+    stock=[{"id":8,"vehicle_name":"2026 Geely Monjaro","external_stock_number":"13848"}]
+    values=sample_values(); values[3]=["1","13,848","Amit","Geely Xingyue L 2026","3:00 PM","","","",""]
+    row=parse_pipeline(values,stock)[0]
+    assert row["matched_vehicle_id"]==8 and row["match_grade"]=="green"
+    assert row["stock_number"]=="13,848"
+
+
 def test_editing_stock_number_rematches_cached_future_appointments(tmp_path):
     db=Database(tmp_path/"data.db")
     vehicle_id=db.add_vehicle(vehicle_name="2024 Chevrolet Silverado HD",purchase_type="cash",purchase_price_aed=180000,expected_sale_price_aed=220000,purchased_date="2026-08-20")
