@@ -16,8 +16,8 @@ from dxb_runway.main_window import MainWindow, NAV_SECTIONS
 from dxb_runway.intelligence_screen import market_pace_bucket, openclaw_answer, openclaw_request, watchlist_match_from_question
 from dxb_runway.pipeline_screen import PipelinePage
 from dxb_runway.gym import GymNutritionPage
-from dxb_runway.domain import TARGET_PERCENTAGES, money
-from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, offer_message_steps, offer_route
+from dxb_runway.domain import CommissionTier, TARGET_PERCENTAGES, money
+from dxb_runway.screens import BudgetsPage, CalendarPage, DashboardPage, PlayfulCalendar, call_month_pace, category_label, contact_countdown, customer_vehicle_year, display_call_date, latest_occurrence_for_month, monthly_kpi_adjustment, next_tier_progress, offer_message_steps, offer_route
 from dxb_runway.screens import WhatsAppTemplatesPage
 from dxb_runway.style import COLORS
 
@@ -106,6 +106,12 @@ def test_mobile_sync_snapshot_contains_only_vehicle_desk_data(tmp_path: Path):
 def test_hit_kpi_reduces_vehicle_desk_tier_goal(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); month=date.today().strftime("%Y-%m"); db.add_kpi_calls("0501234567",240,date.today().isoformat()); hits,reduction=monthly_kpi_adjustment(db,month); assert hits==1 and reduction==Decimal("0.005")
     window=MainWindow(db); desk=window.pages["vehicles"]; desk.month.setCurrentIndex(date.today().month-1); desk.refresh(); assert desk.current_result.rate==Decimal("0.04") and "-0.5% from tier goals" in desk.achievement.text() and "Tier 3 9%" in desk.schedule.text(); window.close()
+
+
+def test_vehicle_desk_progress_uses_next_tier_target():
+    maximum,value,label=next_tier_progress(Decimal("7.60"),CommissionTier.TIER_3,(Decimal("0.08"),Decimal("0.10"),Decimal("0.125")))
+    assert (maximum,value,label)==(800,760,"%p% to Tier 3")
+    assert round(value/maximum*100)==95
 
 
 def test_call_log_date_is_readable():

@@ -112,6 +112,18 @@ def monthly_kpi_adjustment(db:Database,month:str)->tuple[int,Decimal]:
     return hit_count,Decimal("0.005")*hit_count
 
 
+def next_tier_progress(achieved_percent:Decimal,next_tier:CommissionTier|None,
+                       adjusted_targets:tuple[Decimal,Decimal,Decimal])->tuple[int,int,str]:
+    """Return a progress-bar scale tied to the displayed next-tier threshold."""
+    t3,t2,t1=adjusted_targets
+    targets={CommissionTier.TIER_3:t3,CommissionTier.TIER_2:t2,CommissionTier.TIER_1:t1}
+    target=targets.get(next_tier,t1)
+    maximum=max(1,int(target*Decimal("10000")))
+    value=max(0,min(maximum,int(achieved_percent*Decimal("100"))))
+    label=f"%p% to {next_tier.value}" if next_tier else "Highest tier reached"
+    return maximum,value,label
+
+
 def vehicle_model_name(vehicle_name:str)->str:
     """Normalise a vehicle name for model-level performance averages."""
     cleaned=re.sub(r"^\s*(?:19|20)\d{2}\s+", "", str(vehicle_name).strip())
@@ -1120,7 +1132,7 @@ class VehicleDeskPage(Page):
         if month<=date.today().strftime("%Y-%m") and (sold or month==date.today().strftime("%Y-%m")): self.sync_earnings(result,year,month_number)
         rate_pct=f"{float(result.rate*100):g}%"; self.current_result=result; self.metrics["sold"].set_value(str(len(sold)),month_label); profit_aed,profit_gbp=dual_amount(realised,rate,signed=True); self.metrics["profit"].set_value(profit_aed,profit_gbp,COLORS["red"] if realised<0 else COLORS["green"]); commission_aed,commission_gbp=dual_amount(result.commission_aed,rate); self.metrics["commission"].set_value(commission_aed,f"{commission_gbp} · Commission only · {result.tier.value} at {rate_pct}"); total_aed,total_gbp=dual_amount(result.total_earned_aed,rate); self.metrics["total"].set_value(total_aed,f"{total_gbp} · Base AED {result.salary_aed:,.0f} + commission AED {result.commission_aed:,.0f}")
         tier_color=COLORS["green"] if result.tier!=CommissionTier.BASELINE else COLORS["cyan"]; self.tier.setText(f"{result.tier.value.upper()} · {rate_pct}"); self.tier.setStyleSheet(f"font-size:20px;font-weight:800;color:{tier_color}")
-        original_t3,original_t2,original_t1=TARGET_PERCENTAGES[month_number]; t3,t2,t1=(max(Decimal("0"),target-kpi_reduction) for target in (original_t3,original_t2,original_t1)); achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget · {kpi_hits} KPI hit{'s' if kpi_hits!=1 else ''} = -{float(kpi_reduction*100):g}% from tier goals"); self.schedule.setText(f"{month_label} adjusted targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); self.tier_progress.setRange(0,max(1,int(t1*10000))); self.tier_progress.setValue(max(0,min(self.tier_progress.maximum(),int(achieved*100))))
+        original_t3,original_t2,original_t1=TARGET_PERCENTAGES[month_number]; t3,t2,t1=(max(Decimal("0"),target-kpi_reduction) for target in (original_t3,original_t2,original_t1)); achieved=(realised/budget*100) if budget>0 else Decimal("0"); self.achievement.setText(f"Profit achieved · {achieved:.2f}% of purchasing budget · {kpi_hits} KPI hit{'s' if kpi_hits!=1 else ''} = -{float(kpi_reduction*100):g}% from tier goals"); self.schedule.setText(f"{month_label} adjusted targets · Tier 3 {float(t3*100):g}%  ·  Tier 2 {float(t2*100):g}%  ·  Tier 1 {float(t1*100):g}%"+(f"  ·  Next tier in AED {result.distance_to_next_aed:,.0f}" if result.next_tier else "  ·  Highest tier reached")); progress_max,progress_value,progress_label=next_tier_progress(achieved,result.next_tier,(t3,t2,t1)); self.tier_progress.setRange(0,progress_max); self.tier_progress.setValue(progress_value); self.tier_progress.setFormat(progress_label)
         for key,label,target,commission_rate in [("tier3","Tier 3",original_t3,Decimal("0.05")),("tier2","Tier 2",original_t2,Decimal("0.065")),("tier1","Tier 1",original_t1,Decimal("0.08"))]:
             target_profit=money(budget*target); commission=money(target_profit*commission_rate); total=money(salary+commission); total_aed,total_gbp=dual_amount(total,rate); self.tier_earnings[key].set_value(total_aed,f"{total_gbp} · {label} profit needed AED {target_profit:,.0f} · {target*100:g}% before KPI · rate {commission_rate*100:g}% · live tracker KPI reduction -{float(kpi_reduction*100):g}%")
         self.sold_table.setRowCount(len(sold))
