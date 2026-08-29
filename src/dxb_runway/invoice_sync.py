@@ -33,6 +33,34 @@ def _tokens(value: str) -> set[str]:
     return {part for part in _normalise(value).split() if part not in ignored}
 
 
+def _stock_key(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").strip().upper())
+
+
+def _sale_date(value: Any) -> str:
+    candidate=str(value or "")[:10]
+    try:return date.fromisoformat(candidate).isoformat()
+    except ValueError:return date.today().isoformat()
+
+
+def reconcile_registered_sale(db: Database, vehicle_id: int, registered_at: str = "") -> tuple[bool, str]:
+    """Complete a registered cash sale from a previously cached read-only invoice."""
+    rows=db.query("SELECT * FROM vehicles WHERE id=? AND status='stock'",(vehicle_id,))
+    if not rows:return False,"Vehicle is no longer in current stock."
+    vehicle=rows[0]
+    if str(vehicle["external_stock_status"] or "").strip().upper()!="REGISTERED":return False,"Awaiting Registered status."
+    stock_key=_stock_key(vehicle["external_stock_number"])
+    invoices=db.query("SELECT * FROM invoice_sync_events WHERE outcome='review' AND sold_price_aed>0 ORDER BY source_created_at DESC,id DESC")
+    invoice=next((row for row in invoices if int(row["matched_vehicle_id"] or 0)==vehicle_id or (stock_key and _stock_key(row["stock_number"])==stock_key)),None)
+    if invoice is None:return False,"Registered · awaiting matching INVOICES sale price."
+    if str(vehicle["purchase_type"] or "cash")=="consignment":return False,"Registered consignment · final owner payout requires review."
+    sold_date=_sale_date(registered_at or vehicle["external_status_updated_at"] or invoice["source_created_at"])
+    price=float(invoice["sold_price_aed"])
+    db.sell_vehicle(vehicle_id,sold_price_aed=price,sold_date=sold_date)
+    db.execute("UPDATE invoice_sync_events SET outcome='sold',matched_vehicle_id=?,detail=? WHERE id=?",(vehicle_id,"Registered status confirmed; sold using cached INVOICES price.",invoice["id"]))
+    return True,f"Registered · sold for AED {price:,.0f} from INVOICES."
+
+
 class InvoiceSyncClient:
     """GET-only reader for the private Apps Script invoice bridge."""
 
@@ -121,11 +149,9 @@ class InvoiceSyncService:
         purchase_type = str(vehicle["purchase_type"] or "cash")
         if purchase_type == "consignment":
             return "review", int(vehicle["id"]), "Consignment sale requires final owner payout; no vehicle changed."
-        sold_date = str(invoice.get("createTime") or date.today().isoformat())[:10]
-        try:
-            date.fromisoformat(sold_date)
-        except ValueError:
-            sold_date = date.today().isoformat()
+        if str(vehicle["external_stock_status"] or "").strip().upper()!="REGISTERED":
+            return "review",int(vehicle["id"]),detail+" Invoice price captured; vehicle remains in stock until Stock Flow reaches REGISTERED."
+        sold_date=_sale_date(vehicle["external_status_updated_at"] or invoice.get("createTime"))
         self.db.sell_vehicle(int(vehicle["id"]), sold_price_aed=price, sold_date=sold_date)
         stock_number = str(invoice.get("stockNumber") or "").strip()
         if stock_number:

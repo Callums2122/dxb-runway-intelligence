@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from .database import Database
+from .invoice_sync import reconcile_registered_sale
 
 
 class StockFlowError(RuntimeError):
@@ -40,6 +41,7 @@ def classify_event(subject: str, status: str, text: str = "") -> tuple[str, str]
         ("price_change", ("price reduction", "price change", "price reduced"), "PRICE CHANGE"),
         ("repair", ("pull out repair", "repair"), "PULL OUT - REPAIR"),
         ("photoshoot", ("photoshoot", "photo shoot", "photography"), "PHOTOSHOOT"),
+        ("registered", ("registered", "moved to registered"), "REGISTERED"),
         ("booked", ("booked", "subject to booking"), "BOOKED"),
         ("sold", (" sold ",), "SOLD"),
         ("prep", (" prep ", "preparation"), "PREP"),
@@ -114,6 +116,8 @@ class StockFlowService:
         self.db.execute("""UPDATE vehicles SET external_stock_number=?,external_workflow_id=?,external_stock_status=?,external_live_price_aed=?,external_status_updated_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
             (stock_number,workflow,canonical,live_price,str(event.get("createTime") or datetime.now().astimezone().isoformat(timespec="seconds")),vehicle_id))
         outcome="updated" if was_linked else "linked";detail=("Matched by existing identifier." if exact else "Unique make/model/year match.")+f" {stock_number} → {row['vehicle_name']} · {canonical}."
+        if event_type=="registered":
+            _sold,sale_detail=reconcile_registered_sale(self.db,vehicle_id,str(event.get("createTime") or ""));detail+=f" {sale_detail}"
         return outcome,vehicle_id,detail,parsed
 
 

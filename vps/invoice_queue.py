@@ -78,7 +78,7 @@ def source_stock_flow() -> list[dict]:
 
 def classify_stock_event(row: dict) -> str:
     value = " ".join(str(row.get(key) or "") for key in ("subject", "status", "text")).lower()
-    for event_type, phrases in (("price_change",("price reduction","price change")),("repair",("pull out - repair","repair")),("photoshoot",("photoshoot","photo shoot")),("booked",("booked",)),("sold",("sold",)),("prep",("prep",)),("stock",("moved to stock","in stock"))):
+    for event_type, phrases in (("price_change",("price reduction","price change")),("repair",("pull out - repair","repair")),("photoshoot",("photoshoot","photo shoot")),("registered",("registered","moved to registered")),("booked",("booked",)),("sold",("sold",)),("prep",("prep",)),("stock",("moved to stock","in stock"))):
         if any(phrase in value for phrase in phrases): return event_type
     return "status"
 

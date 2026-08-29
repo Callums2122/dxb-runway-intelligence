@@ -7,6 +7,7 @@ from dxb_runway.invoice_sync import InvoiceSyncClient, InvoiceSyncService
 def test_unique_vehicle_invoice_marks_cash_stock_sold(tmp_path):
     db = Database(tmp_path / "runway.db")
     vehicle_id = db.add_vehicle(vehicle_name="Audi Q8", purchase_price_aed=227000, expected_sale_price_aed=285000, purchased_date="2026-08-01", market_model_year=2024)
+    db.execute("UPDATE vehicles SET external_stock_status='REGISTERED',external_status_updated_at='2026-08-22T12:00:00Z' WHERE id=?",(vehicle_id,))
     payload = {"status": "ok", "invoices": [{"messageId": "spaces/x/messages/1", "createTime": "2026-08-22T10:00:00Z", "stockNumber": "13833", "vehicle": "Audi Q8", "year": 2024, "soldPriceAed": 284999}]}
     client = InvoiceSyncClient("https://script.google.com/macros/s/example/exec", "secret", lambda request: json.dumps(payload).encode())
     result = InvoiceSyncService(db, client).sync()
@@ -14,6 +15,16 @@ def test_unique_vehicle_invoice_marks_cash_stock_sold(tmp_path):
     assert result.sold == 1
     assert sold["status"] == "sold" and sold["sold_price_aed"] == 284999
     assert sold["external_stock_number"] == "13833"
+
+
+def test_invoice_price_is_cached_but_booked_vehicle_stays_in_stock(tmp_path):
+    db=Database(tmp_path/"runway.db");vehicle_id=db.add_vehicle(vehicle_name="Geely Monjaro",purchase_price_aed=90000,expected_sale_price_aed=115000,purchased_date="2026-08-20",market_model_year=2026,external_stock_number="13848")
+    db.execute("UPDATE vehicles SET external_stock_status='BOOKED' WHERE id=?",(vehicle_id,))
+    payload={"status":"ok","invoices":[{"messageId":"booking-1","createTime":"2026-08-28T15:00:00Z","stockNumber":"13,848","vehicle":"Geely Monjaro","year":2026,"soldPriceAed":114999}]}
+    result=InvoiceSyncService(db,InvoiceSyncClient("https://script.google.com/macros/s/example/exec","secret",lambda _:json.dumps(payload).encode())).sync()
+    vehicle=db.query("SELECT * FROM vehicles WHERE id=?",(vehicle_id,))[0];event=db.query("SELECT * FROM invoice_sync_events")[0]
+    assert result.review==1 and vehicle["status"]=="stock" and vehicle["external_stock_status"]=="BOOKED"
+    assert event["sold_price_aed"]==114999 and event["outcome"]=="review" and "REGISTERED" in event["detail"]
 
 
 def test_ambiguous_invoice_never_changes_stock(tmp_path):
@@ -30,6 +41,7 @@ def test_ambiguous_invoice_never_changes_stock(tmp_path):
 def test_duplicate_message_is_idempotent(tmp_path):
     db = Database(tmp_path / "runway.db")
     vehicle_id = db.add_vehicle(vehicle_name="Audi Q8", purchase_price_aed=200000, expected_sale_price_aed=250000, purchased_date="2026-08-01", market_model_year=2024)
+    db.execute("UPDATE vehicles SET external_stock_status='REGISTERED' WHERE id=?",(vehicle_id,))
     payload = {"status": "ok", "invoices": [{"messageId": "m3", "vehicle": "Audi Q8", "year": 2024, "soldPriceAed": 250000}]}
     client = InvoiceSyncClient("https://script.google.com/macros/s/example/exec", "secret", lambda request: json.dumps(payload).encode())
     service = InvoiceSyncService(db, client)
