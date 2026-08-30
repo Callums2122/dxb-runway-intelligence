@@ -270,6 +270,9 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert vehicles.month.count()==12
     assert vehicles.tier_table.rowCount()==12 and vehicles.tier_table.columnCount()==7
     assert "AED" in vehicles.tier_table.item(0,3).text() and "AED" in vehicles.tier_table.item(0,5).text()
+    assert "Factory" in vehicles.tier_table.item(0,3).text() and "Pay 5%" in vehicles.tier_table.item(0,3).text()
+    assert "KPI" not in vehicles.tier_table.item(0,3).text()
+    assert vehicles.tier_table.rowHeight(0)>=62 and vehicles.tier_table.columnWidth(3)>=215
     selected_table_budget=db.performance_budget(vehicles.selected_month())
     assert vehicles.tier_table.item(0,1).text()==f"{selected_table_budget:,.0f}" and vehicles.tier_table.item(6,1).text()==f"{selected_table_budget:,.0f}"
     july_budget=db.performance_budget(vehicles.selected_month()); july_t3=TARGET_PERCENTAGES[7][0]; expected_t3=money(Decimal(db.get_setting("salary_aed"))+money(july_budget*july_t3)*Decimal("0.05"))
