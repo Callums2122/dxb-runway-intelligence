@@ -26,6 +26,7 @@ from .deal_drive import DealDriveClient, DealDriveError, KeychainCredentials
 from .google_schedule import GoogleSheetsReadOnlyClient, GoogleScheduleError, SCOPE
 from .intelligence import analyse_opportunity, split_vehicle, stock_research_subject
 from .market_watchlist import research_vehicle_now
+from .growth_logic import attribution_for_vehicle, stock_heat
 from .pipeline import rematch_cached_appointments, spreadsheet_id
 from .dialogs import CustomerContactDialog, InspectionDateDialog, MessageTemplateDialog, MoneyBox, PayCardDialog, SellVehicleDialog, TransactionDialog, VehicleDialog
 from .domain import (
@@ -941,7 +942,7 @@ class StockLevelPage(Page):
         potential_note=QLabel("Projection assumes every vehicle currently held sells in the current month, using your saved budget, salary and KPI-adjusted tier goals. Realistic uses 80% of expected profit; maximum uses 100%."); potential_note.setObjectName("muted"); potential_note.setWordWrap(True); potential.addWidget(potential_note,1,0,1,2); layout.addLayout(potential)
         card=Card(); card_layout=QVBoxLayout(card); card_layout.setContentsMargins(16,15,16,15)
         note=QLabel("New stock is saved instantly, then researched against Deal Drive in the background. The forecast uses archived market-exit time, sample size and confidence; it does not treat current listing age as selling time."); note.setObjectName("muted"); note.setWordWrap(True); card_layout.addWidget(note)
-        self.table=QTableWidget(0,11); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE","STOCK NO.","KISSFLOW STATUS"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.table.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); self.table.doubleClicked.connect(self.edit_selected); card_layout.addWidget(self.table); layout.addWidget(card); outer.addWidget(page_scroll(content))
+        self.table=QTableWidget(0,12); self.table.setHorizontalHeaderLabels(["VEHICLE","STOCK HEAT","STOCK TYPE","STOCKED","COST / PAYOUT","EXPECTED SALE","EXPECTED PROFIT / MARGIN","SPEED GRADE","DEAL DRIVE FORECAST","INTELLIGENCE GRADE","STOCK NO.","KISSFLOW STATUS"]); self.table.setWordWrap(True); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff); self.table.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed); self.table.doubleClicked.connect(self.edit_selected); card_layout.addWidget(self.table); layout.addWidget(card); outer.addWidget(page_scroll(content))
         self.refresh()
 
     def selected_id(self)->int|None:
@@ -978,7 +979,7 @@ class StockLevelPage(Page):
         self.metrics["realistic_potential"].set_value(realistic_result.tier.value,f"{realistic_profit_aed} profit · {realistic_total_aed} total ({realistic_total_gbp})",COLORS["green"] if realistic_result.tier!=CommissionTier.BASELINE else COLORS["cyan"])
         self.metrics["maximum_potential"].set_value(maximum_result.tier.value,f"{maximum_profit_aed} profit · {maximum_total_aed} total ({maximum_total_gbp})",COLORS["green"] if maximum_result.tier!=CommissionTier.BASELINE else COLORS["cyan"])
         self.table.setRowCount(len(rows))
-        pending_ids=[]
+        pending_ids=[]; appointment_counts={int(item["matched_vehicle_id"]):int(item["n"]) for item in self.db.query("SELECT matched_vehicle_id,COUNT(*) n FROM pipeline_appointments WHERE matched_vehicle_id IS NOT NULL AND appointment_date>=date('now') GROUP BY matched_vehicle_id")}
         for i,row in enumerate(rows):
             self.table.setRowHeight(i,64); first=table_item(row["vehicle_name"]); first.setData(Qt.ItemDataRole.UserRole,row["id"]); first.setToolTip(row["notes"] or f"Expected sale · AED {row['expected_sale_price_aed']:,.0f}"); self.table.setItem(i,0,first)
             cost=Decimal(str(row["purchase_price_aed"])); sale=Decimal(str(row["expected_sale_price_aed"])); profit=Decimal(str(row["expected_profit_aed"]))
@@ -997,18 +998,20 @@ class StockLevelPage(Page):
                 except (ValueError,TypeError):error="Research unavailable"
                 forecast=f"UNAVAILABLE\n{error[:42]}"; forecast_color=COLORS["red"]
             else:forecast="NOT RESEARCHED\nAdded before auto research";forecast_color=COLORS["muted"]
-            values=["Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held",forecast,intelligence_text]
+            heat=stock_heat(row,appointment_counts.get(int(row["id"]),0)); heat_color=COLORS["green"] if heat["score"]>=60 else COLORS["amber"] if heat["score"]>=40 else COLORS["red"]
+            values=[f"{heat['icon']} {heat['score']}/100\n{heat['label']}","Cash purchase" if row["purchase_type"]=="cash" else "Consignment",row["purchased_date"],f"{cost:,.0f} AED\n{gbp_equivalent(cost,rate):,.0f} GBP",f"{sale:,.0f} AED\n{gbp_equivalent(sale,rate):,.0f} GBP",f"{profit:+,.0f} AED\n{gbp_equivalent(profit,rate):+,.0f} GBP\n{margin:.1f}% margin",f"{grade}\n{days_held} days held",forecast,intelligence_text]
             for j,value in enumerate(values,1):
-                color=COLORS["purple"] if j==1 and row["purchase_type"]=="consignment" else COLORS["green"] if j==5 and profit>=0 else COLORS["red"] if j==5 else vehicle_grade_color(grade) if j==6 else forecast_color if j==7 else COLORS["green"] if j==8 and intelligence["decision"]=="BUY" else COLORS["amber"] if j==8 and intelligence["decision"]=="NEGOTIATE" else COLORS["red"] if j==8 and intelligence["decision"]=="AVOID" else COLORS["muted"] if j==8 else None
+                color=heat_color if j==1 else COLORS["purple"] if j==2 and row["purchase_type"]=="consignment" else COLORS["green"] if j==6 and profit>=0 else COLORS["red"] if j==6 else vehicle_grade_color(grade) if j==7 else forecast_color if j==8 else COLORS["green"] if j==9 and intelligence["decision"]=="BUY" else COLORS["amber"] if j==9 and intelligence["decision"]=="NEGOTIATE" else COLORS["red"] if j==9 and intelligence["decision"]=="AVOID" else COLORS["muted"] if j==9 else None
                 item=table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j>=3 else Qt.AlignmentFlag.AlignVCenter,color)
-                if j==7:item.setToolTip(str(row["deal_drive_research_json"] or ""))
+                if j==1:item.setToolTip(heat["evidence"])
+                if j==8:item.setToolTip(str(row["deal_drive_research_json"] or ""))
                 self.table.setItem(i,j,item)
             stock_number=str(row["external_stock_number"] or "").strip() or "Awaiting email"
             kissflow_status=str(row["external_stock_status"] or "").strip() or "NOT LINKED"
             if row["external_live_price_aed"] is not None:kissflow_status+=f"\nLive AED {float(row['external_live_price_aed']):,.0f}"
-            self.table.setItem(i,9,table_item(stock_number,Qt.AlignmentFlag.AlignVCenter,COLORS["cyan"] if stock_number!="Awaiting email" else COLORS["muted"]))
-            self.table.setItem(i,10,table_item(kissflow_status,Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if kissflow_status not in {"NOT LINKED","UPDATE"} else COLORS["muted"]))
-        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,115); self.table.setColumnWidth(2,95); self.table.setColumnWidth(3,125); self.table.setColumnWidth(4,125); self.table.setColumnWidth(5,150); self.table.setColumnWidth(6,105); self.table.setColumnWidth(7,190); self.table.setColumnWidth(8,190); self.table.setColumnWidth(9,105)
+            self.table.setItem(i,10,table_item(stock_number,Qt.AlignmentFlag.AlignVCenter,COLORS["cyan"] if stock_number!="Awaiting email" else COLORS["muted"]))
+            self.table.setItem(i,11,table_item(kissflow_status,Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if kissflow_status not in {"NOT LINKED","UPDATE"} else COLORS["muted"]))
+        self.table.setColumnWidth(0,150); self.table.setColumnWidth(1,125); self.table.setColumnWidth(2,115); self.table.setColumnWidth(3,95); self.table.setColumnWidth(4,125); self.table.setColumnWidth(5,125); self.table.setColumnWidth(6,150); self.table.setColumnWidth(7,105); self.table.setColumnWidth(8,190); self.table.setColumnWidth(9,190); self.table.setColumnWidth(10,105)
         visible_height=self.table.horizontalHeader().height()+sum(self.table.rowHeight(index) for index in range(self.table.rowCount()))+self.table.frameWidth()*2+8
         self.table.setFixedHeight(max(420,visible_height))
         for vehicle_id in pending_ids:QTimer.singleShot(0,lambda value=vehicle_id:self._start_stock_research(value))
@@ -1178,13 +1181,18 @@ class VehicleDeskPage(Page):
 
 class VehicleHistoryPage(Page):
     def __init__(self,db:Database):
-        super().__init__(db); layout=QVBoxLayout(self); layout.setContentsMargins(24,22,24,24); layout.setSpacing(14)
-        layout.addWidget(SectionHeader("Vehicle performance","See monthly history and which models turn into profit fastest."))
+        super().__init__(db); outer=QVBoxLayout(self); outer.setContentsMargins(0,0,0,0); content=QWidget(); layout=QVBoxLayout(content); layout.setContentsMargins(24,22,24,28); layout.setSpacing(14)
+        layout.addWidget(SectionHeader("Vehicle performance","A clean evidence board showing what sold, how quickly, how profitably and which tracked signal helped convert it."))
+        attribution_metrics=QGridLayout(); attribution_metrics.setSpacing(12); self.attribution_metrics={}
+        for index,(key,label,color) in enumerate((("sold","Tracked sales",COLORS["green"]),("appointments","Appointment-led",COLORS["cyan"]),("price","Price-action led",COLORS["amber"]),("organic","Direct / organic",COLORS["purple"]))): card=MetricCard(label,accent=color); self.attribution_metrics[key]=card; attribution_metrics.addWidget(card,0,index)
+        layout.addLayout(attribution_metrics)
+        layout.addWidget(SectionHeader("Buyer attribution","Runway reports the strongest recorded conversion signal. Attribution is inferred from your appointments, price actions and workflow events—not presented as guaranteed causation."))
+        self.attribution_table=QTableWidget(0,8); self.attribution_table.setHorizontalHeaderLabels(["VEHICLE","SOLD","DAYS HELD","REALISED PROFIT","PRIMARY SIGNAL","APPOINTMENTS","PRICE CUTS","EVIDENCE"]); self.attribution_table.setWordWrap(True); self.attribution_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.attribution_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.attribution_table.verticalHeader().hide(); self.attribution_table.horizontalHeader().setStretchLastSection(True); self.attribution_table.setMinimumHeight(250); layout.addWidget(self.attribution_table)
         note=QLabel("Vehicle Desk shows only the latest occurrence of each month name. Nothing is deleted when a month rolls into a new year."); note.setObjectName("muted"); note.setWordWrap(True); layout.addWidget(note)
         layout.addWidget(SectionHeader("Monthly history","Archived monthly performance stays available for year-on-year comparison."))
         self.table=QTableWidget(0,6); self.table.setHorizontalHeaderLabels(["MONTH","CARS SOLD","REALISED PROFIT","COMMISSION","PURCHASING BUDGET","CASH PURCHASED"]); self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.verticalHeader().hide(); self.table.horizontalHeader().setStretchLastSection(True); self.table.setMinimumHeight(230); layout.addWidget(self.table)
         layout.addWidget(SectionHeader("Performance by vehicle","Averages include every sold vehicle; leading model years are ignored so repeated Minis and similar models are grouped together. Speed grade uses average days in stock: A+ <10 days · A ≤20 · B ≤30 · C ≤60 · C- >60."))
-        self.performance_table=QTableWidget(0,8); self.performance_table.setHorizontalHeaderLabels(["MODEL","SOLD","AVG DAYS IN STOCK","GRADE","AVG PURCHASE / PAYOUT","AVG SOLD PRICE","AVG PROFIT","AVG MARGIN"]); self.performance_table.setWordWrap(True); self.performance_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.performance_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.performance_table.verticalHeader().hide(); self.performance_table.horizontalHeader().setStretchLastSection(True); layout.addWidget(self.performance_table,1); self.refresh()
+        self.performance_table=QTableWidget(0,8); self.performance_table.setHorizontalHeaderLabels(["MODEL","SOLD","AVG DAYS IN STOCK","GRADE","AVG PURCHASE / PAYOUT","AVG SOLD PRICE","AVG PROFIT","AVG MARGIN"]); self.performance_table.setWordWrap(True); self.performance_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.performance_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.performance_table.verticalHeader().hide(); self.performance_table.horizontalHeader().setStretchLastSection(True); self.performance_table.setMinimumHeight(260); layout.addWidget(self.performance_table); outer.addWidget(page_scroll(content)); self.refresh()
 
     def refresh(self)->None:
         months=self.db.query(
@@ -1204,6 +1212,17 @@ class VehicleHistoryPage(Page):
                 self.table.setItem(i,j,table_item(value,Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if j else Qt.AlignmentFlag.AlignVCenter,color))
         self.table.setColumnWidth(0,140); self.table.setColumnWidth(1,95); self.table.setColumnWidth(2,150); self.table.setColumnWidth(3,150); self.table.setColumnWidth(4,165)
         rows=self.db.query("SELECT * FROM vehicles WHERE status='sold' AND sold_date IS NOT NULL ORDER BY sold_date DESC,id DESC")
+        attribution_rows=[(row,attribution_for_vehicle(self.db,row)) for row in rows]
+        counts={"appointments":sum(item[1]["primary"]=="Appointment demand" for item in attribution_rows),"price":sum(item[1]["primary"]=="Price action" for item in attribution_rows),"organic":sum(item[1]["primary"] in {"Direct / organic","Market demand"} for item in attribution_rows)}
+        self.attribution_metrics["sold"].set_value(str(len(rows)),"All completed vehicle sales"); self.attribution_metrics["appointments"].set_value(str(counts["appointments"]),"Strongest signal was matched demand"); self.attribution_metrics["price"].set_value(str(counts["price"]),"Strongest signal was a price move"); self.attribution_metrics["organic"].set_value(str(counts["organic"]),"Market-backed or no stronger tracked signal")
+        self.attribution_table.setRowCount(len(attribution_rows))
+        for i,(row,attribution) in enumerate(attribution_rows):
+            try: held=max(0,(date.fromisoformat(str(row["sold_date"])[:10])-date.fromisoformat(str(row["purchased_date"])[:10])).days)
+            except ValueError: held=0
+            profit=Decimal(str(row["sold_price_aed"] or 0))-Decimal(str(row["purchase_price_aed"] or 0)); values=[row["vehicle_name"],row["sold_date"],f"{held} days",f"AED {profit:+,.0f}",attribution["primary"],str(attribution["appointments"]),str(attribution["reductions"]),attribution["detail"]+" · "+" · ".join(attribution["signals"])]
+            self.attribution_table.setRowHeight(i,58)
+            for column,value in enumerate(values): self.attribution_table.setItem(i,column,table_item(str(value),Qt.AlignmentFlag.AlignVCenter|Qt.AlignmentFlag.AlignRight if column in {2,3,5,6} else Qt.AlignmentFlag.AlignVCenter,COLORS["green"] if column==3 and profit>=0 else COLORS["red"] if column==3 else COLORS["cyan"] if column==4 and attribution["primary"]=="Appointment demand" else COLORS["amber"] if column==4 and attribution["primary"]=="Price action" else None))
+        for column,width in enumerate([165,90,90,125,135,90,75]): self.attribution_table.setColumnWidth(column,width)
         groups:dict[str,dict[str,object]]={}
         for row in rows:
             try:

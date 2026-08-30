@@ -238,8 +238,8 @@ def test_sold_elsewhere_action_deletes_selected_customer(tmp_path: Path,monkeypa
 def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     application=app(); db=Database(tmp_path/"data.db"); db.seed_demo()
     window=MainWindow(db)
-    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","stock_action","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","schedule","pipeline","goals","vehicle_history","reports","intelligence","ask_runway","settings"}
-    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["dashboard"],["stock","vehicles","kpi","schedule","stock_action","vehicle_history","pipeline","todo","success","calendar"],["intelligence","ask_runway"],["contacts","inspection","templates","settings"]]
+    assert set(window.pages)=={"dashboard","todo","success","kpi","contacts","inspection","templates","stock","profit_rescue","tier_simulator","stock_action","vehicles","gym_today","gym_training","gym_nutrition","gym_progress","gym_meals","transactions","debt","scenarios","budgets","calendar","schedule","pipeline","goals","vehicle_history","reports","intelligence","ask_runway","settings"}
+    assert [[item[0] for item in section[3]] for section in NAV_SECTIONS]==[["dashboard"],["stock","profit_rescue","tier_simulator","vehicles","kpi","schedule","stock_action","vehicle_history","pipeline","todo","success","calendar"],["intelligence","ask_runway"],["contacts","inspection","templates","settings"]]
     assert window.nav_buttons["success"].property("section")=="leads"
     assert window.nav_buttons["vehicles"].property("section")=="leads"
     assert window.nav_buttons["vehicle_history"].property("section")=="leads"
@@ -304,8 +304,10 @@ def test_every_major_screen_constructs_and_navigates(tmp_path: Path):
     assert inspection.table.item(0,0).text()=="2026-08-05" and inspection.table.item(0,2).text()=="2021 Audi RS6"
     db.save_message_template("First message","Hi, is your vehicle still available?"); templates.refresh()
     assert templates.table.rowCount()==1 and templates.preview.toPlainText()=="Hi, is your vehicle still available?" and templates.copy_button.isEnabled()
-    assert stock.table.columnCount()==11 and "SPEED GRADE" in stock.table.horizontalHeaderItem(6).text() and "DEAL DRIVE" in stock.table.horizontalHeaderItem(7).text() and "INTELLIGENCE" in stock.table.horizontalHeaderItem(8).text()
-    assert "STOCK NO" in stock.table.horizontalHeaderItem(9).text() and "KISSFLOW" in stock.table.horizontalHeaderItem(10).text()
+    assert stock.table.columnCount()==12 and "STOCK HEAT" in stock.table.horizontalHeaderItem(1).text() and "SPEED GRADE" in stock.table.horizontalHeaderItem(7).text() and "DEAL DRIVE" in stock.table.horizontalHeaderItem(8).text() and "INTELLIGENCE" in stock.table.horizontalHeaderItem(9).text()
+    assert "STOCK NO" in stock.table.horizontalHeaderItem(10).text() and "KISSFLOW" in stock.table.horizontalHeaderItem(11).text()
+    assert window.pages["profit_rescue"].table.columnCount()==9 and window.pages["tier_simulator"].table.rowCount()==3
+    assert history.attribution_table.columnCount()==8
     assert stock.table.verticalScrollBarPolicy()==Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert stock.table.height()>=420
     assert success.table.rowCount()==10 and success.table.item(0,1).text()=="Keep cash budget deployed"
